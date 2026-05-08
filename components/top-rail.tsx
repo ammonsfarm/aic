@@ -16,13 +16,14 @@ export function TopRail({ variant }: TopRailProps) {
   return (
     <header className="top-rail">
       <Link href={variant === "private" ? "/overview" : "/"} className="brand-mark" aria-label="AIC home">
-        <span className="brand-mark__sigil">AIC</span>
+        <span className="brand-mark__sigil" aria-hidden="true">AIC</span>
         <span>
-          <strong>Mountain Study Console</strong>
+          <strong>Mountain Study</strong>
           <small>Abiding in Christ</small>
         </span>
       </Link>
-      <nav className="top-rail__nav" aria-label={variant === "private" ? "Private console" : "Public"}>
+
+      <nav className="top-rail__nav" aria-label={variant === "private" ? "Console navigation" : "Site navigation"}>
         {nav.map((item) => {
           const active = item.href === "/" ? pathname === item.href : pathname.startsWith(item.href);
           return (
@@ -32,6 +33,7 @@ export function TopRail({ variant }: TopRailProps) {
           );
         })}
       </nav>
+
       <div className="top-rail__auth">
         <Show when="signed-out">
           <SignInButton mode="modal">
