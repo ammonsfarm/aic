@@ -1,0 +1,43 @@
+export type ConsoleNavItem = {
+  href: string;
+  label: string;
+  description: string;
+};
+
+export const consoleNav: ConsoleNavItem[] = [
+  {
+    href: "/overview",
+    label: "Overview",
+    description: "Corpus state, reporting window, and warnings.",
+  },
+  {
+    href: "/archive",
+    label: "Archive",
+    description: "Episodes, transcripts, and linked public records.",
+  },
+  {
+    href: "/sources",
+    label: "Sources",
+    description: "Intelligence, retrieval lanes, and source inspection.",
+  },
+  {
+    href: "/compose",
+    label: "Compose",
+    description: "Source-backed sermon, article, and manuscript drafting.",
+  },
+  {
+    href: "/signals",
+    label: "Signals",
+    description: "Stats, Podtrac trends, and audience breakdowns.",
+  },
+  {
+    href: "/pipeline",
+    label: "Pipeline",
+    description: "Ingestion, vectorization, sync, and retry visibility.",
+  },
+];
+
+export const publicNav = [
+  { href: "/", label: "Home" },
+  { href: "/episodes", label: "Episodes" },
+];
