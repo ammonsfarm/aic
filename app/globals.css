@@ -134,20 +134,21 @@ p {
 
 .brand-mark:hover { opacity: 0.82; }
 
-.brand-mark__sigil {
-  display: grid;
-  place-items: center;
+/* ─── Brand avatar (photo) ──────────────────────────────────────────── */
+.brand-mark__avatar {
+  position: relative;
   flex-shrink: 0;
-  width: 40px;
-  height: 40px;
-  border: 1px solid oklch(44% 0.06 152);
-  border-radius: 10px;
-  background: linear-gradient(140deg, oklch(38% 0.07 156), oklch(29% 0.065 160));
-  color: oklch(88% 0.030 88);
-  font-size: 0.7rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  box-shadow: 0 1px 4px oklch(25% 0.06 150 / 35%), inset 0 1px 0 oklch(55% 0.05 150 / 25%);
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 2px solid oklch(44% 0.06 152);
+  box-shadow: 0 1px 4px oklch(25% 0.06 150 / 35%), 0 0 0 3px oklch(94% 0.020 150 / 60%);
+}
+
+.brand-mark__avatar-img {
+  object-fit: cover;
+  object-position: center top;
 }
 
 .brand-mark strong,
@@ -731,4 +732,260 @@ input:focus {
   }
 
   .episode-badges { justify-content: flex-start; }
+}
+
+/* ─── Public bio band ───────────────────────────────────────────────── */
+.public-bio-band {
+  align-items: flex-start !important;
+  gap: 32px !important;
+  padding: 32px 36px !important;
+}
+
+.public-bio-photo {
+  flex-shrink: 0;
+}
+
+.bio-portrait {
+  display: block;
+  width: 140px;
+  height: 175px;
+  object-fit: cover;
+  object-position: center top;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+
+.public-bio-copy { flex: 1; min-width: 0; }
+
+.bio-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+
+.text-link {
+  color: var(--cypress-soft);
+  text-decoration: underline;
+  text-decoration-color: oklch(52% 0.058 156 / 40%);
+  text-underline-offset: 2px;
+  transition: color 0.15s, text-decoration-color 0.15s;
+}
+
+.text-link:hover {
+  color: var(--cypress);
+  text-decoration-color: var(--cypress);
+}
+
+/* ─── Listen cards grid ─────────────────────────────────────────────── */
+.public-listen-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 20px;
+}
+
+.listen-card {
+  display: grid;
+  gap: 6px;
+  padding: 20px 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--parchment);
+  box-shadow: var(--shadow-sm);
+  text-decoration: none;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.14s var(--ease-snap), background 0.15s;
+}
+
+.listen-card:hover {
+  border-color: var(--cypress-soft);
+  background: var(--cypress-faint);
+  box-shadow: var(--shadow);
+  transform: translateY(-3px);
+}
+
+.listen-card__icon {
+  font-size: 1.7rem;
+  line-height: 1;
+  margin-bottom: 2px;
+}
+
+.listen-card strong {
+  color: var(--soft-ink);
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.listen-card span {
+  color: var(--soft-ink-muted);
+  font-size: 0.80rem;
+  line-height: 1.45;
+}
+
+/* ─── Console CTA band ──────────────────────────────────────────────── */
+.console-cta-band {
+  border-style: dashed !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* ─── Affiliates section ────────────────────────────────────────────── */
+.public-affiliates {
+  margin-top: 20px;
+}
+
+.affiliates-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.affiliate-card {
+  display: grid;
+  gap: 6px;
+  padding: 22px 20px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--parchment);
+  box-shadow: var(--shadow-sm);
+  text-decoration: none;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.14s var(--ease-snap);
+}
+
+.affiliate-card:hover {
+  border-color: var(--cypress-soft);
+  box-shadow: var(--shadow);
+  transform: translateY(-2px);
+}
+
+.affiliate-card strong {
+  color: var(--soft-ink);
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.affiliate-card span {
+  color: var(--soft-ink-muted);
+  font-size: 0.80rem;
+  line-height: 1.45;
+}
+
+/* ─── Footer ────────────────────────────────────────────────────────── */
+.public-footer {
+  border-top: 1px solid var(--line);
+  background: oklch(93% 0.018 92 / 80%);
+  backdrop-filter: blur(12px);
+}
+
+.public-footer__inner {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  gap: 16px 40px;
+  align-items: center;
+  width: min(1180px, calc(100vw - 40px));
+  margin: 0 auto;
+  padding: 28px 0;
+}
+
+.footer-brand {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  grid-row: 1;
+  grid-column: 1;
+}
+
+.footer-portrait {
+  display: block;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  object-fit: cover;
+  object-position: center top;
+  width: 40px;
+  height: 50px;
+  border-radius: 50%;
+}
+
+.footer-brand strong {
+  display: block;
+  color: var(--soft-ink);
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.footer-brand small {
+  display: block;
+  color: var(--soft-ink-muted);
+  font-size: 0.75rem;
+  margin-top: 2px;
+}
+
+.footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  grid-row: 1;
+  grid-column: 2;
+}
+
+.footer-links a {
+  color: var(--soft-ink-muted);
+  font-size: 0.84rem;
+  font-weight: 500;
+  transition: color 0.14s;
+}
+
+.footer-links a:hover { color: var(--soft-ink); }
+
+.footer-copy {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  color: var(--soft-ink-faint);
+  font-size: 0.78rem;
+  margin: 0;
+}
+
+.footer-copy a {
+  color: var(--soft-ink-muted);
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition: text-decoration-color 0.15s;
+}
+
+.footer-copy a:hover { text-decoration-color: var(--soft-ink-muted); }
+
+/* ─── Responsive additions ──────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .public-listen-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .affiliates-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .public-bio-band {
+    flex-direction: column !important;
+    padding: 24px 20px !important;
+  }
+  .bio-portrait {
+    width: 100px;
+    height: 125px;
+  }
+  .public-listen-grid {
+    grid-template-columns: 1fr;
+  }
+  .public-footer__inner {
+    grid-template-columns: 1fr;
+  }
+  .footer-links {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .footer-copy {
+    grid-row: 3;
+  }
 }

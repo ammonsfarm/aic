@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { SignInButton, SignUpButton, Show, UserButton } from "@clerk/nextjs";
 import { consoleNav, publicNav } from "@/lib/navigation";
@@ -15,10 +16,18 @@ export function TopRail({ variant }: TopRailProps) {
 
   return (
     <header className="top-rail">
-      <Link href={variant === "private" ? "/overview" : "/"} className="brand-mark" aria-label="AIC home">
-        <span className="brand-mark__sigil" aria-hidden="true">AIC</span>
+      <Link href={variant === "private" ? "/overview" : "/"} className="brand-mark" aria-label="Pastor Jim Wood — Abiding in Christ">
+        <span className="brand-mark__avatar">
+          <Image
+            src="/images/pastor-wood.jpg"
+            alt="Pastor Jim Wood"
+            fill
+            sizes="44px"
+            className="brand-mark__avatar-img"
+          />
+        </span>
         <span>
-          <strong>Mountain Study</strong>
+          <strong>Pastor Jim Wood</strong>
           <small>Abiding in Christ</small>
         </span>
       </Link>

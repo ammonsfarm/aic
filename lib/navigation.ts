@@ -40,4 +40,9 @@ export const consoleNav: ConsoleNavItem[] = [
 export const publicNav = [
   { href: "/", label: "Home" },
   { href: "/episodes", label: "Episodes" },
+  { href: "https://www.pastorwood.org/about-pastor-wood/", label: "About" },
+  { href: "https://www.pastorwood.org/radio", label: "Radio" },
+  { href: "https://itunes.apple.com/us/podcast/abiding-in-christ-w-jim-wood/id375149712?mt=2", label: "Podcast" },
+  { href: "https://wvr.org/bookstore/", label: "Books" },
+  { href: "https://www.pastorwood.org/contact/", label: "Contact" },
 ];
