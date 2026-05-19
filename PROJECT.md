@@ -2,6 +2,12 @@
 
 This folder contains a local workflow for turning Podtrac publisher report captures into a normalized SQLite database, generated report images, PDFs, and follow-on CSV analysis.
 
+## Latest Website Update
+
+- 2026-05-19: Completed and pushed homepage refresh on `main` (commit `74eaa4c`), including top-rail branding, hero/bio content, listen links, affiliate section, and navigation updates.  
+- Related files: `app/page.tsx`, `components/top-rail.tsx`, `lib/navigation.ts`, `app/layout.tsx`, `app/globals.css`, `public/images/pastor-wood.jpg`.
+- Build and lint validations passed before push (`npm run lint`, `npm run build`).
+
 ## Current Data Window
 
 The clean imported daily-detail window is:
