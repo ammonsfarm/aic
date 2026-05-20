@@ -123,9 +123,6 @@ export default async function EpisodeDetailPage({
           {detail.intelligence ? (
             <section className="detail-section">
               <h3>Episode intelligence</h3>
-              <p>
-                <strong>Type:</strong> {detail.intelligence.episodeType || "episode"}
-              </p>
               <div className="summary-block">
                 <p>
                   <strong>Generated executive summary</strong>
