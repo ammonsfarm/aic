@@ -24,3 +24,22 @@ ssh ammonsfarm@farm "curl -I http://127.0.0.1:8087/"
 ```
 
 For Cloudflare Zero Trust, point the tunnel to `http://127.0.0.1:8087` (or `http://192.168.1.141:8087` from your network edge path).
+
+## Transcript segment sync
+
+The RAG table `transcript_chunks` is optimized for retrieval snippets. The readable episode transcript uses source-preserving Gemini JSON segments loaded into:
+
+- `transcript_segments`: timed speaker/text rows for the audio-following transcript reader.
+- `transcript_references`: episode-level and segment-level Bible/other references for footnotes and reference panels.
+
+On the server, the historical transcript JSON source is:
+
+```text
+/home/ammonsfarm/gemini-transcribe
+```
+
+After migrations are applied, load or refresh the readable transcript tables with:
+
+```bash
+ssh ammonsfarm@farm "cd /mnt/storage/aic && python3 sync_transcript_segments_to_postgres.py --transcript-dir /home/ammonsfarm/gemini-transcribe"
+```

@@ -31,6 +31,18 @@ git pull --ff-only origin "${REMOTE_BRANCH}"
 echo "Installing dependencies..."
 npm ci
 
+echo "Applying database migrations..."
+MIGRATION_PYTHON="python3"
+if ! python3 - <<'PY'
+import psycopg
+PY
+then
+  python3 -m venv .venv-pg
+  .venv-pg/bin/python -m pip install -r requirements-postgres.txt
+  MIGRATION_PYTHON=".venv-pg/bin/python"
+fi
+"${MIGRATION_PYTHON}" apply_postgres_migrations.py
+
 echo "Building Next.js app..."
 npm run build
 

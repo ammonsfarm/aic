@@ -33,6 +33,7 @@ function toPublicEpisodeDetail(detail: NonNullable<Awaited<ReturnType<typeof get
         }
       : null,
     transcript: detail.transcript,
+    transcriptReferences: detail.transcriptReferences,
     intelligenceItems: detail.intelligenceItems.map((item) => ({
       id: item.id,
       itemType: item.itemType,

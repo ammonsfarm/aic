@@ -74,6 +74,38 @@ type TranscriptChunkRow = {
   text: string;
 };
 
+type TranscriptSegmentRow = {
+  segment_id: string;
+  track_id: string;
+  segment_index: number;
+  start_time: string;
+  end_time: string;
+  start_seconds: number | null;
+  end_seconds: number | null;
+  speaker_id: string;
+  speaker_name: string;
+  segment_type: string;
+  text: string;
+  bible_references: unknown;
+  other_references: unknown;
+};
+
+type TranscriptReferenceRow = {
+  reference_id: string;
+  track_id: string;
+  segment_index: number | null;
+  reference_type: string;
+  source_scope: string;
+  reference: string;
+  start_time: string;
+  end_time: string;
+  start_seconds: number | null;
+  end_seconds: number | null;
+  context: string;
+  text: string;
+  raw_reference: unknown;
+};
+
 type IntelligenceItemRow = {
   id: string;
   item_type: string;
@@ -235,13 +267,32 @@ export type EpisodeDetail = {
     rawJson: unknown;
   } | null;
   transcript: Array<{
-    customId: string;
-    title: string;
+    segmentId: string;
+    segmentIndex: number;
     startTime: string;
     endTime: string;
-    speakers: string[];
+    startSeconds: number | null;
+    endSeconds: number | null;
+    speakerId: string;
+    speakerName: string;
     segmentType: string;
+    bibleReferences: unknown[];
+    otherReferences: unknown[];
     text: string;
+  }>;
+  transcriptReferences: Array<{
+    referenceId: string;
+    segmentIndex: number | null;
+    referenceType: string;
+    sourceScope: string;
+    reference: string;
+    startTime: string;
+    endTime: string;
+    startSeconds: number | null;
+    endSeconds: number | null;
+    context: string;
+    text: string;
+    rawReference: unknown;
   }>;
   intelligenceItems: Array<{
     id: string;
@@ -333,6 +384,10 @@ function normalizeArray(value: unknown): string[] {
       return "";
     })
     .filter((name): name is string => name.length > 0);
+}
+
+function normalizeJsonArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
 }
 
 function buildAudioUrl(sourceFile: string, trackId: string): string | null {
@@ -890,7 +945,16 @@ export async function searchEpisodesWithVectorFallback(
 }
 
 export async function getEpisodeDetail(trackId: string): Promise<EpisodeDetail | null> {
-  const [episodeRows, intelligenceRows, transcriptRows, intelligenceItemRows, podtracRows, podtracDailyRows] =
+  const [
+    episodeRows,
+    intelligenceRows,
+    transcriptSegmentRows,
+    transcriptChunkRows,
+    transcriptReferenceRows,
+    intelligenceItemRows,
+    podtracRows,
+    podtracDailyRows,
+  ] =
     await Promise.all([
       queryRows<EpisodeDetailRow>(
         `
@@ -902,7 +966,8 @@ export async function getEpisodeDetail(trackId: string): Promise<EpisodeDetail |
             e.category,
             e.detail,
             e.source_file,
-            exists(select 1 from transcript_chunks tc where tc.track_id = e.track_id) as has_transcript,
+            exists(select 1 from transcript_segments ts where ts.track_id = e.track_id)
+            or exists(select 1 from transcript_chunks tc where tc.track_id = e.track_id) as has_transcript,
             exists(select 1 from episode_intelligence ei where ei.track_id = e.track_id) as has_intelligence,
             exists(
               select 1
@@ -946,6 +1011,28 @@ export async function getEpisodeDetail(trackId: string): Promise<EpisodeDetail |
         `,
         [trackId],
       ),
+      queryRows<TranscriptSegmentRow>(
+        `
+          select
+            segment_id,
+            track_id,
+            segment_index,
+            start_time,
+            end_time,
+            start_seconds,
+            end_seconds,
+            speaker_id,
+            speaker_name,
+            segment_type,
+            text,
+            bible_references,
+            other_references
+          from transcript_segments
+          where track_id = $1
+          order by segment_index asc
+        `,
+        [trackId],
+      ),
       queryRows<TranscriptChunkRow>(
         `
           select
@@ -965,6 +1052,32 @@ export async function getEpisodeDetail(trackId: string): Promise<EpisodeDetail |
               ELSE NULL
             END NULLS LAST,
             custom_id asc
+        `,
+        [trackId],
+      ),
+      queryRows<TranscriptReferenceRow>(
+        `
+          select
+            reference_id,
+            track_id,
+            segment_index,
+            reference_type,
+            source_scope,
+            reference,
+            start_time,
+            end_time,
+            start_seconds,
+            end_seconds,
+            context,
+            text,
+            raw_reference
+          from transcript_references
+          where track_id = $1
+          order by
+            case when source_scope = 'episode' then 0 else 1 end,
+            reference_type asc,
+            start_seconds asc nulls last,
+            reference asc
         `,
         [trackId],
       ),
@@ -1026,14 +1139,50 @@ export async function getEpisodeDetail(trackId: string): Promise<EpisodeDetail |
     return null;
   }
 
-  const transcript = transcriptRows.map((row) => ({
-    customId: row.custom_id,
-    title: row.title,
+  const transcript =
+    transcriptSegmentRows.length > 0
+      ? transcriptSegmentRows.map((row) => ({
+          segmentId: row.segment_id,
+          segmentIndex: row.segment_index,
+          startTime: row.start_time,
+          endTime: row.end_time,
+          startSeconds: row.start_seconds,
+          endSeconds: row.end_seconds,
+          speakerId: row.speaker_id,
+          speakerName: row.speaker_name,
+          segmentType: row.segment_type,
+          bibleReferences: normalizeJsonArray(row.bible_references),
+          otherReferences: normalizeJsonArray(row.other_references),
+          text: row.text,
+        }))
+      : transcriptChunkRows.map((row, index) => ({
+          segmentId: row.custom_id,
+          segmentIndex: index,
+          startTime: row.start_time,
+          endTime: row.end_time,
+          startSeconds: null,
+          endSeconds: null,
+          speakerId: "",
+          speakerName: normalizeArray(row.speakers).join(", "),
+          segmentType: row.segment_type,
+          bibleReferences: [],
+          otherReferences: [],
+          text: row.text,
+        }));
+
+  const transcriptReferences = transcriptReferenceRows.map((row) => ({
+    referenceId: row.reference_id,
+    segmentIndex: row.segment_index,
+    referenceType: row.reference_type,
+    sourceScope: row.source_scope,
+    reference: row.reference,
     startTime: row.start_time,
     endTime: row.end_time,
-    speakers: normalizeArray(row.speakers),
-    segmentType: row.segment_type,
+    startSeconds: row.start_seconds,
+    endSeconds: row.end_seconds,
+    context: row.context,
     text: row.text,
+    rawReference: row.raw_reference,
   }));
 
   const intelligence = intelligenceRows[0] ?? null;
@@ -1069,6 +1218,7 @@ export async function getEpisodeDetail(trackId: string): Promise<EpisodeDetail |
         }
       : null,
     transcript,
+    transcriptReferences,
     intelligenceItems: intelligenceItemRows.map((row) => ({
       id: row.id,
       itemType: row.item_type,

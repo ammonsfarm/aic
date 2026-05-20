@@ -3,6 +3,7 @@ import Link from "next/link";
 import { TopRail } from "@/components/top-rail";
 import { RoutePanel } from "@/components/route-panel";
 import { RagChatWidget } from "@/components/rag-chat-widget";
+import { TranscriptReader } from "@/components/transcript-reader";
 import { getEpisodeDetail } from "@/lib/podcast-data";
 
 function formatDate(value: string | null) {
@@ -76,10 +77,6 @@ export default async function EpisodeDetailPage({
                   <a className="button button--primary" href={detail.episode.audioUrl} target="_blank" rel="noopener noreferrer">
                     Open audio file
                   </a>
-                  <audio className="detail-audio" controls preload="none" src={detail.episode.audioUrl}>
-                    <track kind="captions" />
-                    Your browser does not support audio playback.
-                  </audio>
                 </>
               ) : null}
             </div>
@@ -179,24 +176,11 @@ export default async function EpisodeDetailPage({
 
           <section className="detail-section">
             <h3>Transcript</h3>
-            {detail.transcript.length === 0 ? (
-              <p className="empty-state">No indexed transcript chunks for this episode.</p>
-            ) : (
-              <div className="transcript-list">
-                {detail.transcript.map((segment) => (
-                  <article key={segment.customId} className="transcript-segment">
-                    <div className="transcript-segment-meta">
-                      <strong>{segment.segmentType || "transcript"}</strong>
-                      <span>{segment.startTime && segment.endTime ? `${segment.startTime}–${segment.endTime}` : "timing unavailable"}</span>
-                    </div>
-                    <p className="note">
-                      {segment.speakers.length ? `Speakers: ${segment.speakers.join(", ")}` : ""}
-                    </p>
-                    <p>{segment.text || "—"}</p>
-                  </article>
-                ))}
-              </div>
-            )}
+            <TranscriptReader
+              audioUrl={detail.episode.audioUrl}
+              segments={detail.transcript}
+              references={detail.transcriptReferences}
+            />
           </section>
 
         </RoutePanel>
