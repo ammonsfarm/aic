@@ -390,16 +390,12 @@ function normalizeJsonArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
-function buildAudioUrl(sourceFile: string, trackId: string): string | null {
+function buildAudioUrl(_sourceFile: string, trackId: string): string | null {
   if (!trackId) {
     return null;
   }
 
-  if (/^https?:\/\//i.test(sourceFile)) {
-    return sourceFile;
-  }
-
-  return `https://storage.googleapis.com/aic-podcasts-2026/podcasts/${trackId}.mp3`;
+  return `/api/audio/${encodeURIComponent(trackId)}`;
 }
 
 function normalizeTrackRow(row: EpisodeBaseRow): EpisodeSearchItem {
