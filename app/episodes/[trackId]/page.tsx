@@ -108,10 +108,6 @@ export default async function EpisodeDetailPage({
             </div>
 
             <div>
-              <h3>Search-ready context</h3>
-              <p className="note">
-                This view supports RAG chat and retrieval over this episode’s transcript and intelligence chunks.
-              </p>
               <RagChatWidget
                 action={`/api/episodes/${detail.episode.trackId}/chat`}
                 defaultQuestion=""
