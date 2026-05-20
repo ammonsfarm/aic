@@ -111,7 +111,7 @@ export default async function EpisodeDetailPage({
               <RagChatWidget
                 action={`/api/episodes/${detail.episode.trackId}/chat`}
                 defaultQuestion=""
-                heading="Ask this sermon"
+                heading="Research"
                 description="Ask questions that should be answered from this episode only."
                 submitLabel="Ask episode"
                 sourceLabel="Episode sources"
@@ -122,31 +122,39 @@ export default async function EpisodeDetailPage({
 
           {detail.intelligence ? (
             <section className="detail-section">
-              <h3>Episode intelligence</h3>
+              <h3>Episode Summary</h3>
               <div className="summary-block">
                 <p>
-                  <strong>Generated executive summary</strong>
+                  <strong>About this Episode</strong>
                 </p>
                 <p>{detail.intelligence.executiveSummary || "No executive summary available."}</p>
               </div>
               <div className="summary-block">
-                <strong>Generated long summary</strong>
+                <strong>Detailed Summary</strong>
                 <p>{detail.intelligence.longSummary || "No long summary available."}</p>
               </div>
             </section>
           ) : (
             <section className="detail-section">
-              <h3>Episode intelligence</h3>
+              <h3>Episode Summary</h3>
               <p className="note">No intelligence summary row has been generated yet.</p>
             </section>
           )}
 
+          <section className="detail-section">
+            <h3>Audio Player</h3>
+            <TranscriptReader
+              audioUrl={detail.episode.audioUrl}
+              segments={detail.transcript}
+            />
+          </section>
+
           {detail.intelligenceItems.length > 0 ? (
-            <section className="detail-section">
-              <h3>Structured intelligence</h3>
+            <details className="detail-section detail-section--collapsible">
+              <summary>Structured intelligence</summary>
               <div className="intelligence-groups">
                 {[...groupedByType.entries()].map(([type, rows]) => (
-                  <details key={type} className="intelligence-group" open>
+                  <details key={type} className="intelligence-group">
                     <summary>
                       {type} ({rows.length})
                     </summary>
@@ -164,17 +172,8 @@ export default async function EpisodeDetailPage({
                   </details>
                 ))}
               </div>
-            </section>
+            </details>
           ) : null}
-
-          <section className="detail-section">
-            <h3>Transcript</h3>
-            <TranscriptReader
-              audioUrl={detail.episode.audioUrl}
-              segments={detail.transcript}
-              references={detail.transcriptReferences}
-            />
-          </section>
 
         </RoutePanel>
       </main>

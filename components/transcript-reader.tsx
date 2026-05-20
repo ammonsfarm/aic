@@ -5,85 +5,29 @@ import { useEffect, useMemo, useRef, useState } from "react";
 type TranscriptSegment = {
   segmentId: string;
   segmentIndex: number;
-  startTime: string;
-  endTime: string;
   startSeconds: number | null;
   endSeconds: number | null;
-  speakerId: string;
   speakerName: string;
   segmentType: string;
-  bibleReferences: unknown[];
-  otherReferences: unknown[];
   text: string;
-};
-
-type TranscriptReference = {
-  referenceId: string;
-  segmentIndex: number | null;
-  referenceType: string;
-  sourceScope: string;
-  reference: string;
-  startTime: string;
-  endTime: string;
-  startSeconds: number | null;
-  endSeconds: number | null;
-  context: string;
-  text: string;
-  rawReference: unknown;
 };
 
 type TranscriptReaderProps = {
   audioUrl: string;
   segments: TranscriptSegment[];
-  references: TranscriptReference[];
 };
 
 type SegmentGroup = {
   key: string;
   speakerName: string;
   segmentType: string;
+  paragraphs: TranscriptParagraph[];
+};
+
+type TranscriptParagraph = {
+  key: string;
   segments: TranscriptSegment[];
 };
-
-type SegmentReference = {
-  key: string;
-  label: string;
-  detail: string;
-};
-
-function referenceLabel(value: unknown): string {
-  if (typeof value === "string") {
-    return value.trim();
-  }
-
-  if (value && typeof value === "object") {
-    const candidate = value as { reference?: unknown; name?: unknown; title?: unknown; text?: unknown };
-    for (const key of ["reference", "name", "title", "text"] as const) {
-      const item = candidate[key];
-      if (typeof item === "string" && item.trim()) {
-        return item.trim();
-      }
-    }
-  }
-
-  return "";
-}
-
-function referenceDetail(value: unknown): string {
-  if (!value || typeof value !== "object") {
-    return "";
-  }
-
-  const candidate = value as { context?: unknown; text?: unknown };
-  for (const key of ["context", "text"] as const) {
-    const item = candidate[key];
-    if (typeof item === "string" && item.trim()) {
-      return item.trim();
-    }
-  }
-
-  return "";
-}
 
 function typeLabel(value: string) {
   if (!value || value === "speech") {
@@ -93,47 +37,66 @@ function typeLabel(value: string) {
   return value.replaceAll("_", " ").trim();
 }
 
-function segmentReferenceItems(segment: TranscriptSegment): SegmentReference[] {
-  const references = [...segment.bibleReferences, ...segment.otherReferences];
-  const seen = new Set<string>();
+function normalizedSegmentText(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
 
-  return references.reduce<SegmentReference[]>((items, reference, index) => {
-    const label = referenceLabel(reference);
-    if (!label) {
-      return items;
+function hasSentenceEnding(value: string) {
+  return /[.!?]["')\]]?$/.test(value.trim());
+}
+
+function buildParagraphs(segments: TranscriptSegment[]) {
+  const paragraphs: TranscriptParagraph[] = [];
+  let current: TranscriptSegment[] = [];
+  let currentLength = 0;
+
+  for (const segment of segments) {
+    const text = normalizedSegmentText(segment.text);
+    if (!text) {
+      continue;
     }
 
-    const detail = referenceDetail(reference);
-    const key = `${label}:${detail}`;
-    if (seen.has(key)) {
-      return items;
-    }
+    current.push(segment);
+    currentLength += text.length + 1;
 
-    seen.add(key);
-    items.push({
-      key: `${segment.segmentId}-reference-${index}`,
-      label,
-      detail,
+    if ((currentLength > 520 && hasSentenceEnding(text)) || currentLength > 900) {
+      paragraphs.push({
+        key: `${current[0].segmentId}:paragraph`,
+        segments: current,
+      });
+      current = [];
+      currentLength = 0;
+    }
+  }
+
+  if (current.length) {
+    paragraphs.push({
+      key: `${current[0].segmentId}:paragraph`,
+      segments: current,
     });
+  }
 
-    return items;
-  }, []);
+  return paragraphs;
 }
 
 function groupSegments(segments: TranscriptSegment[]): SegmentGroup[] {
-  const groups: SegmentGroup[] = [];
+  const rawGroups: Array<Omit<SegmentGroup, "paragraphs"> & { segments: TranscriptSegment[] }> = [];
 
   for (const segment of segments) {
+    if (!normalizedSegmentText(segment.text)) {
+      continue;
+    }
+
     const speakerName = segment.speakerName || "Speaker";
     const segmentType = segment.segmentType || "speech";
-    const previous = groups.at(-1);
+    const previous = rawGroups.at(-1);
 
     if (previous && previous.speakerName === speakerName && previous.segmentType === segmentType) {
       previous.segments.push(segment);
       continue;
     }
 
-    groups.push({
+    rawGroups.push({
       key: `${segment.segmentId}:group`,
       speakerName,
       segmentType,
@@ -141,7 +104,12 @@ function groupSegments(segments: TranscriptSegment[]): SegmentGroup[] {
     });
   }
 
-  return groups;
+  return rawGroups.map((group) => ({
+    key: group.key,
+    speakerName: group.speakerName,
+    segmentType: group.segmentType,
+    paragraphs: buildParagraphs(group.segments),
+  }));
 }
 
 function findActiveSegmentIndex(currentTime: number, segments: TranscriptSegment[]) {
@@ -171,11 +139,23 @@ function findActiveSegmentIndex(currentTime: number, segments: TranscriptSegment
   return candidate;
 }
 
+function scrollElementIntoReader(element: HTMLElement, container: HTMLElement) {
+  const elementRect = element.getBoundingClientRect();
+  const containerRect = container.getBoundingClientRect();
+  const offset = elementRect.top - containerRect.top;
+  const targetTop = container.scrollTop + offset - container.clientHeight * 0.38;
+
+  container.scrollTo({
+    top: Math.max(0, targetTop),
+    behavior: "smooth",
+  });
+}
+
 export function TranscriptReader({ audioUrl, segments }: TranscriptReaderProps) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [followAudio, setFollowAudio] = useState(true);
-  const [openReferenceSegment, setOpenReferenceSegment] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const transcriptViewportRef = useRef<HTMLDivElement | null>(null);
   const segmentRefs = useRef(new Map<number, HTMLElement>());
   const groupedSegments = useMemo(() => groupSegments(segments), [segments]);
 
@@ -184,10 +164,11 @@ export function TranscriptReader({ audioUrl, segments }: TranscriptReaderProps) 
       return;
     }
 
-    segmentRefs.current.get(activeIndex)?.scrollIntoView({
-      block: "center",
-      behavior: "smooth",
-    });
+    const element = segmentRefs.current.get(activeIndex);
+    const container = transcriptViewportRef.current;
+    if (element && container) {
+      scrollElementIntoReader(element, container);
+    }
   }, [activeIndex, followAudio]);
 
   const seekTo = (seconds: number | null) => {
@@ -232,7 +213,7 @@ export function TranscriptReader({ audioUrl, segments }: TranscriptReaderProps) 
         </label>
       </div>
 
-      <div className="transcript-reader__layout">
+      <div ref={transcriptViewportRef} className="transcript-reader__layout">
         <div className="transcript-reader__segments">
           {groupedSegments.map((group) => (
             <section key={group.key} className="transcript-speaker-group">
@@ -240,62 +221,44 @@ export function TranscriptReader({ audioUrl, segments }: TranscriptReaderProps) 
                 <h4>{group.speakerName}</h4>
                 {typeLabel(group.segmentType) ? <span>{typeLabel(group.segmentType)}</span> : null}
               </div>
-              {group.segments.map((segment) => {
-                const segmentReferences = segmentReferenceItems(segment);
-                const isActive = activeIndex === segment.segmentIndex;
-                const referencePanelId = `${segment.segmentId}-references`;
-                const isReferenceOpen = openReferenceSegment === segment.segmentId;
+              {group.paragraphs.map((paragraph) => (
+                <p key={paragraph.key} className="transcript-paragraph">
+                  {paragraph.segments.map((segment, index) => {
+                    const isActive = activeIndex === segment.segmentIndex;
+                    const canSeek = segment.startSeconds !== null && Boolean(audioUrl);
 
-                return (
-                  <article
-                    key={segment.segmentId}
-                    ref={(element) => {
-                      if (element) {
-                        segmentRefs.current.set(segment.segmentIndex, element);
-                      } else {
-                        segmentRefs.current.delete(segment.segmentIndex);
-                      }
-                    }}
-                    className={`reader-segment ${isActive ? "reader-segment--active" : ""}`}
-                    aria-current={isActive ? "true" : undefined}
-                  >
-                    <p>{segment.text || "Transcript text unavailable."}</p>
-                    {segmentReferences.length ? (
-                      <div
-                        className={`reader-segment__references ${isReferenceOpen ? "reader-segment__references--open" : ""}`}
-                      >
-                        <button
-                          type="button"
-                          className="reader-segment__ref-trigger"
-                          aria-expanded={isReferenceOpen}
-                          aria-controls={referencePanelId}
-                          onClick={() =>
-                            setOpenReferenceSegment(isReferenceOpen ? null : segment.segmentId)
-                          }
+                    return (
+                      <span key={segment.segmentId}>
+                        {index > 0 ? " " : null}
+                        <span
+                          ref={(element) => {
+                            if (element) {
+                              segmentRefs.current.set(segment.segmentIndex, element);
+                            } else {
+                              segmentRefs.current.delete(segment.segmentIndex);
+                            }
+                          }}
+                          className={`reader-segment ${isActive ? "reader-segment--active" : ""}`}
+                          aria-current={isActive ? "true" : undefined}
+                          role={canSeek ? "button" : undefined}
+                          tabIndex={canSeek ? 0 : undefined}
+                          onClick={canSeek ? () => seekTo(segment.startSeconds) : undefined}
+                          onKeyDown={canSeek ? (event) => {
+                            if (event.key !== "Enter" && event.key !== " ") {
+                              return;
+                            }
+
+                            event.preventDefault();
+                            seekTo(segment.startSeconds);
+                          } : undefined}
                         >
-                          References
-                        </button>
-                        <div id={referencePanelId} className="reader-segment__ref-popover">
-                          <div className="reader-segment__ref-list" aria-label="References in this segment">
-                            {segmentReferences.map((reference) => (
-                              <button
-                                key={reference.key}
-                                type="button"
-                                className="reader-segment__ref-item"
-                                disabled={segment.startSeconds === null || !audioUrl}
-                                onClick={() => seekTo(segment.startSeconds)}
-                              >
-                                <strong>{reference.label}</strong>
-                                {reference.detail ? <span>{reference.detail}</span> : null}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    ) : null}
-                  </article>
-                );
-              })}
+                          {normalizedSegmentText(segment.text)}
+                        </span>
+                      </span>
+                    );
+                  })}
+                </p>
+              ))}
             </section>
           ))}
         </div>

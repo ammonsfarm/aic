@@ -990,6 +990,23 @@ input:disabled {
   margin-top: 0;
 }
 
+.detail-section--collapsible > summary {
+  cursor: pointer;
+  color: var(--soft-ink);
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.detail-section--collapsible > summary:focus-visible {
+  outline: 2px solid var(--cypress-soft);
+  outline-offset: 4px;
+}
+
+.detail-section--collapsible > .intelligence-groups {
+  margin-top: 14px;
+}
+
 .summary-block {
   margin: 10px 0;
   border: 1px solid var(--line);
@@ -1128,17 +1145,24 @@ input:disabled {
 }
 
 .transcript-reader__layout {
-  display: block;
+  position: relative;
+  max-height: min(72vh, 760px);
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px 16px 24px;
+  background: var(--parchment);
+  scroll-behavior: smooth;
 }
 
 .transcript-reader__segments {
   display: grid;
-  gap: 18px;
+  gap: 24px;
 }
 
 .transcript-speaker-group {
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
 .transcript-speaker-group__head {
@@ -1165,117 +1189,39 @@ input:disabled {
 
 .reader-segment {
   position: relative;
-  display: grid;
-  gap: 6px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  padding: 10px 12px;
-  transition: background 0.16s var(--ease-out), border-color 0.16s var(--ease-out), box-shadow 0.16s var(--ease-out);
+  border-radius: 5px;
+  padding: 1px 2px;
+  color: var(--soft-ink);
+  scroll-margin-block: 120px;
+  transition: background 0.16s var(--ease-out), box-shadow 0.16s var(--ease-out);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
 
 .reader-segment--active {
-  border-color: var(--cypress-soft);
   background: var(--cypress-faint);
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 0 0 1px var(--cypress-soft);
 }
 
-.reader-segment p {
+.reader-segment[role="button"] {
+  cursor: pointer;
+}
+
+.reader-segment:focus-visible {
+  outline: 2px solid var(--cypress-soft);
+  outline-offset: 2px;
+}
+
+.transcript-paragraph {
   max-width: 74ch;
   margin: 0;
   color: var(--soft-ink);
   font-size: 1rem;
-  line-height: 1.68;
+  line-height: 1.78;
 }
 
-.reader-segment__references {
-  position: relative;
-  width: max-content;
-  max-width: 100%;
-}
-
-.reader-segment__ref-trigger {
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 4px 7px;
-  color: var(--soft-ink-muted);
-  background: var(--parchment);
-  cursor: pointer;
-  font-size: 0.72rem;
-  font-weight: 650;
-}
-
-.reader-segment__ref-trigger:hover,
-.reader-segment__ref-trigger:focus-visible {
-  border-color: var(--cypress-soft);
-  color: var(--soft-ink);
-  outline: none;
-}
-
-.reader-segment__ref-popover {
-  position: absolute;
-  left: 0;
-  top: calc(100% + 6px);
-  z-index: 8;
-  width: min(440px, calc(100vw - 64px));
-  max-height: 280px;
-  overflow: auto;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 8px;
-  background: var(--parchment-warm);
-  box-shadow: var(--shadow);
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(-2px);
-  transition: opacity 0.16s var(--ease-out), transform 0.16s var(--ease-out), visibility 0.16s var(--ease-out);
-  visibility: hidden;
-}
-
-.reader-segment__references:hover .reader-segment__ref-popover,
-.reader-segment__references:focus-within .reader-segment__ref-popover,
-.reader-segment__references--open .reader-segment__ref-popover {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateY(0);
-  visibility: visible;
-}
-
-.reader-segment__ref-list {
-  display: grid;
-  gap: 6px;
-}
-
-.reader-segment__ref-item {
-  display: grid;
-  gap: 3px;
-  width: 100%;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 8px 9px;
-  color: var(--soft-ink);
-  background: var(--parchment);
-  cursor: pointer;
-  text-align: left;
-}
-
-.reader-segment__ref-item:hover:not(:disabled),
-.reader-segment__ref-item:focus-visible {
-  border-color: var(--cypress-soft);
-  outline: none;
-}
-
-.reader-segment__ref-item:disabled {
-  cursor: default;
-}
-
-.reader-segment__ref-item strong {
-  font-size: 0.82rem;
-}
-
-.reader-segment__ref-item span {
-  color: var(--soft-ink-muted);
-  font-size: 0.78rem;
-  line-height: 1.42;
+.transcript-paragraph + .transcript-paragraph {
+  margin-top: 14px;
 }
 
 /* ─── Dashboard and signal cards ──────────────────────────────────── */
@@ -1583,10 +1529,6 @@ input:focus {
   .transcript-reader__bar {
     position: static;
     grid-template-columns: 1fr;
-  }
-
-  .reader-segment__ref-popover {
-    width: min(360px, calc(100vw - 48px));
   }
 
   .public-band,
