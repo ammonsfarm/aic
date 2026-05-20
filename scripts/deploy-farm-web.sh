@@ -41,7 +41,7 @@ then
   .venv-pg/bin/python -m pip install -r requirements-postgres.txt
   MIGRATION_PYTHON=".venv-pg/bin/python"
 fi
-"${MIGRATION_PYTHON}" apply_postgres_migrations.py
+"\${MIGRATION_PYTHON}" apply_postgres_migrations.py
 
 echo "Building Next.js app..."
 npm run build
