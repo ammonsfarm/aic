@@ -395,7 +395,7 @@ function buildAudioUrl(sourceFile: string, trackId: string): string | null {
     return null;
   }
 
-  if (/^https?:\/\//i.test(sourceFile) || /^\//.test(sourceFile)) {
+  if (/^https?:\/\//i.test(sourceFile)) {
     return sourceFile;
   }
 
