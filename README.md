@@ -25,6 +25,17 @@ ssh ammonsfarm@farm "curl -I http://127.0.0.1:8087/"
 
 For Cloudflare Zero Trust, point the tunnel to `http://127.0.0.1:8087` (or `http://192.168.1.141:8087` from your network edge path).
 
+## Protected episode audio
+
+Episode pages use the authenticated route `/api/audio/[trackId]` for MP3 playback. The route streams private MinIO objects from `local-minio/aic/podcasts/` through the Next app, so browsers do not receive public GCS links.
+
+The service runs as `ammonsfarm` and uses that user's `mc` alias by default:
+
+- `AIC_AUDIO_MC_BIN=/usr/local/bin/mc`
+- `AIC_AUDIO_MC_ALIAS=local-minio`
+- `AIC_AUDIO_BUCKET=aic`
+- `AIC_AUDIO_PREFIX=podcasts`
+
 ## Transcript segment sync
 
 The RAG table `transcript_chunks` is optimized for retrieval snippets. The readable episode transcript uses source-preserving Gemini JSON segments loaded into:
