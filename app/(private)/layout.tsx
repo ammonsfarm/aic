@@ -7,7 +7,7 @@ export default async function PrivateLayout({ children }: Readonly<{ children: R
   const { userId } = await auth();
 
   if (!userId) {
-    redirect("/");
+    redirect("/login");
   }
 
   return (

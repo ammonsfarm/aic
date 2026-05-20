@@ -4,8 +4,9 @@ import { NextResponse } from "next/server";
 const isApiRoute = createRouteMatcher(["/api(.*)"]);
 
 export default clerkMiddleware(async (auth, request) => {
+  const { userId } = await auth();
+
   if (isApiRoute(request)) {
-    const { userId } = await auth();
     if (userId) {
       return;
     }
@@ -13,12 +14,19 @@ export default clerkMiddleware(async (auth, request) => {
     return NextResponse.json({ error: "Authentication required" }, { status: 401 });
   }
 
-  await auth.protect();
+  if (userId) {
+    return;
+  }
+
+  const signInUrl = new URL("/login", request.url);
+  signInUrl.searchParams.set("redirect_url", `${request.nextUrl.pathname}${request.nextUrl.search}`);
+
+  return NextResponse.redirect(signInUrl);
 });
 
 export const config = {
   matcher: [
-    "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
+    "/((?!login(?:/|$)|_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
     "/(api|trpc)(.*)",
   ],
 };

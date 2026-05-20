@@ -222,6 +222,133 @@ p {
   justify-content: flex-end;
 }
 
+/* Login */
+.login-shell {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 32px 18px;
+  background:
+    radial-gradient(ellipse 80% 55% at 20% 0%, oklch(95% 0.030 92 / 72%) 0%, transparent 62%),
+    linear-gradient(135deg, var(--mineral-mist) 0%, var(--parchment-deep) 100%);
+}
+
+.login-panel {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.85fr) minmax(340px, 1fr);
+  width: min(980px, 100%);
+  min-height: 560px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--parchment);
+  box-shadow: var(--shadow-lg);
+}
+
+.login-panel__image {
+  position: relative;
+  min-height: 360px;
+  background: var(--parchment-deep);
+}
+
+.login-panel__image img {
+  object-fit: cover;
+}
+
+.login-panel__image::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, transparent 45%, oklch(25% 0.035 155 / 42%) 100%),
+    linear-gradient(90deg, transparent 0%, oklch(96% 0.026 87 / 18%) 100%);
+}
+
+.login-panel__content {
+  display: grid;
+  gap: 28px;
+  align-content: center;
+  padding: 40px;
+}
+
+.login-brand {
+  display: flex;
+  gap: 13px;
+  align-items: center;
+}
+
+.login-brand__portrait {
+  object-fit: cover;
+  object-position: center top;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow-sm);
+}
+
+.login-brand strong,
+.login-brand span {
+  display: block;
+}
+
+.login-brand strong {
+  color: var(--soft-ink);
+  font-size: 0.98rem;
+}
+
+.login-brand span {
+  margin-top: 2px;
+  color: var(--soft-ink-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.login-copy {
+  display: grid;
+  gap: 10px;
+}
+
+.login-copy h1 {
+  max-width: 12ch;
+  margin: 0;
+  color: var(--soft-ink);
+  font-size: 2.2rem;
+  line-height: 1.05;
+}
+
+.login-copy p:not(.eyebrow),
+.login-note {
+  max-width: 58ch;
+  margin: 0;
+  color: var(--soft-ink-muted);
+  line-height: 1.6;
+}
+
+.login-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.login-actions span {
+  color: var(--soft-ink-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.aic-clerk-card {
+  border-radius: 8px !important;
+  box-shadow: var(--shadow-md) !important;
+}
+
+.aic-clerk-footer {
+  background: var(--parchment-deep) !important;
+}
+
+.aic-clerk-primary {
+  box-shadow: none !important;
+}
+
 /* ─── Buttons ───────────────────────────────────────────────────────── */
 .button {
   display: inline-flex;
@@ -1430,6 +1557,18 @@ input:focus {
     border-left: 0;
     border-top: 1px solid var(--line);
     padding-top: 18px;
+  }
+
+  .login-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .login-panel__content {
+    padding: 28px;
+  }
+
+  .login-panel__image {
+    min-height: 240px;
   }
 
   .episode-toolbar input,
