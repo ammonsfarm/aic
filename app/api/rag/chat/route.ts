@@ -17,38 +17,13 @@ type ChatRequest = {
   provider?: string;
 };
 
-type RagChatResult = Awaited<ReturnType<typeof runRagChat>>;
-
-function cleanPublicSourceText(value: string) {
-  return value
-    .split(/\r?\n/)
-    .filter((line) => !/^(Episode:|Track ID:|Publish Date:|Time Range:)\s*/i.test(line.trim()))
-    .join("\n")
-    .trim();
-}
-
-function toPublicChatResult(result: RagChatResult) {
-  return {
-    ...result,
-    provider: "",
-    model: "",
-    sources: result.sources.map((source) => ({
-      ...source,
-      snippet: cleanPublicSourceText(source.snippet),
-      text: cleanPublicSourceText(source.text),
-      score: 0,
-      vectorModel: "",
-    })),
-  };
-}
-
 export async function POST(request: NextRequest) {
   const bodyError = validateChatRequestBody(request);
   if (bodyError) {
     return NextResponse.json({ error: bodyError }, { status: 413 });
   }
 
-  const { userId } = await auth();
+  const { userId } = await auth.protect();
   const rateLimit = checkChatRateLimit(request, userId);
   if (!rateLimit.ok) {
     return NextResponse.json(
@@ -75,10 +50,10 @@ export async function POST(request: NextRequest) {
       query: question,
       trackId: payload.trackId?.trim() || undefined,
       topK: Number.isFinite(topK) ? topK : 10,
-      provider: resolveRequestedProvider(payload.provider, Boolean(userId)),
+      provider: resolveRequestedProvider(payload.provider, true),
     });
 
-    return NextResponse.json(userId ? result : toPublicChatResult(result));
+    return NextResponse.json(result);
   } catch (error) {
     console.error("rag-chat request failed", error);
     return NextResponse.json({ error: publicChatError(error) }, { status: 503 });
