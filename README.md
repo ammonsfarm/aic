@@ -64,3 +64,12 @@ A backend worker consumes `status='pending'` rows, applies the correction to `tr
 ```bash
 .venv-pg/bin/python scripts/apply_transcript_edit_requests.py --env-file .env --limit 25
 ```
+
+On the farm host this is installed as a systemd timer:
+
+```bash
+sudo systemctl status aic-transcript-edit-worker.timer
+sudo systemctl status aic-transcript-edit-worker.service
+```
+
+The timer runs every two minutes and processes up to twenty-five queued edits per run.

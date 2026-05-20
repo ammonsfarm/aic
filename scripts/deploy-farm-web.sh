@@ -7,6 +7,7 @@ REMOTE_DIR="${REMOTE_DIR:-/mnt/storage/aic}"
 REMOTE_BRANCH="${REMOTE_BRANCH:-main}"
 REMOTE_SERVICE="${REMOTE_SERVICE:-aic-web.service}"
 REMOTE_PORT="${REMOTE_PORT:-8087}"
+INSTALL_TRANSCRIPT_EDIT_WORKER="${INSTALL_TRANSCRIPT_EDIT_WORKER:-1}"
 SERVICE_URL="http://127.0.0.1:${REMOTE_PORT}"
 
 ssh_target="${REMOTE_USER}@${REMOTE_HOST}"
@@ -45,6 +46,11 @@ fi
 
 echo "Building Next.js app..."
 npm run build
+
+if [ "${INSTALL_TRANSCRIPT_EDIT_WORKER}" = "1" ]; then
+  echo "Installing transcript edit worker timer..."
+  bash scripts/install-transcript-edit-worker.sh
+fi
 
 echo "Restarting service: ${REMOTE_SERVICE}"
 sudo systemctl restart "${REMOTE_SERVICE}"

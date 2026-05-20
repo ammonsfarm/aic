@@ -1,0 +1,12 @@
+[Unit]
+Description=AIC transcript edit queue worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ammonsfarm
+Group=ammonsfarm
+WorkingDirectory=/mnt/storage/aic
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/mnt/storage/aic/.venv-pg/bin/python /mnt/storage/aic/scripts/apply_transcript_edit_requests.py --env-file /mnt/storage/aic/.env --limit 25
