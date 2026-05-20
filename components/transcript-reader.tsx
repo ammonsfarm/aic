@@ -45,6 +45,12 @@ type SegmentGroup = {
   segments: TranscriptSegment[];
 };
 
+type SegmentReference = {
+  key: string;
+  label: string;
+  detail: string;
+};
+
 function referenceLabel(value: unknown): string {
   if (typeof value === "string") {
     return value.trim();
@@ -63,16 +69,55 @@ function referenceLabel(value: unknown): string {
   return "";
 }
 
-function typeLabel(value: string) {
-  return value.replaceAll("_", " ").trim() || "transcript";
-}
-
-function timeLabel(segment: TranscriptSegment) {
-  if (segment.startTime && segment.endTime) {
-    return `${segment.startTime} to ${segment.endTime}`;
+function referenceDetail(value: unknown): string {
+  if (!value || typeof value !== "object") {
+    return "";
   }
 
-  return segment.startTime || "Time unavailable";
+  const candidate = value as { context?: unknown; text?: unknown };
+  for (const key of ["context", "text"] as const) {
+    const item = candidate[key];
+    if (typeof item === "string" && item.trim()) {
+      return item.trim();
+    }
+  }
+
+  return "";
+}
+
+function typeLabel(value: string) {
+  if (!value || value === "speech") {
+    return "";
+  }
+
+  return value.replaceAll("_", " ").trim();
+}
+
+function segmentReferenceItems(segment: TranscriptSegment): SegmentReference[] {
+  const references = [...segment.bibleReferences, ...segment.otherReferences];
+  const seen = new Set<string>();
+
+  return references.reduce<SegmentReference[]>((items, reference, index) => {
+    const label = referenceLabel(reference);
+    if (!label) {
+      return items;
+    }
+
+    const detail = referenceDetail(reference);
+    const key = `${label}:${detail}`;
+    if (seen.has(key)) {
+      return items;
+    }
+
+    seen.add(key);
+    items.push({
+      key: `${segment.segmentId}-reference-${index}`,
+      label,
+      detail,
+    });
+
+    return items;
+  }, []);
 }
 
 function groupSegments(segments: TranscriptSegment[]): SegmentGroup[] {
@@ -126,19 +171,13 @@ function findActiveSegmentIndex(currentTime: number, segments: TranscriptSegment
   return candidate;
 }
 
-function topEpisodeReferences(references: TranscriptReference[]) {
-  return references
-    .filter((reference) => reference.sourceScope === "episode" && reference.reference)
-    .slice(0, 80);
-}
-
-export function TranscriptReader({ audioUrl, segments, references }: TranscriptReaderProps) {
+export function TranscriptReader({ audioUrl, segments }: TranscriptReaderProps) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [followAudio, setFollowAudio] = useState(true);
+  const [openReferenceSegment, setOpenReferenceSegment] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const segmentRefs = useRef(new Map<number, HTMLElement>());
   const groupedSegments = useMemo(() => groupSegments(segments), [segments]);
-  const episodeReferences = useMemo(() => topEpisodeReferences(references), [references]);
 
   useEffect(() => {
     if (!followAudio || activeIndex === null) {
@@ -199,12 +238,13 @@ export function TranscriptReader({ audioUrl, segments, references }: TranscriptR
             <section key={group.key} className="transcript-speaker-group">
               <div className="transcript-speaker-group__head">
                 <h4>{group.speakerName}</h4>
-                <span>{typeLabel(group.segmentType)}</span>
+                {typeLabel(group.segmentType) ? <span>{typeLabel(group.segmentType)}</span> : null}
               </div>
               {group.segments.map((segment) => {
-                const bibleLabels = segment.bibleReferences.map(referenceLabel).filter(Boolean);
-                const otherLabels = segment.otherReferences.map(referenceLabel).filter(Boolean);
+                const segmentReferences = segmentReferenceItems(segment);
                 const isActive = activeIndex === segment.segmentIndex;
+                const referencePanelId = `${segment.segmentId}-references`;
+                const isReferenceOpen = openReferenceSegment === segment.segmentId;
 
                 return (
                   <article
@@ -219,23 +259,38 @@ export function TranscriptReader({ audioUrl, segments, references }: TranscriptR
                     className={`reader-segment ${isActive ? "reader-segment--active" : ""}`}
                     aria-current={isActive ? "true" : undefined}
                   >
-                    <button
-                      className="reader-segment__time"
-                      type="button"
-                      disabled={segment.startSeconds === null || !audioUrl}
-                      onClick={() => seekTo(segment.startSeconds)}
-                    >
-                      {timeLabel(segment)}
-                    </button>
                     <p>{segment.text || "Transcript text unavailable."}</p>
-                    {bibleLabels.length || otherLabels.length ? (
-                      <div className="reader-segment__refs" aria-label="References in this segment">
-                        {bibleLabels.slice(0, 4).map((label) => (
-                          <span key={`bible-${segment.segmentId}-${label}`}>{label}</span>
-                        ))}
-                        {otherLabels.slice(0, 3).map((label) => (
-                          <span key={`other-${segment.segmentId}-${label}`}>{label}</span>
-                        ))}
+                    {segmentReferences.length ? (
+                      <div
+                        className={`reader-segment__references ${isReferenceOpen ? "reader-segment__references--open" : ""}`}
+                      >
+                        <button
+                          type="button"
+                          className="reader-segment__ref-trigger"
+                          aria-expanded={isReferenceOpen}
+                          aria-controls={referencePanelId}
+                          onClick={() =>
+                            setOpenReferenceSegment(isReferenceOpen ? null : segment.segmentId)
+                          }
+                        >
+                          References
+                        </button>
+                        <div id={referencePanelId} className="reader-segment__ref-popover">
+                          <div className="reader-segment__ref-list" aria-label="References in this segment">
+                            {segmentReferences.map((reference) => (
+                              <button
+                                key={reference.key}
+                                type="button"
+                                className="reader-segment__ref-item"
+                                disabled={segment.startSeconds === null || !audioUrl}
+                                onClick={() => seekTo(segment.startSeconds)}
+                              >
+                                <strong>{reference.label}</strong>
+                                {reference.detail ? <span>{reference.detail}</span> : null}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
                       </div>
                     ) : null}
                   </article>
@@ -244,27 +299,6 @@ export function TranscriptReader({ audioUrl, segments, references }: TranscriptR
             </section>
           ))}
         </div>
-
-        {episodeReferences.length > 0 ? (
-          <aside className="transcript-reference-panel">
-            <h4>References</h4>
-            <div className="transcript-reference-list">
-              {episodeReferences.map((reference) => (
-                <button
-                  key={reference.referenceId}
-                  type="button"
-                  className="transcript-reference"
-                  disabled={reference.startSeconds === null || !audioUrl}
-                  onClick={() => seekTo(reference.startSeconds)}
-                >
-                  <strong>{reference.reference}</strong>
-                  <span>{reference.startTime || reference.referenceType}</span>
-                  {reference.context || reference.text ? <p>{reference.context || reference.text}</p> : null}
-                </button>
-              ))}
-            </div>
-          </aside>
-        ) : null}
       </div>
     </section>
   );

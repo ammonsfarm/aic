@@ -1029,6 +1029,8 @@ export async function getEpisodeDetail(trackId: string): Promise<EpisodeDetail |
             other_references
           from transcript_segments
           where track_id = $1
+            and segment_type in ('speech', 'scripture_reading', 'prayer')
+            and nullif(trim(text), '') is not null
           order by segment_index asc
         `,
         [trackId],
