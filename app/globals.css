@@ -1331,7 +1331,7 @@ input:disabled {
   top: 72px;
   z-index: 4;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 12px;
   align-items: center;
   border: 1px solid var(--line);
@@ -1360,6 +1360,10 @@ input:disabled {
   min-height: auto;
 }
 
+.transcript-reader__edit-toggle {
+  white-space: nowrap;
+}
+
 .transcript-reader__layout {
   position: relative;
   max-height: min(72vh, 760px);
@@ -1369,6 +1373,17 @@ input:disabled {
   padding: 18px 16px 24px;
   background: var(--parchment);
   scroll-behavior: smooth;
+}
+
+.transcript-reader__edit-note {
+  margin-bottom: 16px;
+  border: 1px solid color-mix(in oklch, var(--ochre) 42%, var(--line));
+  border-radius: 7px;
+  padding: 9px 11px;
+  color: var(--soft-ink);
+  background: color-mix(in oklch, var(--ochre) 16%, var(--parchment));
+  font-size: 0.84rem;
+  font-weight: 600;
 }
 
 .transcript-reader__segments {
@@ -1426,6 +1441,73 @@ input:disabled {
 .reader-segment:focus-visible {
   outline: 2px solid var(--cypress-soft);
   outline-offset: 2px;
+}
+
+.reader-segment-wrap {
+  position: relative;
+}
+
+.reader-segment-tools {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 5px;
+  vertical-align: baseline;
+}
+
+.reader-segment-edit {
+  min-height: 24px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 1px 7px;
+  color: var(--soft-ink);
+  background: color-mix(in oklch, var(--parchment) 82%, var(--mineral-mist));
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.reader-segment-edit:hover {
+  border-color: var(--cypress-soft);
+  background: var(--cypress-faint);
+}
+
+.reader-segment-status {
+  border: 1px solid color-mix(in oklch, var(--success) 42%, var(--line));
+  border-radius: 6px;
+  padding: 1px 7px;
+  color: var(--success);
+  background: color-mix(in oklch, var(--success) 9%, var(--parchment));
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.reader-segment-editor {
+  display: grid;
+  gap: 8px;
+  width: min(100%, 74ch);
+  margin: 6px 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: color-mix(in oklch, var(--parchment) 82%, var(--mineral-mist));
+}
+
+.reader-segment-editor textarea {
+  min-height: 112px;
+  resize: vertical;
+  line-height: 1.55;
+}
+
+.reader-segment-editor__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.reader-segment-editor__error {
+  color: var(--error);
+  font-size: 0.82rem;
+  font-weight: 650;
 }
 
 .transcript-paragraph {

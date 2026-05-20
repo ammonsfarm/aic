@@ -54,3 +54,13 @@ After migrations are applied, load or refresh the readable transcript tables wit
 ```bash
 ssh ammonsfarm@farm "cd /mnt/storage/aic && python3 sync_transcript_segments_to_postgres.py --transcript-dir /home/ammonsfarm/gemini-transcribe"
 ```
+
+## Transcript edit queue
+
+Episode pages can queue transcript corrections from the audio-following reader. The authenticated API route `/api/episodes/[trackId]/transcript-edits` writes pending rows to `transcript_edit_requests` with the source table, segment id, original text, edited text, editor id, and `needs_revectorization=true`.
+
+A backend worker consumes `status='pending'` rows, applies the correction to `transcript_segments` or `transcript_chunks`, updates matching `transcript_chunks` text, refreshes affected chunk embeddings when `OPENAI_API_KEY` is available, then marks the request `applied` or `failed`.
+
+```bash
+.venv-pg/bin/python scripts/apply_transcript_edit_requests.py --env-file .env --limit 25
+```

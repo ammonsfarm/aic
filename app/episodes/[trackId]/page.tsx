@@ -146,6 +146,7 @@ export default async function EpisodeDetailPage({
             <TranscriptReader
               audioUrl={detail.episode.audioUrl}
               segments={detail.transcript}
+              trackId={detail.episode.trackId}
             />
           </section>
 
