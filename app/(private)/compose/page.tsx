@@ -1,23 +1,21 @@
 import { RoutePanel } from "@/components/route-panel";
+import { ComposeWorkbench } from "@/components/compose-workbench";
 
 export default function ComposePage() {
   return (
     <RoutePanel
       eyebrow="Compose"
       title="Source-backed drafting desk"
-      aside={<p className="note">Drafts must be labeled as newly generated material informed by selected sources.</p>}
+      aside={
+        <p className="note">
+          Use search-grounded RAG context to draft sermon outlines, lesson plans, and devotional material.
+        </p>
+      }
     >
-      <div className="compose-grid">
-        {["Sermon draft", "Article draft", "Bible study plan", "Devotional series", "TTS-safe manuscript"].map((workflow) => (
-          <button className="workflow-button" key={workflow} type="button">
-            {workflow}
-          </button>
-        ))}
-      </div>
-      <div className="preview-surface">
-        <p className="eyebrow">Preview</p>
-        <p>Select sources, passage, tone, and output length after the retrieval layer is available.</p>
-      </div>
+      <p className="note" style={{ marginTop: 0 }}>
+        This workbench sends your request to the same RAG-backed assistant used across the site so drafts are grounded in indexed transcripts and intelligence.
+      </p>
+      <ComposeWorkbench />
     </RoutePanel>
   );
 }

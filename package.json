@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "deploy:farm": "bash ./scripts/deploy-farm-web.sh"
   },
   "dependencies": {
     "@clerk/nextjs": "latest",
