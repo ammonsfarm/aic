@@ -18,7 +18,9 @@ The podcast/data automation workspace is separate:
 - Server podcast workspace: `ssh farm` then `/mnt/storage/aic_podcast`
 - Gemini transcription workspace: `ssh farm` then `/home/ammonsfarm/gemini-transcribe`
 
-Do not assume a local edit is live. The server only changes after code is pushed to GitHub and deployed to `farm`, or after an explicit server-side copy/change.
+Do not assume a local edit is live. Web app source changes flow local checkout -> GitHub -> `farm`; do not directly edit web app files in `/mnt/storage/aic` except for an explicitly approved emergency hotfix that is immediately backported to Git.
+
+MP3 files, transcript repair, database backfills, vectorization, daily ingest, and long-running automations are different: do that work directly on `farm` in the server data workspaces, because the server is the runtime source of truth for media, databases, MinIO, GCS staging, tmux jobs, cron jobs, and systemd timers.
 
 ## Normal Web App Deployment Flow
 
@@ -36,6 +38,12 @@ npm run deploy:farm
 ```
 
 `npm run deploy:farm` SSHes to `farm`, pulls `main` into `/mnt/storage/aic`, runs `npm ci`, applies Postgres migrations, builds the Next app, installs the transcript edit worker timer, restarts `aic-web.service`, and health-checks port `8087`.
+
+If `git pull` on `farm` fails because files in `/mnt/storage/aic` were edited directly, do not overwrite them silently. Save the diff or stash first, then reconcile it back into the local repo if it is real work:
+
+```bash
+ssh farm 'cd /mnt/storage/aic && git diff > /tmp/aic-server-predeploy.patch && git stash push -m "predeploy server edits"'
+```
 
 After deployment, verify:
 
@@ -64,6 +72,8 @@ ssh farm 'systemctl is-active aic-transcript-edit-worker.timer && journalctl -u 
 - Keep file ownership narrow and avoid unrelated refactors.
 - Only one agent should push/deploy at a time.
 - If a server process or tmux job is running, do not stop/restart it unless the user explicitly asks.
+- Web changes are coordinated through Git commits and deploys.
+- Data/media/automation changes are coordinated through server paths, tmux/session names, logs, backups, and explicit status notes.
 
 ## Required Final Report
 
