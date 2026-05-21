@@ -5,14 +5,20 @@ type RoutePanelProps = {
   eyebrow: string;
   children: ReactNode;
   aside?: ReactNode;
+  actions?: ReactNode;
 };
 
-export function RoutePanel({ title, eyebrow, children, aside }: RoutePanelProps) {
+export function RoutePanel({ title, eyebrow, children, aside, actions }: RoutePanelProps) {
   return (
-    <section className="route-panel">
+    <section className={aside ? "route-panel" : "route-panel route-panel--full"}>
       <div className="route-panel__main">
-        <p className="eyebrow">{eyebrow}</p>
-        <h1>{title}</h1>
+        <div className="route-panel__header">
+          <div className="route-panel__title">
+            <p className="eyebrow">{eyebrow}</p>
+            <h1>{title}</h1>
+          </div>
+          {actions ? <div className="route-panel__actions">{actions}</div> : null}
+        </div>
         <div className="route-panel__body">{children}</div>
       </div>
       {aside ? <aside className="route-panel__aside">{aside}</aside> : null}

@@ -67,17 +67,15 @@ export default async function EpisodeDetailPage({
         <RoutePanel
           eyebrow="Episode detail"
           title={detail.episode.title}
-          aside={
+          actions={
             <div className="compact-actions">
               <Link className="button button--ghost" href="/episodes">
                 Back to episodes
               </Link>
               {detail.episode.audioUrl ? (
-                <>
-                  <a className="button button--primary" href={detail.episode.audioUrl} target="_blank" rel="noopener noreferrer">
-                    Open audio file
-                  </a>
-                </>
+                <a className="button button--primary" href={detail.episode.audioUrl} target="_blank" rel="noopener noreferrer">
+                  Open audio file
+                </a>
               ) : null}
             </div>
           }

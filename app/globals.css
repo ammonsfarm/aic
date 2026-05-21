@@ -692,6 +692,26 @@ input:disabled {
   padding: 26px 28px;
 }
 
+.route-panel--full {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.route-panel__header {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.route-panel__title {
+  min-width: 0;
+}
+
+.route-panel__actions {
+  flex: 0 0 auto;
+  max-width: 100%;
+}
+
 .route-panel__body { margin-top: 20px; }
 
 .route-panel__aside {
@@ -1182,6 +1202,7 @@ input:disabled {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .detail-audio {
@@ -1192,8 +1213,8 @@ input:disabled {
 
 .detail-grid {
   display: grid;
-  gap: 14px;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .detail-section {
@@ -1801,6 +1822,23 @@ input:focus {
     border-left: 0;
     border-top: 1px solid var(--line);
     padding-top: 18px;
+  }
+
+  .route-panel__header {
+    display: grid;
+    gap: 14px;
+  }
+
+  .route-panel__actions {
+    width: 100%;
+  }
+
+  .route-panel__actions .compact-actions {
+    justify-content: flex-start;
+  }
+
+  .route-panel__actions .compact-actions .button {
+    flex: 1 1 180px;
   }
 
   .login-panel {
