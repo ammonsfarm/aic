@@ -79,10 +79,6 @@ export async function getCurrentUserRole(): Promise<AicRole> {
     return "Administrator";
   }
 
-  if (adminEmails.length === 0) {
-    return "Administrator";
-  }
-
   return "User";
 }
 
