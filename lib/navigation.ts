@@ -26,9 +26,9 @@ export const consoleNav: ConsoleNavItem[] = [
     description: "Source-backed sermon, article, and manuscript drafting.",
   },
   {
-    href: "/signals",
-    label: "Signals",
-    description: "Stats, Podtrac trends, and audience breakdowns.",
+    href: "/stats",
+    label: "Stats",
+    description: "Podtrac trends, listenership, and audience breakdowns.",
   },
   {
     href: "/pipeline",
@@ -41,7 +41,6 @@ export const publicNav = [
   { href: "/", label: "Home" },
   { href: "/episodes", label: "Episodes" },
   { href: "/sermons", label: "Sermons" },
-  { href: "/stats", label: "Stats" },
   { href: "https://www.pastorwood.org/about-pastor-wood/", label: "About" },
   { href: "https://www.pastorwood.org/radio", label: "Radio" },
   { href: "https://itunes.apple.com/us/podcast/abiding-in-christ-w-jim-wood/id375149712?mt=2", label: "Podcast" },

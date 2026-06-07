@@ -146,6 +146,8 @@ type DashboardRow = {
   podtrac_country_rows: string;
   podtrac_client_rows: string;
   podtrac_total_downloads: string;
+  podtrac_activity_start: string | null;
+  podtrac_activity_end: string | null;
 };
 
 type RAGVectorHitRow = {
@@ -340,6 +342,8 @@ export type PodtracDashboard = {
     podtracCountryRows: number;
     podtracClientRows: number;
     totalDownloads: number;
+    activityStart: string | null;
+    activityEnd: string | null;
   };
   topEpisodes: Array<{
     trackId: string;
@@ -1384,7 +1388,9 @@ export async function getPodtracDashboard(): Promise<PodtracDashboard> {
           (select count(*) from podtrac_daily_activity) as podtrac_daily_rows,
           (select count(*) from podtrac_activity_by_country) as podtrac_country_rows,
           (select count(*) from podtrac_activity_by_client) as podtrac_client_rows,
-          coalesce(sum(download_count), 0)::text as podtrac_total_downloads
+          coalesce(sum(download_count), 0)::text as podtrac_total_downloads,
+          min(activity_date)::text as podtrac_activity_start,
+          max(activity_date)::text as podtrac_activity_end
         from podtrac_daily_activity
       `,
     ),
@@ -1469,6 +1475,8 @@ export async function getPodtracDashboard(): Promise<PodtracDashboard> {
       podtracCountryRows: toNumber(counts.podtrac_country_rows),
       podtracClientRows: toNumber(counts.podtrac_client_rows),
       totalDownloads: toNumber(counts.podtrac_total_downloads),
+      activityStart: counts.podtrac_activity_start,
+      activityEnd: counts.podtrac_activity_end,
     },
     topEpisodes: topRows.map((row) => ({
       trackId: row.track_id,
