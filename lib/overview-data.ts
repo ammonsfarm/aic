@@ -15,7 +15,9 @@ type CountRow = {
   podtrac_daily_rows: string;
   podtrac_country_rows: string;
   podtrac_client_rows: string;
-  podtrac_clean_downloads: string | null;
+  podtrac_total_downloads: string | null;
+  podtrac_activity_start: string | null;
+  podtrac_activity_end: string | null;
 };
 
 type StatusRow = {
@@ -54,7 +56,9 @@ export type OverviewData = {
     podtracDailyRows: number;
     podtracCountryRows: number;
     podtracClientRows: number;
-    cleanWindowDownloads: number;
+    totalDownloads: number;
+    activityStart: string | null;
+    activityEnd: string | null;
   };
   intelligenceStatus: { status: string; count: number }[];
   recentEpisodes: RecentEpisodeRow[];
@@ -65,9 +69,6 @@ export type OverviewResult =
   | { ok: true; data: OverviewData }
   | { ok: false; type: "missing-env"; missing: string[] }
   | { ok: false; type: "database-error"; message: string };
-
-const cleanWindowStart = "2026-02-01";
-const cleanWindowEnd = "2026-04-30";
 
 function toNumber(value: string | null | undefined) {
   return Number(value ?? 0);
@@ -92,13 +93,10 @@ export async function getOverviewData(): Promise<OverviewResult> {
             (select count(*) from podtrac_daily_activity) as podtrac_daily_rows,
             (select count(*) from podtrac_activity_by_country) as podtrac_country_rows,
             (select count(*) from podtrac_activity_by_client) as podtrac_client_rows,
-            (
-              select coalesce(sum(download_count), 0)
-              from podtrac_daily_activity
-              where activity_date between $1::date and $2::date
-            ) as podtrac_clean_downloads
+            (select coalesce(sum(download_count), 0) from podtrac_daily_activity) as podtrac_total_downloads,
+            (select min(activity_date)::text from podtrac_daily_activity) as podtrac_activity_start,
+            (select max(activity_date)::text from podtrac_daily_activity) as podtrac_activity_end
         `,
-        [cleanWindowStart, cleanWindowEnd],
       ),
       queryRows<StatusRow>(
         `
@@ -155,7 +153,9 @@ export async function getOverviewData(): Promise<OverviewResult> {
           podtracDailyRows: toNumber(counts.podtrac_daily_rows),
           podtracCountryRows: toNumber(counts.podtrac_country_rows),
           podtracClientRows: toNumber(counts.podtrac_client_rows),
-          cleanWindowDownloads: toNumber(counts.podtrac_clean_downloads),
+          totalDownloads: toNumber(counts.podtrac_total_downloads),
+          activityStart: counts.podtrac_activity_start,
+          activityEnd: counts.podtrac_activity_end,
         },
         intelligenceStatus: statusRows.map((row) => ({ status: row.status, count: toNumber(row.count) })),
         recentEpisodes,

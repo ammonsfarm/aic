@@ -21,6 +21,18 @@ function formatDate(value: string | null) {
   }).format(new Date(value));
 }
 
+function formatShortDate(value: string | null) {
+  if (!value) {
+    return "no date";
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(value));
+}
+
 export default async function OverviewPage() {
   const result = await getOverviewData();
 
@@ -58,9 +70,12 @@ export default async function OverviewPage() {
         <>
           <section className="overview-grid" aria-label="Corpus overview">
             <div className="overview-primary">
-              <p className="eyebrow">Podtrac clean window</p>
-              <h2>{formatNumber(result.data.counts.cleanWindowDownloads)} downloads</h2>
-              <p>Exact Podtrac daily-activity total for Feb 1, 2026 through Apr 30, 2026.</p>
+              <p className="eyebrow">Podtrac indexed total</p>
+              <h2>{formatNumber(result.data.counts.totalDownloads)} downloads</h2>
+              <p>
+                Daily activity currently indexed from {formatShortDate(result.data.counts.activityStart)} through{" "}
+                {formatShortDate(result.data.counts.activityEnd)}.
+              </p>
             </div>
             <div className="overview-stat">
               <strong>{formatNumber(result.data.counts.episodes)}</strong>
