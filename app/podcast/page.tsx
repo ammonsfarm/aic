@@ -245,21 +245,22 @@ export default async function PodcastStatsPage({
         <RoutePanel
           eyebrow="Podcast"
           title="Podcast statistics"
-          aside={
-            <div className="stats-aside">
-              <strong>Indexed Podtrac window</strong>
-              <span>
-                {formatDate(dashboard.range.minDate)} through {formatDate(dashboard.range.maxDate)}
-              </span>
-              <Link className="button button--ghost" href="/podcast/episodes">
-                Episode Statistics
-              </Link>
-              <Link className="button button--ghost" href="/overview">
-                Operations overview
-              </Link>
-            </div>
-          }
         >
+          <div className="podcast-subnav" aria-label="Podcast report navigation">
+            <span>
+              <strong>Indexed Podtrac window</strong>
+              <small>
+                {formatDate(dashboard.range.minDate)} through {formatDate(dashboard.range.maxDate)}
+              </small>
+            </span>
+            <Link className="button button--ghost" href="/podcast/episodes">
+              Episode Statistics
+            </Link>
+            <Link className="button button--ghost" href="/overview">
+              Operations overview
+            </Link>
+          </div>
+
           <section className="signal-board stats-hero">
             <div>
               <p className="eyebrow">{dashboard.range.label}</p>
