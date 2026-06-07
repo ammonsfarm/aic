@@ -178,6 +178,37 @@ type CountryRow = {
   downloads: string;
 };
 
+type DateExtentRow = {
+  min_date: string | null;
+  max_date: string | null;
+};
+
+type PodcastStatsSummaryRow = {
+  range_downloads: string;
+  all_time_downloads: string;
+  podtrac_episode_count: string;
+  podtrac_matched_count: string;
+  podtrac_unmatched_count: string;
+};
+
+type EpisodeStatisticRow = {
+  track_id: string;
+  title: string;
+  publish_date: string;
+  podtrac_title: string;
+  match_status: string;
+  all_time_downloads: string;
+  range_downloads: string;
+  last_activity_date: string | null;
+};
+
+type EpisodeStatisticSummaryRow = {
+  all_time_downloads: string;
+  range_downloads: string;
+  first_activity_date: string | null;
+  last_activity_date: string | null;
+};
+
 type VectorSearchTrackRow = {
   source_type: string;
   track_id: string;
@@ -358,6 +389,74 @@ export type PodtracDashboard = {
   clientDownloads: Array<{ client: string; downloads: number }>;
 };
 
+export type PodtracRangeKey = "30d" | "60d" | "quarter" | "ytd" | "max";
+
+export type PodtracRange = {
+  key: PodtracRangeKey;
+  label: string;
+  startDate: string | null;
+  endDate: string | null;
+  minDate: string | null;
+  maxDate: string | null;
+};
+
+export type PodcastStatsDashboard = {
+  range: PodtracRange;
+  counts: {
+    rangeDownloads: number;
+    allTimeDownloads: number;
+    podtracEpisodes: number;
+    podtracMatched: number;
+    podtracUnmatched: number;
+  };
+  dailyTrend: Array<{ activityDate: string; downloads: number }>;
+  topEpisodes: Array<{
+    trackId: string;
+    episodeTitle: string;
+    publishDate: string;
+    podtracEpisodeTitle: string;
+    matchStatus: string;
+    totalDownloads: number;
+  }>;
+  countryDownloads: Array<{ country: string; downloads: number }>;
+};
+
+export type EpisodeStatisticsDashboard = {
+  range: PodtracRange;
+  episodes: Array<{
+    trackId: string;
+    title: string;
+    publishDate: string;
+    podtracEpisodeTitle: string;
+    matchStatus: string;
+    allTimeDownloads: number;
+    rangeDownloads: number;
+    lastActivityDate: string | null;
+  }>;
+  selectedEpisode: {
+    trackId: string;
+    title: string;
+    publishDate: string;
+    podtracEpisodeTitle: string;
+    matchStatus: string;
+    allTimeDownloads: number;
+    rangeDownloads: number;
+    lastActivityDate: string | null;
+    firstActivityDate: string | null;
+  } | null;
+  selectedDailyTrend: Array<{ activityDate: string; downloads: number }>;
+  countryDownloads: Array<{ country: string; downloads: number }>;
+  clientDownloads: Array<{ client: string; downloads: number }>;
+};
+
+export const podtracRangeOptions: Array<{ key: PodtracRangeKey; label: string }> = [
+  { key: "30d", label: "30 days" },
+  { key: "60d", label: "60 days" },
+  { key: "quarter", label: "Last quarter" },
+  { key: "ytd", label: "Year to date" },
+  { key: "max", label: "Max" },
+];
+
 function toNumber(value: string | number | null | undefined): number {
   if (typeof value === "number") {
     return Number.isFinite(value) ? value : 0;
@@ -365,6 +464,72 @@ function toNumber(value: string | number | null | undefined): number {
 
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export function parsePodtracRange(value: string | null | undefined): PodtracRangeKey {
+  if (value === "60d" || value === "quarter" || value === "ytd" || value === "max") {
+    return value;
+  }
+
+  return "30d";
+}
+
+function addDays(value: string, days: number) {
+  const date = new Date(`${value}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function startOfYear(value: string) {
+  return `${value.slice(0, 4)}-01-01`;
+}
+
+function rangeLabel(key: PodtracRangeKey) {
+  return podtracRangeOptions.find((option) => option.key === key)?.label ?? "30 days";
+}
+
+async function resolvePodtracRange(key: PodtracRangeKey): Promise<PodtracRange> {
+  const rows = await queryRows<DateExtentRow>(`
+    select min(activity_date)::text as min_date, max(activity_date)::text as max_date
+    from podtrac_daily_activity
+  `);
+  const extent = rows[0] ?? { min_date: null, max_date: null };
+
+  if (!extent.min_date || !extent.max_date) {
+    return {
+      key,
+      label: rangeLabel(key),
+      startDate: null,
+      endDate: null,
+      minDate: extent.min_date,
+      maxDate: extent.max_date,
+    };
+  }
+
+  let startDate = extent.min_date;
+
+  if (key === "30d") {
+    startDate = addDays(extent.max_date, -29);
+  } else if (key === "60d") {
+    startDate = addDays(extent.max_date, -59);
+  } else if (key === "quarter") {
+    startDate = addDays(extent.max_date, -89);
+  } else if (key === "ytd") {
+    startDate = startOfYear(extent.max_date);
+  }
+
+  if (startDate < extent.min_date) {
+    startDate = extent.min_date;
+  }
+
+  return {
+    key,
+    label: rangeLabel(key),
+    startDate,
+    endDate: extent.max_date,
+    minDate: extent.min_date,
+    maxDate: extent.max_date,
+  };
 }
 
 function normalizeArray(value: unknown): string[] {
@@ -1498,6 +1663,291 @@ export async function getPodtracDashboard(): Promise<PodtracDashboard> {
       client: row.name,
       downloads: toNumber(row.downloads),
     })),
+  };
+}
+
+async function getCountryDownloadsForRange(range: PodtracRange, limit: number) {
+  if (!range.startDate || !range.endDate) {
+    return [];
+  }
+
+  const rows = await queryRows<CountryRow>(
+    `
+      select
+        pc.name,
+        coalesce(sum(pac.download_count), 0)::text as downloads
+      from podtrac_activity_by_country pac
+      join podtrac_countries pc on pc.podtrac_country_id = pac.podtrac_country_id
+      where pac.activity_date between $1::date and $2::date
+      group by pc.name
+      order by sum(pac.download_count) desc
+      limit $3
+    `,
+    [range.startDate, range.endDate, limit],
+  );
+
+  return rows.map((row) => ({
+    country: row.name,
+    downloads: toNumber(row.downloads),
+  }));
+}
+
+async function getClientDownloadsForRange(range: PodtracRange, limit: number) {
+  if (!range.startDate || !range.endDate) {
+    return [];
+  }
+
+  const rows = await queryRows<CountryRow>(
+    `
+      select
+        pc.name,
+        coalesce(sum(pac.download_count), 0)::text as downloads
+      from podtrac_activity_by_client pac
+      join podtrac_clients pc on pc.podtrac_client_id = pac.podtrac_client_id
+      where pac.activity_date between $1::date and $2::date
+      group by pc.name
+      order by sum(pac.download_count) desc
+      limit $3
+    `,
+    [range.startDate, range.endDate, limit],
+  );
+
+  return rows.map((row) => ({
+    client: row.name,
+    downloads: toNumber(row.downloads),
+  }));
+}
+
+export async function getPodcastStatsDashboard(rangeKey: PodtracRangeKey): Promise<PodcastStatsDashboard> {
+  const range = await resolvePodtracRange(rangeKey);
+
+  if (!range.startDate || !range.endDate) {
+    return {
+      range,
+      counts: {
+        rangeDownloads: 0,
+        allTimeDownloads: 0,
+        podtracEpisodes: 0,
+        podtracMatched: 0,
+        podtracUnmatched: 0,
+      },
+      dailyTrend: [],
+      topEpisodes: [],
+      countryDownloads: [],
+    };
+  }
+
+  const [summaryRows, trendRows, topRows, countryDownloads] = await Promise.all([
+    queryRows<PodcastStatsSummaryRow>(
+      `
+        select
+          (
+            select coalesce(sum(download_count), 0)::text
+            from podtrac_daily_activity
+            where activity_date between $1::date and $2::date
+          ) as range_downloads,
+          (select coalesce(sum(download_count), 0)::text from podtrac_daily_activity) as all_time_downloads,
+          (select count(*)::text from podtrac_episodes) as podtrac_episode_count,
+          (select count(*)::text from podtrac_episodes where track_id is not null) as podtrac_matched_count,
+          (select count(*)::text from podtrac_episodes where track_id is null or match_status = 'unmatched') as podtrac_unmatched_count
+      `,
+      [range.startDate, range.endDate],
+    ),
+    queryRows<TrendRow>(
+      `
+        with days as (
+          select generate_series($1::date, $2::date, interval '1 day')::date as activity_date
+        )
+        select
+          days.activity_date::text as activity_date,
+          coalesce(sum(pda.download_count), 0)::text as downloads
+        from days
+        left join podtrac_daily_activity pda on pda.activity_date = days.activity_date
+        group by days.activity_date
+        order by days.activity_date asc
+      `,
+      [range.startDate, range.endDate],
+    ),
+    queryRows<TopEpisodeRow>(
+      `
+        with podtrac_by_track as (
+          select
+            pe.track_id,
+            max(pe.title) as podtrac_title,
+            coalesce(string_agg(distinct pe.match_status, ', '), 'unmatched') as match_status,
+            coalesce(sum(pda.download_count), 0)::text as downloads
+          from podtrac_episodes pe
+          left join podtrac_daily_activity pda on pda.podtrac_episode_id = pe.podtrac_episode_id
+          where pe.track_id is not null
+          group by pe.track_id
+        )
+        select
+          e.track_id,
+          e.title,
+          e.publish_date,
+          coalesce(pbt.podtrac_title, '') as podtrac_title,
+          coalesce(pbt.match_status, 'unmatched') as match_status,
+          coalesce(pbt.downloads, '0') as downloads
+        from episodes e
+        join podtrac_by_track pbt on pbt.track_id = e.track_id
+        order by coalesce(pbt.downloads::bigint, 0) desc, e.publish_date desc
+        limit 15
+      `,
+    ),
+    getCountryDownloadsForRange(range, 10),
+  ]);
+  const summary = summaryRows[0];
+
+  return {
+    range,
+    counts: {
+      rangeDownloads: toNumber(summary?.range_downloads),
+      allTimeDownloads: toNumber(summary?.all_time_downloads),
+      podtracEpisodes: toNumber(summary?.podtrac_episode_count),
+      podtracMatched: toNumber(summary?.podtrac_matched_count),
+      podtracUnmatched: toNumber(summary?.podtrac_unmatched_count),
+    },
+    dailyTrend: trendRows.map((row) => ({
+      activityDate: row.activity_date,
+      downloads: toNumber(row.downloads),
+    })),
+    topEpisodes: topRows.map((row) => ({
+      trackId: row.track_id,
+      episodeTitle: row.title,
+      publishDate: row.publish_date,
+      podtracEpisodeTitle: row.podtrac_title,
+      matchStatus: row.match_status,
+      totalDownloads: toNumber(row.downloads),
+    })),
+    countryDownloads,
+  };
+}
+
+export async function getEpisodeStatisticsDashboard({
+  rangeKey,
+  trackId,
+}: {
+  rangeKey: PodtracRangeKey;
+  trackId?: string;
+}): Promise<EpisodeStatisticsDashboard> {
+  const range = await resolvePodtracRange(rangeKey);
+
+  if (!range.startDate || !range.endDate) {
+    return {
+      range,
+      episodes: [],
+      selectedEpisode: null,
+      selectedDailyTrend: [],
+      countryDownloads: [],
+      clientDownloads: [],
+    };
+  }
+
+  const episodes = await queryRows<EpisodeStatisticRow>(
+    `
+      with podtrac_by_track as (
+        select
+          pe.track_id,
+          max(pe.title) as podtrac_title,
+          coalesce(string_agg(distinct pe.match_status, ', '), 'unmatched') as match_status,
+          coalesce(sum(pda.download_count), 0)::text as all_time_downloads,
+          coalesce(sum(pda.download_count) filter (where pda.activity_date between $1::date and $2::date), 0)::text as range_downloads,
+          max(pda.activity_date)::text as last_activity_date
+        from podtrac_episodes pe
+        left join podtrac_daily_activity pda on pda.podtrac_episode_id = pe.podtrac_episode_id
+        where pe.track_id is not null
+        group by pe.track_id
+      )
+      select
+        e.track_id,
+        e.title,
+        e.publish_date,
+        coalesce(pbt.podtrac_title, '') as podtrac_title,
+        coalesce(pbt.match_status, 'unmatched') as match_status,
+        coalesce(pbt.all_time_downloads, '0') as all_time_downloads,
+        coalesce(pbt.range_downloads, '0') as range_downloads,
+        pbt.last_activity_date
+      from episodes e
+      join podtrac_by_track pbt on pbt.track_id = e.track_id
+      order by coalesce(pbt.all_time_downloads::bigint, 0) desc, e.publish_date desc
+    `,
+    [range.startDate, range.endDate],
+  );
+  const selectedTrackId = episodes.some((episode) => episode.track_id === trackId)
+    ? trackId
+    : episodes[0]?.track_id;
+
+  const [summaryRows, selectedTrendRows, countryDownloads, clientDownloads] = selectedTrackId
+    ? await Promise.all([
+        queryRows<EpisodeStatisticSummaryRow>(
+          `
+            select
+              coalesce(sum(pda.download_count), 0)::text as all_time_downloads,
+              coalesce(sum(pda.download_count) filter (where pda.activity_date between $2::date and $3::date), 0)::text as range_downloads,
+              min(pda.activity_date)::text as first_activity_date,
+              max(pda.activity_date)::text as last_activity_date
+            from podtrac_episodes pe
+            left join podtrac_daily_activity pda on pda.podtrac_episode_id = pe.podtrac_episode_id
+            where pe.track_id = $1
+          `,
+          [selectedTrackId, range.startDate, range.endDate],
+        ),
+        queryRows<TrendRow>(
+          `
+            with days as (
+              select generate_series($2::date, $3::date, interval '1 day')::date as activity_date
+            )
+            select
+              days.activity_date::text as activity_date,
+              coalesce(sum(pda.download_count), 0)::text as downloads
+            from days
+            left join podtrac_episodes pe on pe.track_id = $1
+            left join podtrac_daily_activity pda
+              on pda.podtrac_episode_id = pe.podtrac_episode_id
+             and pda.activity_date = days.activity_date
+            group by days.activity_date
+            order by days.activity_date asc
+          `,
+          [selectedTrackId, range.startDate, range.endDate],
+        ),
+        getCountryDownloadsForRange(range, 10),
+        getClientDownloadsForRange(range, 10),
+      ])
+    : [[], [], [], []];
+  const selectedBase = episodes.find((episode) => episode.track_id === selectedTrackId);
+  const selectedSummary = summaryRows[0];
+
+  return {
+    range,
+    episodes: episodes.map((row) => ({
+      trackId: row.track_id,
+      title: row.title,
+      publishDate: row.publish_date,
+      podtracEpisodeTitle: row.podtrac_title,
+      matchStatus: row.match_status,
+      allTimeDownloads: toNumber(row.all_time_downloads),
+      rangeDownloads: toNumber(row.range_downloads),
+      lastActivityDate: row.last_activity_date,
+    })),
+    selectedEpisode: selectedBase
+      ? {
+          trackId: selectedBase.track_id,
+          title: selectedBase.title,
+          publishDate: selectedBase.publish_date,
+          podtracEpisodeTitle: selectedBase.podtrac_title,
+          matchStatus: selectedBase.match_status,
+          allTimeDownloads: toNumber(selectedSummary?.all_time_downloads ?? selectedBase.all_time_downloads),
+          rangeDownloads: toNumber(selectedSummary?.range_downloads ?? selectedBase.range_downloads),
+          firstActivityDate: selectedSummary?.first_activity_date ?? null,
+          lastActivityDate: selectedSummary?.last_activity_date ?? selectedBase.last_activity_date,
+        }
+      : null,
+    selectedDailyTrend: selectedTrendRows.map((row) => ({
+      activityDate: row.activity_date,
+      downloads: toNumber(row.downloads),
+    })),
+    countryDownloads,
+    clientDownloads,
   };
 }
 

@@ -35,8 +35,15 @@ export function TopRail({ variant }: TopRailProps) {
       <nav className="top-rail__nav" aria-label={variant === "private" ? "Console navigation" : "Site navigation"}>
         {nav.map((item) => {
           const active = item.href === "/" ? pathname === item.href : pathname.startsWith(item.href);
+          const external = item.href.startsWith("http");
           return (
-            <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined}>
+            <Link
+              key={item.href}
+              href={item.href}
+              aria-current={active ? "page" : undefined}
+              target={external ? "_blank" : undefined}
+              rel={external ? "noopener" : undefined}
+            >
               {item.label}
             </Link>
           );
