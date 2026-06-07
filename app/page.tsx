@@ -2,8 +2,11 @@ import Link from "next/link";
 import Image from "next/image";
 import { TopRail } from "@/components/top-rail";
 import { MountainPanel } from "@/components/mountain-panel";
+import { isCurrentUserAdministrator } from "@/lib/rbac";
 
-export default function Home() {
+export default async function Home() {
+  const isAdministrator = await isCurrentUserAdministrator();
+
   return (
     <>
       <TopRail variant="public" />
@@ -139,20 +142,18 @@ export default function Home() {
           </div>
         </section>
 
-        {/* ── Owner console ────────────────────────────────────────── */}
-        <section className="public-band console-cta-band">
-          <div>
-            <p className="eyebrow">Private Workspace</p>
-            <h2>Owner console access</h2>
-            <p>
-              The Mountain Study Console is protected. Sign in to review stats, source traces,
-              drafts, and pipeline status.
-            </p>
-          </div>
-          <Link className="button button--ghost" href="/overview">
-            Open console →
-          </Link>
-        </section>
+        {isAdministrator ? (
+          <section className="public-band console-cta-band">
+            <div>
+              <p className="eyebrow">Administration</p>
+              <h2>Administrative Health Dashboard</h2>
+              <p>Review corpus coverage, Podtrac linkage, source traces, and pipeline status.</p>
+            </div>
+            <Link className="button button--ghost" href="/overview">
+              Open dashboard →
+            </Link>
+          </section>
+        ) : null}
 
       </main>
 

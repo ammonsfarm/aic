@@ -1,5 +1,6 @@
 import { MountainPanel } from "@/components/mountain-panel";
 import { getOverviewData } from "@/lib/overview-data";
+import { requireAdministrator } from "@/lib/rbac";
 
 const numberFormat = new Intl.NumberFormat("en-US");
 
@@ -34,14 +35,15 @@ function formatShortDate(value: string | null) {
 }
 
 export default async function OverviewPage() {
+  await requireAdministrator();
   const result = await getOverviewData();
 
   return (
     <div className="stack">
       <MountainPanel
-        eyebrow="Overview"
-        title="Morning corpus desk"
-        body="Live serving-database checks for corpus coverage, Podtrac linkage, source-backed intelligence, and pipeline warnings."
+        eyebrow="Administration"
+        title="Administrative Health Dashboard"
+        body="Monitor corpus coverage, Podtrac linkage, transcript and vector coverage, and ingestion health from the serving database."
       />
 
       {!result.ok ? (
@@ -52,7 +54,7 @@ export default async function OverviewPage() {
             <p>
               {result.type === "missing-env"
                 ? `Missing required variables: ${result.missing.join(", ")}. Values are intentionally not shown.`
-                : "The private console is protected, but live overview data could not be read from Postgres."}
+                : "The administrative dashboard is protected, but live overview data could not be read from Postgres."}
             </p>
           </div>
           <div className="status-list" aria-label="Database status">

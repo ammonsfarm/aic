@@ -28,7 +28,7 @@ function safeRedirect(value: string | null) {
     return value;
   }
 
-  return "/overview";
+  return "/podcast";
 }
 
 export function LoginActions({ redirectUrl }: { redirectUrl?: string }) {
@@ -70,7 +70,6 @@ export function LoginActions({ redirectUrl }: { redirectUrl?: string }) {
       <button className="button button--primary" type="button" onClick={openSignIn}>
         Sign in
       </button>
-      <span>Access is limited to approved accounts.</span>
     </div>
   );
 }

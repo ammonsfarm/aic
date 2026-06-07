@@ -8,6 +8,7 @@ import {
   podtracRangeOptions,
   type PodcastStatsDashboard,
 } from "@/lib/podcast-data";
+import { isCurrentUserAdministrator } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -152,9 +153,6 @@ function LineChart({ rows }: { rows: PodcastStatsDashboard["dailyTrend"] }) {
         })}
         {areaPath ? <path d={areaPath} className="line-chart-area" /> : null}
         <path d={smoothPath(points)} className="line-chart-path" />
-        {points.map((point, index) => (
-          <circle key={`${rows[index]?.activityDate}-${index}`} cx={point.x} cy={point.y} r="3" className="line-chart-point" />
-        ))}
         {labelIndexes.map((index) => {
           const row = rows[index];
           const point = points[index];
@@ -236,6 +234,7 @@ export default async function PodcastStatsPage({
     getPodcastStatsDashboard(range),
     countryRange === range ? Promise.resolve(null) : getPodcastStatsDashboard(countryRange),
   ]);
+  const isAdministrator = await isCurrentUserAdministrator();
   const countryRows = countryDashboard?.countryDownloads ?? dashboard.countryDownloads;
 
   return (
@@ -256,9 +255,11 @@ export default async function PodcastStatsPage({
             <Link className="button button--ghost" href="/podcast/episodes">
               Episode Statistics
             </Link>
-            <Link className="button button--ghost" href="/overview">
-              Operations overview
-            </Link>
+            {isAdministrator ? (
+              <Link className="button button--ghost" href="/overview">
+                Administrative Health Dashboard
+              </Link>
+            ) : null}
           </div>
 
           <section className="signal-board stats-hero">

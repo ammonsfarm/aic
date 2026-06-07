@@ -22,23 +22,10 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           />
         </div>
         <div className="login-panel__content">
-          <div className="login-brand">
-            <div>
-              <strong>Pastor Jim Wood</strong>
-              <span>Mountain Study Console</span>
-            </div>
-          </div>
           <div className="login-copy">
-            <p className="eyebrow">Protected workspace</p>
-            <h1>Sign in to the AIC console</h1>
-            <p>
-              Episode search, transcript reading, Podtrac stats, RAG chat, and LLM tools are available only after authentication.
-            </p>
+            <h1>Sign in to the AIC Podcast Console</h1>
           </div>
           <LoginActions redirectUrl={redirectUrl} />
-          <p className="login-note">
-            Access is restricted to approved accounts. The public archive remains closed while the private research tools are being prepared.
-          </p>
         </div>
       </section>
     </main>
