@@ -17,10 +17,13 @@ The podcast/data automation workspace is separate:
 - Local podcast workspace: `/Users/van/firebase/aic_podcast`
 - Server podcast workspace: `ssh farm` then `/mnt/storage/aic_podcast`
 - Gemini transcription workspace: `ssh farm` then `/home/ammonsfarm/gemini-transcribe`
+- Versioned Mac Podtrac ingest source: `ops/podtrac/`
 
 Do not assume a local edit is live. Web app source changes flow local checkout -> GitHub -> `farm`; do not directly edit web app files in `/mnt/storage/aic` except for an explicitly approved emergency hotfix that is immediately backported to Git.
 
 MP3 files, transcript repair, database backfills, vectorization, daily ingest, and long-running automations are different: do that work directly on `farm` in the server data workspaces, because the server is the runtime source of truth for media, databases, MinIO, GCS staging, tmux jobs, cron jobs, and systemd timers.
+
+The Mac Podtrac browser ingest is the exception for Podtrac publisher stats while it depends on the user's signed-in Chrome session. Keep its source in `ops/podtrac/`, install/run it from `/Users/van/firebase/aic_podcast`, and write only to PostgreSQL. Do not reintroduce SQLite into any current Podtrac, transcript, RAG, vector, or intelligence write path.
 
 ## Normal Web App Deployment Flow
 

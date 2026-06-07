@@ -1,5 +1,13 @@
 # AIC Podcast Podtrac Reporting Project
 
+## Current Workflow Notice
+
+The older SQLite/HAR reporting workflow below is historical reference. The
+current daily Podtrac ingest source is tracked in `ops/podtrac/`, runs from
+`/Users/van/firebase/aic_podcast`, uses the signed-in Chrome session when
+needed, and writes directly to PostgreSQL. SQLite should not be used for current
+daily ingest, transcript fixes, RAG/vector updates, or intelligence repair work.
+
 This folder contains a local workflow for turning Podtrac publisher report captures into a normalized SQLite database, generated report images, PDFs, and follow-on CSV analysis.
 
 ## Latest Website Update
