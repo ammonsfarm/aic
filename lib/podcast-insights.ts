@@ -180,18 +180,33 @@ export async function getEpisodeArchiveRows({
     return rows.map(normalizeSearchRow);
   }
 
-    return searchEpisodesByText(normalizedQuery, { limit, scope });
-  }
+  return searchEpisodesByText(normalizedQuery, { limit, scope });
+}
 
 export async function getPipelineRuns(limit = 10): Promise<PipelineRun[]> {
   const rows = await queryRows<PipelineRunRow>(
     `
-      select 'corpus-sync'::text as source, status, started_at::text, completed_at::text, error
-      from sync_runs
-      union all
-      select 'podtrac-sync'::text as source, status, started_at::text, completed_at::text, error
-      from podtrac_sync_runs
-      order by coalesce(completed_at::text, started_at::text) desc
+      select source, status, started_at, completed_at, error
+      from (
+        select
+          'corpus-sync'::text as source,
+          status,
+          started_at::text,
+          completed_at::text,
+          error,
+          coalesce(completed_at, started_at) as sort_at
+        from sync_runs
+        union all
+        select
+          'podtrac-sync'::text as source,
+          status,
+          started_at::text,
+          completed_at::text,
+          error,
+          coalesce(completed_at, started_at) as sort_at
+        from podtrac_sync_runs
+      ) pipeline_runs
+      order by sort_at desc
       limit $1
     `,
     [limit],
