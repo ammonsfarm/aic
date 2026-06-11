@@ -104,8 +104,7 @@ function formatSourceContext(sources: EpisodeChatSource[]) {
     .map((source, index) => {
       const label = `S${index + 1}`;
       const when = source.startTime || source.endTime ? ` (${source.startTime || "?"}-${source.endTime || "?"})` : "";
-      const speaker = source.speakers?.length ? ` • speakers: ${source.speakers.join(", ")}` : "";
-      return `[${label}] ${source.title}${when}${speaker}\n` +
+      return `[${label}] ${source.title}${when}\n` +
         `Track ${source.trackId} (${source.vectorModel || "embedding"}) ${source.sourceType}\n${truncateText(source.text, 850)}`;
     })
     .join("\n\n");
@@ -115,9 +114,8 @@ function formatResearchSourceContext(sources: RagChatSource[]) {
   return sources
     .map((source) => {
       const when = source.startTime || source.endTime ? ` (${source.startTime || "?"}-${source.endTime || "?"})` : "";
-      const speaker = source.speakers?.length ? ` • speakers: ${source.speakers.join(", ")}` : "";
       const lane = source.lane ? ` • lane: ${source.lane}` : "";
-      return `[${source.citationId}] ${source.title}${when}${speaker}${lane}\n` +
+      return `[${source.citationId}] ${source.title}${when}${lane}\n` +
         `Track ${source.trackId} (${source.vectorModel || "indexed"}) ${source.sourceType}\n${truncateText(source.text, 720)}`;
     })
     .join("\n\n");

@@ -53,14 +53,6 @@ type RagChatWidgetProps = {
   starterQuestions?: string[];
 };
 
-function speakerText(speakers: string[]) {
-  if (!speakers.length) {
-    return "";
-  }
-
-  return ` • ${speakers.join(", ")}`;
-}
-
 function sourceTimeLabel(source: ChatSource) {
   if (!source.startTime && !source.endTime) {
     return "transcript context";
@@ -216,7 +208,6 @@ export function RagChatWidget({
                   <div>
                     <p className="chat-source__meta">
                       Track {source.trackId} · {source.publishDate} · {source.sourceType}
-                      {speakerText(source.speakers)}
                     </p>
                     <p>{source.snippet}</p>
                   </div>

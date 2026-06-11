@@ -1517,34 +1517,7 @@ input:disabled {
 
 .transcript-reader__segments {
   display: grid;
-  gap: 24px;
-}
-
-.transcript-speaker-group {
-  display: grid;
-  gap: 10px;
-}
-
-.transcript-speaker-group__head {
-  display: flex;
-  gap: 10px;
-  align-items: baseline;
-  border-bottom: 1px solid var(--line);
-  padding-bottom: 6px;
-}
-
-.transcript-speaker-group__head h4 {
-  margin: 0;
-  color: var(--soft-ink);
-  font-size: 1rem;
-  font-weight: 750;
-}
-
-.transcript-speaker-group__head span {
-  color: var(--soft-ink-muted);
-  font-size: 0.78rem;
-  font-weight: 650;
-  text-transform: capitalize;
+  gap: 14px;
 }
 
 .reader-segment {
@@ -1559,8 +1532,20 @@ input:disabled {
 }
 
 .reader-segment--active {
-  background: var(--cypress-faint);
-  box-shadow: 0 0 0 1px var(--cypress-soft);
+  background: color-mix(in oklch, var(--cypress-faint) 58%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--cypress-soft) 42%, transparent);
+}
+
+.reader-word {
+  border-radius: 4px;
+  padding: 1px 0;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+.reader-word--active {
+  background: color-mix(in oklch, var(--ochre) 42%, var(--parchment));
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--ochre) 58%, var(--line));
 }
 
 .reader-segment[role="button"] {

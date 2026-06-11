@@ -18,25 +18,10 @@ type TranscriptReaderProps = {
   trackId: string;
 };
 
-type SegmentGroup = {
-  key: string;
-  speakerName: string;
-  segmentType: string;
-  paragraphs: TranscriptParagraph[];
-};
-
 type TranscriptParagraph = {
   key: string;
   segments: TranscriptSegment[];
 };
-
-function typeLabel(value: string) {
-  if (!value || value === "speech") {
-    return "";
-  }
-
-  return value.replaceAll("_", " ").trim();
-}
 
 function normalizedSegmentText(value: string) {
   return value.replace(/\s+/g, " ").trim();
@@ -80,39 +65,6 @@ function buildParagraphs(segments: TranscriptSegment[]) {
   return paragraphs;
 }
 
-function groupSegments(segments: TranscriptSegment[]): SegmentGroup[] {
-  const rawGroups: Array<Omit<SegmentGroup, "paragraphs"> & { segments: TranscriptSegment[] }> = [];
-
-  for (const segment of segments) {
-    if (!normalizedSegmentText(segment.text)) {
-      continue;
-    }
-
-    const speakerName = segment.speakerName || "Speaker";
-    const segmentType = segment.segmentType || "speech";
-    const previous = rawGroups.at(-1);
-
-    if (previous && previous.speakerName === speakerName && previous.segmentType === segmentType) {
-      previous.segments.push(segment);
-      continue;
-    }
-
-    rawGroups.push({
-      key: `${segment.segmentId}:group`,
-      speakerName,
-      segmentType,
-      segments: [segment],
-    });
-  }
-
-  return rawGroups.map((group) => ({
-    key: group.key,
-    speakerName: group.speakerName,
-    segmentType: group.segmentType,
-    paragraphs: buildParagraphs(group.segments),
-  }));
-}
-
 function findActiveSegmentIndex(currentTime: number, segments: TranscriptSegment[]) {
   let candidate = -1;
 
@@ -152,8 +104,72 @@ function scrollElementIntoReader(element: HTMLElement, container: HTMLElement) {
   });
 }
 
+function wordParts(value: string) {
+  return normalizedSegmentText(value).split(/(\s+)/).filter(Boolean);
+}
+
+function activeWordIndex(segment: TranscriptSegment, currentTime: number, text: string) {
+  if (segment.startSeconds === null || segment.endSeconds === null || segment.endSeconds <= segment.startSeconds) {
+    return null;
+  }
+
+  if (currentTime < segment.startSeconds || currentTime > segment.endSeconds + 0.35) {
+    return null;
+  }
+
+  const wordCount = wordParts(text).filter((part) => !/^\s+$/.test(part)).length;
+  if (wordCount === 0) {
+    return null;
+  }
+
+  const progress = Math.min(0.999, Math.max(0, (currentTime - segment.startSeconds) / (segment.endSeconds - segment.startSeconds)));
+  return Math.min(wordCount - 1, Math.floor(progress * wordCount));
+}
+
+function SegmentText({
+  segment,
+  isActive,
+  currentTime,
+}: {
+  segment: TranscriptSegment;
+  isActive: boolean;
+  currentTime: number;
+}) {
+  const text = normalizedSegmentText(segment.text);
+  const highlightedWord = isActive ? activeWordIndex(segment, currentTime, text) : null;
+
+  if (highlightedWord === null) {
+    return <>{text}</>;
+  }
+
+  const parts = wordParts(text);
+
+  return (
+    <>
+      {parts.map((part, index) => {
+        if (/^\s+$/.test(part)) {
+          return <span key={`${segment.segmentId}:space:${index}`}>{part}</span>;
+        }
+
+        const wordIndex = parts.slice(0, index + 1).filter((candidate) => !/^\s+$/.test(candidate)).length - 1;
+        const isWordActive = wordIndex === highlightedWord;
+        return (
+          <span
+            key={`${segment.segmentId}:word:${index}`}
+            className={isWordActive ? "reader-word reader-word--active" : "reader-word"}
+            aria-current={isWordActive ? "true" : undefined}
+          >
+            {part}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
 export function TranscriptReader({ audioUrl, segments, trackId }: TranscriptReaderProps) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [currentTime, setCurrentTime] = useState(0);
   const [followAudio, setFollowAudio] = useState(true);
   const [editMode, setEditMode] = useState(false);
   const [editingSegmentId, setEditingSegmentId] = useState<string | null>(null);
@@ -173,7 +189,7 @@ export function TranscriptReader({ audioUrl, segments, trackId }: TranscriptRead
       })),
     [editedTextBySegment, segments],
   );
-  const groupedSegments = useMemo(() => groupSegments(visibleSegments), [visibleSegments]);
+  const paragraphs = useMemo(() => buildParagraphs(visibleSegments), [visibleSegments]);
 
   useEffect(() => {
     if (!followAudio || activeIndex === null) {
@@ -193,6 +209,7 @@ export function TranscriptReader({ audioUrl, segments, trackId }: TranscriptRead
     }
 
     audioRef.current.currentTime = seconds;
+    setCurrentTime(seconds);
     setActiveIndex(findActiveSegmentIndex(seconds, visibleSegments));
   };
 
@@ -201,7 +218,9 @@ export function TranscriptReader({ audioUrl, segments, trackId }: TranscriptRead
       return;
     }
 
-    setActiveIndex(findActiveSegmentIndex(audioRef.current.currentTime, visibleSegments));
+    const time = audioRef.current.currentTime;
+    setCurrentTime(time);
+    setActiveIndex(findActiveSegmentIndex(time, visibleSegments));
   };
 
   const startEditing = (segment: TranscriptSegment) => {
@@ -301,103 +320,95 @@ export function TranscriptReader({ audioUrl, segments, trackId }: TranscriptRead
           </div>
         ) : null}
         <div className="transcript-reader__segments">
-          {groupedSegments.map((group) => (
-            <section key={group.key} className="transcript-speaker-group">
-              <div className="transcript-speaker-group__head">
-                <h4>{group.speakerName}</h4>
-                {typeLabel(group.segmentType) ? <span>{typeLabel(group.segmentType)}</span> : null}
-              </div>
-              {group.paragraphs.map((paragraph) => (
-                <p key={paragraph.key} className="transcript-paragraph">
-                  {paragraph.segments.map((segment, index) => {
-                    const isActive = activeIndex === segment.segmentIndex;
-                    const canSeek = segment.startSeconds !== null && Boolean(audioUrl);
-                    const isEditing = editingSegmentId === segment.segmentId;
-                    const queuedEditId = queuedEdits[segment.segmentId];
+          {paragraphs.map((paragraph) => (
+            <p key={paragraph.key} className="transcript-paragraph">
+              {paragraph.segments.map((segment, index) => {
+                const isActive = activeIndex === segment.segmentIndex;
+                const canSeek = segment.startSeconds !== null && Boolean(audioUrl);
+                const isEditing = editingSegmentId === segment.segmentId;
+                const queuedEditId = queuedEdits[segment.segmentId];
 
-                    return (
-                      <span key={segment.segmentId} className="reader-segment-wrap">
-                        {index > 0 ? " " : null}
-                        {isEditing ? (
-                          <span className="reader-segment-editor">
-                            <textarea
-                              value={draftText}
-                              rows={4}
-                              aria-label="Edit transcript segment"
-                              onChange={(event) => setDraftText(event.target.value)}
-                            />
-                            {editError ? <span className="reader-segment-editor__error">{editError}</span> : null}
-                            <span className="reader-segment-editor__actions">
-                              <button
-                                type="button"
-                                className="button button--primary"
-                                disabled={savingSegmentId === segment.segmentId}
-                                onClick={() => void saveEdit(segment)}
-                              >
-                                {savingSegmentId === segment.segmentId ? "Saving" : "Save correction"}
-                              </button>
-                              <button
-                                type="button"
-                                className="button button--ghost"
-                                disabled={savingSegmentId === segment.segmentId}
-                                onClick={cancelEditing}
-                              >
-                                Cancel
-                              </button>
-                            </span>
-                          </span>
-                        ) : (
-                          <>
-                            <span
-                              ref={(element) => {
-                                if (element) {
-                                  segmentRefs.current.set(segment.segmentIndex, element);
-                                } else {
-                                  segmentRefs.current.delete(segment.segmentIndex);
-                                }
-                              }}
-                              className={`reader-segment ${isActive ? "reader-segment--active" : ""}`}
-                              aria-current={isActive ? "true" : undefined}
-                              role={canSeek ? "button" : undefined}
-                              tabIndex={canSeek ? 0 : undefined}
-                              onClick={canSeek ? () => seekTo(segment.startSeconds) : undefined}
-                              onKeyDown={canSeek ? (event) => {
-                                if (event.key !== "Enter" && event.key !== " ") {
-                                  return;
-                                }
-
-                                event.preventDefault();
-                                seekTo(segment.startSeconds);
-                              } : undefined}
-                            >
-                              {normalizedSegmentText(segment.text)}
-                            </span>
-                            {editMode ? (
-                              <span className="reader-segment-tools">
-                                {queuedEditId ? (
-                                  <span className="reader-segment-status">Queued</span>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    className="reader-segment-edit"
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      startEditing(segment);
-                                    }}
-                                  >
-                                    Edit
-                                  </button>
-                                )}
-                              </span>
-                            ) : null}
-                          </>
-                        )}
+                return (
+                  <span key={segment.segmentId} className="reader-segment-wrap">
+                    {index > 0 ? " " : null}
+                    {isEditing ? (
+                      <span className="reader-segment-editor">
+                        <textarea
+                          value={draftText}
+                          rows={4}
+                          aria-label="Edit transcript segment"
+                          onChange={(event) => setDraftText(event.target.value)}
+                        />
+                        {editError ? <span className="reader-segment-editor__error">{editError}</span> : null}
+                        <span className="reader-segment-editor__actions">
+                          <button
+                            type="button"
+                            className="button button--primary"
+                            disabled={savingSegmentId === segment.segmentId}
+                            onClick={() => void saveEdit(segment)}
+                          >
+                            {savingSegmentId === segment.segmentId ? "Saving" : "Save correction"}
+                          </button>
+                          <button
+                            type="button"
+                            className="button button--ghost"
+                            disabled={savingSegmentId === segment.segmentId}
+                            onClick={cancelEditing}
+                          >
+                            Cancel
+                          </button>
+                        </span>
                       </span>
-                    );
-                  })}
-                </p>
-              ))}
-            </section>
+                    ) : (
+                      <>
+                        <span
+                          ref={(element) => {
+                            if (element) {
+                              segmentRefs.current.set(segment.segmentIndex, element);
+                            } else {
+                              segmentRefs.current.delete(segment.segmentIndex);
+                            }
+                          }}
+                          className={`reader-segment ${isActive ? "reader-segment--active" : ""}`}
+                          aria-current={isActive ? "true" : undefined}
+                          role={canSeek ? "button" : undefined}
+                          tabIndex={canSeek ? 0 : undefined}
+                          onClick={canSeek ? () => seekTo(segment.startSeconds) : undefined}
+                          onKeyDown={canSeek ? (event) => {
+                            if (event.key !== "Enter" && event.key !== " ") {
+                              return;
+                            }
+
+                            event.preventDefault();
+                            seekTo(segment.startSeconds);
+                          } : undefined}
+                        >
+                          <SegmentText segment={segment} isActive={isActive} currentTime={currentTime} />
+                        </span>
+                        {editMode ? (
+                          <span className="reader-segment-tools">
+                            {queuedEditId ? (
+                              <span className="reader-segment-status">Queued</span>
+                            ) : (
+                              <button
+                                type="button"
+                                className="reader-segment-edit"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  startEditing(segment);
+                                }}
+                              >
+                                Edit
+                              </button>
+                            )}
+                          </span>
+                        ) : null}
+                      </>
+                    )}
+                  </span>
+                );
+              })}
+            </p>
           ))}
         </div>
       </div>

@@ -54,8 +54,7 @@ const PROMPTS: ComposePrompt[] = [
 
 function sourceLabel(source: ChatSource) {
   const time = source.startTime && source.endTime ? `${source.startTime}–${source.endTime}` : "transcript context";
-  const people = source.speakers.length ? ` (${source.speakers.join(", ")})` : "";
-  return `${source.sourceType}: ${source.title} · ${time}${people}`;
+  return `${source.sourceType}: ${source.title} · ${time}`;
 }
 
 export function ComposeWorkbench() {
