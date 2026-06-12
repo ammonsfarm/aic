@@ -42,5 +42,6 @@ export const publicNav = [
   { href: "/episodes", label: "Episodes" },
   { href: "/sermons", label: "Sermons" },
   { href: "/research", label: "Research" },
+  { href: "/reading-plan", label: "Reading Plan" },
   { href: "/podcast", label: "Podcast" },
 ];

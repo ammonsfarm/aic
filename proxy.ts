@@ -2,6 +2,7 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
 const isApiRoute = createRouteMatcher(["/api(.*)"]);
+const isPublicPageRoute = createRouteMatcher(["/reading-plan(.*)"]);
 
 export default clerkMiddleware(async (auth, request) => {
   const { userId } = await auth();
@@ -12,6 +13,10 @@ export default clerkMiddleware(async (auth, request) => {
     }
 
     return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+  }
+
+  if (isPublicPageRoute(request)) {
+    return;
   }
 
   if (userId) {

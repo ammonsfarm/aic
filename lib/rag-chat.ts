@@ -1,7 +1,7 @@
 import { queryRows } from "@/lib/db";
 import { getEpisodeRagSources, getEpisodeSummarySources, type EpisodeChatSource } from "@/lib/podcast-data";
 
-type RagProvider = "silo" | "openai";
+export type RagProvider = "silo" | "openai";
 
 type RagChatSource = {
   citationId: string;
@@ -238,6 +238,13 @@ async function callChatModel(messages: Array<{ role: string; content: string }>,
 
     throw error;
   }
+}
+
+export async function callArchiveChatModel(
+  messages: Array<{ role: string; content: string }>,
+  provider: RagProvider = "silo",
+): Promise<{ text: string; model: string }> {
+  return callChatModel(messages, provider);
 }
 
 function buildPrompt(question: string, sources: EpisodeChatSource[]) {
