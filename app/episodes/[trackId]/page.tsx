@@ -114,6 +114,8 @@ export default async function EpisodeDetailPage({
                 submitLabel="Ask episode"
                 sourceLabel="Episode sources"
                 compactMode
+                historyScope="episode"
+                historyTrackId={detail.episode.trackId}
               />
             </div>
           </section>

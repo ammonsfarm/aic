@@ -2,6 +2,7 @@ export type ConsoleNavItem = {
   href: string;
   label: string;
   description: string;
+  adminOnly?: boolean;
 };
 
 export const consoleNav: ConsoleNavItem[] = [
@@ -34,6 +35,12 @@ export const consoleNav: ConsoleNavItem[] = [
     href: "/pipeline",
     label: "Pipeline",
     description: "Ingestion, vectorization, sync, and retry visibility.",
+  },
+  {
+    href: "/admin",
+    label: "Admin",
+    description: "Agent settings and user roles.",
+    adminOnly: true,
   },
 ];
 

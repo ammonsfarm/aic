@@ -8,11 +8,12 @@ import { consoleNav, publicNav } from "@/lib/navigation";
 
 type TopRailProps = {
   variant: "private" | "public";
+  isAdmin?: boolean;
 };
 
-export function TopRail({ variant }: TopRailProps) {
+export function TopRail({ variant, isAdmin = false }: TopRailProps) {
   const pathname = usePathname();
-  const nav = variant === "private" ? consoleNav : publicNav;
+  const nav = variant === "private" ? consoleNav.filter((item) => !item.adminOnly || isAdmin) : publicNav;
 
   return (
     <header className="top-rail">

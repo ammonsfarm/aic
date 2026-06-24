@@ -104,6 +104,7 @@ export default async function PublicEpisodesPage({
             description="Ask about scripture, topics, guests, sermon illustrations, or repeated themes across episodes."
             submitLabel="Ask archive"
             sourceLabel="Retrieved sources"
+            historyScope="archive"
           />
         </RoutePanel>
       </main>

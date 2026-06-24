@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
 
+import { recordRagInteraction } from "@/lib/rag-interactions";
 import { runRagChat } from "@/lib/rag-chat";
 import {
   checkChatRateLimit,
@@ -9,6 +9,7 @@ import {
   validateChatRequestBody,
   validateQuestionLength,
 } from "@/lib/rag-route-guards";
+import { requireSignedInAppUser } from "@/lib/rbac";
 
 type ChatRequest = {
   question?: string;
@@ -23,8 +24,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: bodyError }, { status: 413 });
   }
 
-  const { userId } = await auth.protect();
-  const rateLimit = checkChatRateLimit(request, userId);
+  const appUser = await requireSignedInAppUser();
+  const rateLimit = checkChatRateLimit(request, appUser.clerkUserId);
   if (!rateLimit.ok) {
     return NextResponse.json(
       { error: "Too many chat requests. Try again shortly." },
@@ -40,22 +41,52 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "question is required" }, { status: 400 });
   }
 
-  const questionError = validateQuestionLength(question, Boolean(userId));
+  const questionError = validateQuestionLength(question, true);
   if (questionError) {
     return NextResponse.json({ error: questionError }, { status: 400 });
   }
 
+  const boundedTopK = Number.isFinite(topK) ? topK : 10;
+  const trackId = payload.trackId?.trim() || undefined;
+  const startedAt = Date.now();
+
   try {
     const result = await runRagChat({
       query: question,
-      trackId: payload.trackId?.trim() || undefined,
-      topK: Number.isFinite(topK) ? topK : 10,
+      trackId,
+      topK: boundedTopK,
       provider: resolveRequestedProvider(payload.provider, true),
     });
+    const interaction = await recordRagInteraction({
+      user: appUser,
+      scope: "archive",
+      trackId,
+      question,
+      topK: boundedTopK,
+      result,
+      status: "completed",
+      durationMs: Date.now() - startedAt,
+    }).catch((error) => {
+      console.error("rag-chat history insert failed", error);
+      return null;
+    });
 
-    return NextResponse.json(result);
+    return NextResponse.json({ ...result, interactionId: interaction?.id ?? "" });
   } catch (error) {
+    const publicError = publicChatError(error);
+    await recordRagInteraction({
+      user: appUser,
+      scope: "archive",
+      trackId,
+      question,
+      topK: boundedTopK,
+      status: "failed",
+      error: publicError,
+      durationMs: Date.now() - startedAt,
+    }).catch((insertError) => {
+      console.error("rag-chat failure history insert failed", insertError);
+    });
     console.error("rag-chat request failed", error);
-    return NextResponse.json({ error: publicChatError(error) }, { status: 503 });
+    return NextResponse.json({ error: publicError }, { status: 503 });
   }
 }

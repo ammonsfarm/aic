@@ -1,7 +1,8 @@
 import { queryRows } from "@/lib/db";
+import { getAgentRuntimeSettings, type AgentProvider } from "@/lib/agent-settings";
 import { getEpisodeRagSources, getEpisodeSummarySources, type EpisodeChatSource } from "@/lib/podcast-data";
 
-export type RagProvider = "silo" | "openai";
+export type RagProvider = AgentProvider;
 
 type RagChatSource = {
   citationId: string;
@@ -59,14 +60,14 @@ type SpeakerField = {
   name?: unknown;
 };
 
-function clampProvider(value: string | undefined): RagProvider {
+function normalizeRequestedProvider(value: string | undefined): RagProvider | undefined {
   const normalized = value?.trim().toLowerCase();
 
   if (normalized === "silo" || normalized === "openai") {
     return normalized;
   }
 
-  return "silo";
+  return undefined;
 }
 
 function truncateText(value: string, maxLength: number): string {
@@ -156,9 +157,9 @@ async function extractChatText(payload: unknown): Promise<string> {
   return "";
 }
 
-async function callSiloEndpoint(messages: Array<{ role: string; content: string }>, model: string) {
+async function callSiloEndpoint(messages: Array<{ role: string; content: string }>, model: string, savedApiKey = "") {
   const url = process.env.SILO_CHAT_URL ?? "http://192.168.1.195:4041/v1/chat/completions";
-  const token = process.env.SILO_TEMP_KEY;
+  const token = savedApiKey || process.env.SILO_TEMP_KEY;
 
   if (!token) {
     throw new Error("SILO_TEMP_KEY is not configured");
@@ -187,8 +188,8 @@ async function callSiloEndpoint(messages: Array<{ role: string; content: string 
   return response.json();
 }
 
-async function callOpenAiEndpoint(messages: Array<{ role: string; content: string }>, model: string) {
-  const token = process.env.OPENAI_API_KEY;
+async function callOpenAiEndpoint(messages: Array<{ role: string; content: string }>, model: string, savedApiKey = "") {
+  const token = savedApiKey || process.env.OPENAI_API_KEY;
   const url = process.env.OPENAI_CHAT_URL ?? "https://api.openai.com/v1/chat/completions";
 
   if (!token) {
@@ -216,24 +217,26 @@ async function callOpenAiEndpoint(messages: Array<{ role: string; content: strin
   return response.json();
 }
 
-async function callChatModel(messages: Array<{ role: string; content: string }>, provider: RagProvider): Promise<{ text: string; model: string }> {
-  const defaultModel = process.env.OPENAI_RAG_MODEL || "gpt-5.4-mini";
+async function callChatModel(
+  messages: Array<{ role: string; content: string }>,
+  provider: RagProvider | undefined,
+): Promise<{ text: string; model: string; provider: RagProvider }> {
+  const runtime = await getAgentRuntimeSettings(provider);
 
-  if (provider === "openai") {
-    const model = process.env.OPENAI_CHAT_MODEL || "gpt-4.1-mini";
-    const output = await callOpenAiEndpoint(messages, model);
-    return { text: await extractChatText(output), model };
+  if (runtime.provider === "openai") {
+    const output = await callOpenAiEndpoint(messages, runtime.model, runtime.systemApiKey);
+    return { text: await extractChatText(output), model: runtime.model, provider: runtime.provider };
   }
 
   try {
-    const output = await callSiloEndpoint(messages, defaultModel);
+    const output = await callSiloEndpoint(messages, runtime.model, runtime.systemApiKey);
     const text = await extractChatText(output);
-    return { text, model: defaultModel };
+    return { text, model: runtime.model, provider: runtime.provider };
   } catch (error) {
     if (error instanceof Error && process.env.OPENAI_API_KEY) {
-      const fallbackModel = process.env.OPENAI_CHAT_MODEL || defaultModel.replace("openai-codex/", "");
+      const fallbackModel = process.env.OPENAI_CHAT_MODEL || runtime.model.replace("openai-codex/", "");
       const output = await callOpenAiEndpoint(messages, fallbackModel);
-      return { text: await extractChatText(output), model: fallbackModel };
+      return { text: await extractChatText(output), model: fallbackModel, provider: "openai" };
     }
 
     throw error;
@@ -242,9 +245,10 @@ async function callChatModel(messages: Array<{ role: string; content: string }>,
 
 export async function callArchiveChatModel(
   messages: Array<{ role: string; content: string }>,
-  provider: RagProvider = "silo",
+  provider?: RagProvider,
 ): Promise<{ text: string; model: string }> {
-  return callChatModel(messages, provider);
+  const result = await callChatModel(messages, provider);
+  return { text: result.text, model: result.model };
 }
 
 function buildPrompt(question: string, sources: EpisodeChatSource[]) {
@@ -522,7 +526,7 @@ export async function runRagChat({
     return {
       answer: "Ask a clear question about episodes, sermons, people, or scripture references.",
       query: "",
-      provider: provider ?? "silo",
+      provider: normalizeRequestedProvider(provider) ?? "silo",
       model: "",
       sources: [],
       topEpisodeIds: [],
@@ -534,7 +538,7 @@ export async function runRagChat({
     return {
       answer: "I could not find enough indexed sermon content to answer that question. Try a shorter phrasing or include a clearer topic reference.",
       query: question,
-      provider: provider ?? "silo",
+      provider: normalizeRequestedProvider(provider) ?? "silo",
       model: "",
       sources: [],
       topEpisodeIds: [],
@@ -578,7 +582,7 @@ export async function runRagChat({
     },
   ];
 
-  const selectedProvider = clampProvider(provider);
+  const selectedProvider = normalizeRequestedProvider(provider);
   const chatResult = await callChatModel(messages, selectedProvider);
 
   const text = chatResult.text || "The model returned no answer text. Try rephrasing the question.";
@@ -587,7 +591,7 @@ export async function runRagChat({
   return {
     answer: text,
     query: question,
-    provider: selectedProvider,
+    provider: chatResult.provider,
     model: chatResult.model,
     sources: limitedSources,
     topEpisodeIds: uniqueEpisodeIds,
@@ -604,13 +608,13 @@ export async function runResearchAgent({
   provider?: string;
 }): Promise<RagChatResponse> {
   const question = query.trim();
-  const selectedProvider = clampProvider(provider);
+  const selectedProvider = normalizeRequestedProvider(provider);
 
   if (!question) {
     return {
       answer: "Ask a research question about episodes, guests, scripture passages, sermon illustrations, or themes.",
       query: "",
-      provider: provider ?? "silo",
+      provider: normalizeRequestedProvider(provider) ?? "silo",
       model: "",
       sources: [],
       topEpisodeIds: [],
@@ -680,7 +684,7 @@ export async function runResearchAgent({
     return {
       answer: "I could not find enough indexed corpus material for that question. Try a different phrase, a person name, a Bible passage, or an episode title.",
       query: question,
-      provider: selectedProvider,
+      provider: selectedProvider ?? "silo",
       model: "",
       sources: [],
       topEpisodeIds: [],
@@ -733,7 +737,7 @@ export async function runResearchAgent({
   return {
     answer: chatResult.text || "The model returned no answer text. Try rephrasing the question.",
     query: question,
-    provider: selectedProvider,
+    provider: chatResult.provider,
     model: chatResult.model,
     sources: citedSources,
     topEpisodeIds,

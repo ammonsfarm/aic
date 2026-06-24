@@ -43,6 +43,7 @@ export default function ResearchPage() {
             topK={24}
             starterQuestions={starterQuestions}
             showDiagnostics
+            historyScope="research"
           />
         </RoutePanel>
 

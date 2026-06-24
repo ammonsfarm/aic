@@ -1,17 +1,12 @@
-import { auth } from "@clerk/nextjs/server";
-import { redirect } from "next/navigation";
 import { TopRail } from "@/components/top-rail";
+import { requireSignedInAppUser } from "@/lib/rbac";
 
 export default async function PrivateLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  const { userId } = await auth();
-
-  if (!userId) {
-    redirect("/login");
-  }
+  const appUser = await requireSignedInAppUser();
 
   return (
     <>
-      <TopRail variant="public" />
+      <TopRail variant="private" isAdmin={appUser.role === "Admin"} />
       <main className="public-shell">{children}</main>
     </>
   );
