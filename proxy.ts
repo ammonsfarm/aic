@@ -2,7 +2,7 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
 const isApiRoute = createRouteMatcher(["/api(.*)"]);
-const isPublicPageRoute = createRouteMatcher(["/reading-plan(.*)"]);
+const isPublicPageRoute = createRouteMatcher(["/reading-plan(.*)", "/privacy(.*)"]);
 
 export default clerkMiddleware(async (auth, request) => {
   const { userId } = await auth();
