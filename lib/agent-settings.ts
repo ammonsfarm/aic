@@ -1,5 +1,6 @@
 import "server-only";
 
+import { normalizeReasoningEffort, type AgentReasoningEffort } from "@/lib/agent-models";
 import { queryRows } from "@/lib/db";
 
 export type AgentProvider = "silo" | "openai";
@@ -8,6 +9,7 @@ export type AgentSettingsView = {
   provider: AgentProvider;
   model: string;
   effectiveModel: string;
+  reasoningEffort: AgentReasoningEffort | "";
   hasSystemApiKey: boolean;
   systemApiKeyUpdatedAt: string | null;
   updatedBy: string;
@@ -17,12 +19,14 @@ export type AgentSettingsView = {
 export type AgentRuntimeSettings = {
   provider: AgentProvider;
   model: string;
+  reasoningEffort: AgentReasoningEffort | "";
   systemApiKey: string;
 };
 
 type AgentSettingsRow = {
   provider: string | null;
   model: string | null;
+  reasoning_effort: string | null;
   system_api_key: string | null;
   system_api_key_updated_at: string | null;
   updated_by: string | null;
@@ -49,6 +53,7 @@ async function readSettingsRow() {
       select
         provider,
         model,
+        reasoning_effort,
         system_api_key,
         system_api_key_updated_at::text,
         updated_by,
@@ -71,6 +76,7 @@ export async function getAgentSettingsView(): Promise<AgentSettingsView> {
     provider,
     model,
     effectiveModel: model || defaultModel(provider),
+    reasoningEffort: normalizeReasoningEffort(row?.reasoning_effort),
     hasSystemApiKey: Boolean(row?.system_api_key),
     systemApiKeyUpdatedAt: row?.system_api_key_updated_at ?? null,
     updatedBy: row?.updated_by ?? "",
@@ -82,11 +88,13 @@ export async function getAgentRuntimeSettings(requestedProvider?: string): Promi
   const row = await readSettingsRow();
   const provider = normalizeProvider(requestedProvider ?? row?.provider);
   const model = row?.model?.trim() || defaultModel(provider);
+  const reasoningEffort = normalizeReasoningEffort(row?.reasoning_effort);
   const savedKey = row?.system_api_key?.trim() ?? "";
 
   return {
     provider,
     model,
+    reasoningEffort,
     systemApiKey: savedKey,
   };
 }
@@ -94,17 +102,20 @@ export async function getAgentRuntimeSettings(requestedProvider?: string): Promi
 export async function saveAgentSettings({
   provider,
   model,
+  reasoningEffort,
   systemApiKey,
   clearSystemApiKey,
   updatedBy,
 }: {
   provider: AgentProvider;
   model: string;
+  reasoningEffort?: string;
   systemApiKey?: string;
   clearSystemApiKey?: boolean;
   updatedBy: string;
 }) {
   const normalizedModel = model.trim();
+  const normalizedReasoningEffort = normalizeReasoningEffort(reasoningEffort);
   const trimmedApiKey = systemApiKey?.trim() ?? "";
 
   if (normalizedModel.length > 160) {
@@ -118,45 +129,48 @@ export async function saveAgentSettings({
   if (clearSystemApiKey) {
     await queryRows(
       `
-        insert into agent_settings(settings_key, provider, model, system_api_key, system_api_key_updated_at, updated_by, updated_at)
-        values ('default', $1, $2, '', null, $3, now())
+        insert into agent_settings(settings_key, provider, model, reasoning_effort, system_api_key, system_api_key_updated_at, updated_by, updated_at)
+        values ('default', $1, $2, $3, '', null, $4, now())
         on conflict (settings_key) do update
         set provider = excluded.provider,
             model = excluded.model,
+            reasoning_effort = excluded.reasoning_effort,
             system_api_key = '',
             system_api_key_updated_at = null,
             updated_by = excluded.updated_by,
             updated_at = now()
       `,
-      [provider, normalizedModel, updatedBy],
+      [provider, normalizedModel, normalizedReasoningEffort, updatedBy],
     );
   } else if (trimmedApiKey) {
     await queryRows(
       `
-        insert into agent_settings(settings_key, provider, model, system_api_key, system_api_key_updated_at, updated_by, updated_at)
-        values ('default', $1, $2, $3, now(), $4, now())
+        insert into agent_settings(settings_key, provider, model, reasoning_effort, system_api_key, system_api_key_updated_at, updated_by, updated_at)
+        values ('default', $1, $2, $3, $4, now(), $5, now())
         on conflict (settings_key) do update
         set provider = excluded.provider,
             model = excluded.model,
+            reasoning_effort = excluded.reasoning_effort,
             system_api_key = excluded.system_api_key,
             system_api_key_updated_at = now(),
             updated_by = excluded.updated_by,
             updated_at = now()
       `,
-      [provider, normalizedModel, trimmedApiKey, updatedBy],
+      [provider, normalizedModel, normalizedReasoningEffort, trimmedApiKey, updatedBy],
     );
   } else {
     await queryRows(
       `
-        insert into agent_settings(settings_key, provider, model, updated_by, updated_at)
-        values ('default', $1, $2, $3, now())
+        insert into agent_settings(settings_key, provider, model, reasoning_effort, updated_by, updated_at)
+        values ('default', $1, $2, $3, $4, now())
         on conflict (settings_key) do update
         set provider = excluded.provider,
             model = excluded.model,
+            reasoning_effort = excluded.reasoning_effort,
             updated_by = excluded.updated_by,
             updated_at = now()
       `,
-      [provider, normalizedModel, updatedBy],
+      [provider, normalizedModel, normalizedReasoningEffort, updatedBy],
     );
   }
 

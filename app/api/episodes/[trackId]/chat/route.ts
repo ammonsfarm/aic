@@ -78,7 +78,9 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       return null;
     });
 
-    return NextResponse.json({ ...result, interactionId: interaction?.id ?? "" });
+    const publicResult = { ...result };
+    delete publicResult.usageJson;
+    return NextResponse.json({ ...publicResult, interactionId: interaction?.id ?? "" });
   } catch (error) {
     const publicError = publicChatError(error);
     await recordRagInteraction({

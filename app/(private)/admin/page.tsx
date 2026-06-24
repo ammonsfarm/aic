@@ -1,5 +1,6 @@
 import { AdminConsole } from "@/components/admin-console";
 import { RoutePanel } from "@/components/route-panel";
+import { getSupportedAgentModels } from "@/lib/agent-models";
 import { getAgentSettingsView } from "@/lib/agent-settings";
 import { listAppUsers, requireAdministrator } from "@/lib/rbac";
 
@@ -7,7 +8,8 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminPage() {
   await requireAdministrator("/overview");
-  const [settings, users] = await Promise.all([getAgentSettingsView(), listAppUsers()]);
+  const settings = await getAgentSettingsView();
+  const [users, modelCatalog] = await Promise.all([listAppUsers(), getSupportedAgentModels(settings.provider)]);
 
   return (
     <RoutePanel
@@ -26,7 +28,7 @@ export default async function AdminPage() {
         </div>
       }
     >
-      <AdminConsole initialSettings={settings} initialUsers={users} />
+      <AdminConsole initialSettings={settings} initialUsers={users} initialModelCatalog={modelCatalog} />
     </RoutePanel>
   );
 }

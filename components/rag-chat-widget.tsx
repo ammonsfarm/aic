@@ -38,6 +38,13 @@ type ChatResponse = {
   escalated?: boolean;
   detailEpisodeIds?: string[];
   interactionId?: string;
+  usage?: TokenUsage;
+};
+
+type TokenUsage = {
+  total_tokens: number;
+  input_tokens: number;
+  output_tokens: number;
 };
 
 type ChatHistoryItem = {
@@ -51,6 +58,7 @@ type ChatHistoryItem = {
   sources: ChatSource[];
   retrievalLanes: RetrievalLane[];
   coverageNote: string;
+  usage?: TokenUsage;
   status: "completed" | "failed";
   error: string;
   createdAt: string;
@@ -122,6 +130,7 @@ export function RagChatWidget({
   const [coverageNote, setCoverageNote] = useState("");
   const [providerLabel, setProviderLabel] = useState("");
   const [modelLabel, setModelLabel] = useState("");
+  const [usage, setUsage] = useState<TokenUsage | null>(null);
   const [activeQuestion, setActiveQuestion] = useState("");
   const [historyItems, setHistoryItems] = useState<ChatHistoryItem[]>([]);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
@@ -184,6 +193,7 @@ export function RagChatWidget({
     setSources([]);
     setRetrievalLanes([]);
     setCoverageNote("");
+    setUsage(null);
     setActiveQuestion(trimmedQuestion);
 
     try {
@@ -207,6 +217,7 @@ export function RagChatWidget({
       setCoverageNote(body.coverageNote ?? "");
       setProviderLabel(body.provider);
       setModelLabel(body.model);
+      setUsage(body.usage ?? null);
       setQuestion("");
       await loadHistory();
     } catch {
@@ -225,6 +236,7 @@ export function RagChatWidget({
     setCoverageNote(item.coverageNote ?? "");
     setProviderLabel(item.provider);
     setModelLabel(item.model);
+    setUsage(item.usage ?? null);
     setErrorMessage(item.status === "failed" ? item.error || "This saved interaction failed." : "");
   };
 
@@ -294,12 +306,13 @@ export function RagChatWidget({
               ) : null}
               <div className="chat-answer__content">{answer}</div>
               {coverageNote ? <p className="chat-coverage">{coverageNote}</p> : null}
-              {showDiagnostics && (providerLabel || modelLabel) && (
-                <p className="note" style={{ marginTop: 8 }}>
-                  Answered by {providerLabel}
-                  {modelLabel ? ` / ${modelLabel}` : ""}
-                </p>
-              )}
+          {showDiagnostics && (providerLabel || modelLabel) && (
+            <p className="note" style={{ marginTop: 8 }}>
+              Answered by {providerLabel}
+              {modelLabel ? ` / ${modelLabel}` : ""}
+              {usage?.total_tokens ? ` · ${usage.total_tokens.toLocaleString()} tokens (${usage.input_tokens.toLocaleString()} in / ${usage.output_tokens.toLocaleString()} out)` : ""}
+            </p>
+          )}
               {sources.length > 0 && (
                 <div className="chat-sources">
                   <p className="chat-sources__title">{sourceLabel}</p>

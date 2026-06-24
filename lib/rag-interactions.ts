@@ -18,6 +18,11 @@ export type RagInteractionHistoryItem = {
   sources: unknown[];
   topEpisodeIds: string[];
   coverageNote: string;
+  usage: {
+    total_tokens: number;
+    input_tokens: number;
+    output_tokens: number;
+  };
   status: "completed" | "failed";
   error: string;
   createdAt: string;
@@ -31,6 +36,12 @@ type RagInteractionResult = {
   topEpisodeIds?: string[];
   retrievalLanes?: unknown[];
   coverageNote?: string;
+  usage?: {
+    total_tokens?: number;
+    input_tokens?: number;
+    output_tokens?: number;
+  };
+  usageJson?: unknown;
 };
 
 type RagInteractionRow = {
@@ -46,6 +57,9 @@ type RagInteractionRow = {
   sources: unknown;
   top_episode_ids: unknown;
   coverage_note: string;
+  total_tokens: number;
+  input_tokens: number;
+  output_tokens: number;
   status: "completed" | "failed";
   error: string;
   created_at: string;
@@ -88,6 +102,11 @@ function toHistoryItem(row: RagInteractionRow): RagInteractionHistoryItem {
     sources: jsonArray(row.sources),
     topEpisodeIds: stringArray(row.top_episode_ids),
     coverageNote: row.coverage_note,
+    usage: {
+      total_tokens: row.total_tokens,
+      input_tokens: row.input_tokens,
+      output_tokens: row.output_tokens,
+    },
     status: row.status,
     error: row.error,
     createdAt: row.created_at,
@@ -131,13 +150,17 @@ export async function recordRagInteraction({
         sources,
         top_episode_ids,
         coverage_note,
+        total_tokens,
+        input_tokens,
+        output_tokens,
+        usage_json,
         status,
         error,
         duration_ms
       )
       values (
         $1, $2, $3, nullif($4, ''), $5, $6, $7, $8, $9,
-        $10::jsonb, $11::jsonb, $12::jsonb, $13, $14, $15, $16
+        $10::jsonb, $11::jsonb, $12::jsonb, $13, $14, $15, $16, $17::jsonb, $18, $19, $20
       )
       returning id::text, created_at::text
     `,
@@ -155,6 +178,10 @@ export async function recordRagInteraction({
       JSON.stringify(result?.sources ?? []),
       JSON.stringify(result?.topEpisodeIds ?? []),
       result?.coverageNote ?? "",
+      Math.max(0, Math.trunc(result?.usage?.total_tokens ?? 0)),
+      Math.max(0, Math.trunc(result?.usage?.input_tokens ?? 0)),
+      Math.max(0, Math.trunc(result?.usage?.output_tokens ?? 0)),
+      JSON.stringify(result?.usageJson ?? {}),
       status,
       error ?? "",
       Math.max(0, Math.trunc(durationMs)),
@@ -205,6 +232,9 @@ export async function getUserRagHistory({
         sources,
         top_episode_ids,
         coverage_note,
+        total_tokens,
+        input_tokens,
+        output_tokens,
         status,
         error,
         created_at::text

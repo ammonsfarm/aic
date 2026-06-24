@@ -6,6 +6,7 @@ import { isForbiddenError, requireAdminApiUser } from "@/lib/rbac";
 type AgentSettingsPayload = {
   provider?: unknown;
   model?: unknown;
+  reasoningEffort?: unknown;
   systemApiKey?: unknown;
   clearSystemApiKey?: unknown;
 };
@@ -33,6 +34,7 @@ export async function POST(request: NextRequest) {
     const payload = (await request.json().catch(() => ({}))) as AgentSettingsPayload;
     const provider = normalizeProvider(payload.provider);
     const model = typeof payload.model === "string" ? payload.model.trim() : "";
+    const reasoningEffort = typeof payload.reasoningEffort === "string" ? payload.reasoningEffort.trim() : "";
     const systemApiKey = typeof payload.systemApiKey === "string" ? payload.systemApiKey : "";
     const clearSystemApiKey = payload.clearSystemApiKey === true;
 
@@ -43,6 +45,7 @@ export async function POST(request: NextRequest) {
     const settings = await saveAgentSettings({
       provider,
       model,
+      reasoningEffort,
       systemApiKey,
       clearSystemApiKey,
       updatedBy: admin.email,

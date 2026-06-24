@@ -9,10 +9,26 @@ type AgentSettings = {
   provider: AgentProvider;
   model: string;
   effectiveModel: string;
+  reasoningEffort: "" | "low" | "medium" | "high";
   hasSystemApiKey: boolean;
   systemApiKeyUpdatedAt: string | null;
   updatedBy: string;
   updatedAt: string | null;
+};
+
+type AgentModelOption = {
+  id: string;
+  displayName: string;
+  provider: string;
+  ownedBy: string;
+  availability: string;
+  reasoningEffortLevels: Array<"low" | "medium" | "high">;
+};
+
+type ModelCatalog = {
+  models: AgentModelOption[];
+  source: string;
+  error: string;
 };
 
 type AppUser = {
@@ -27,15 +43,8 @@ type AppUser = {
 type AdminConsoleProps = {
   initialSettings: AgentSettings;
   initialUsers: AppUser[];
+  initialModelCatalog: ModelCatalog;
 };
-
-const modelOptions = [
-  "openai-codex/gpt-5.5",
-  "openai-codex/gpt-5.4",
-  "gpt-5.4-mini",
-  "gpt-4.1-mini",
-  "gpt-4.1",
-];
 
 function formatDate(value: string | null) {
   if (!value) {
@@ -56,10 +65,29 @@ function formatDate(value: string | null) {
   }).format(parsed);
 }
 
-export function AdminConsole({ initialSettings, initialUsers }: AdminConsoleProps) {
+function effortDefault(levels: AgentModelOption["reasoningEffortLevels"], current: AgentSettings["reasoningEffort"]) {
+  if (current && levels.includes(current)) {
+    return current;
+  }
+
+  if (levels.includes("medium")) {
+    return "medium";
+  }
+
+  return levels[0] ?? "";
+}
+
+export function AdminConsole({ initialSettings, initialUsers, initialModelCatalog }: AdminConsoleProps) {
+  const initialModel = initialSettings.model || initialSettings.effectiveModel;
+  const initialModelOption = initialModelCatalog.models.find((option) => option.id === initialModel);
   const [settings, setSettings] = useState(initialSettings);
   const [provider, setProvider] = useState<AgentProvider>(initialSettings.provider);
-  const [model, setModel] = useState(initialSettings.model || initialSettings.effectiveModel);
+  const [model, setModel] = useState(initialModel);
+  const [reasoningEffort, setReasoningEffort] = useState<AgentSettings["reasoningEffort"]>(
+    effortDefault(initialModelOption?.reasoningEffortLevels ?? [], initialSettings.reasoningEffort),
+  );
+  const [modelCatalog, setModelCatalog] = useState(initialModelCatalog);
+  const [loadingModels, setLoadingModels] = useState(false);
   const [systemApiKey, setSystemApiKey] = useState("");
   const [clearSystemApiKey, setClearSystemApiKey] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState("");
@@ -72,6 +100,56 @@ export function AdminConsole({ initialSettings, initialUsers }: AdminConsoleProp
   const [roleMessage, setRoleMessage] = useState("");
   const [roleError, setRoleError] = useState("");
   const [savingRole, setSavingRole] = useState("");
+  const selectedModel = modelCatalog.models.find((option) => option.id === model);
+  const currentModelOption = model && !selectedModel
+    ? [{ id: model, displayName: model, provider, ownedBy: "saved setting", availability: "saved", reasoningEffortLevels: [] }]
+    : [];
+  const modelOptions = [...currentModelOption, ...modelCatalog.models];
+  const effortLevels = selectedModel?.reasoningEffortLevels ?? [];
+
+  const loadModels = async (nextProvider: AgentProvider, nextModel = model) => {
+    setLoadingModels(true);
+    setSettingsError("");
+
+    try {
+      const response = await fetch(`/api/admin/settings/models?provider=${encodeURIComponent(nextProvider)}`);
+      const payload = (await response.json().catch(() => ({}))) as ModelCatalog & { error?: string };
+      if (!response.ok || !Array.isArray(payload.models)) {
+        setSettingsError(payload.error ?? `Model list failed (${response.status})`);
+        return;
+      }
+
+      const nextCatalog = {
+        models: payload.models,
+        source: payload.source ?? "",
+        error: payload.error ?? "",
+      };
+      const nextSelected = nextCatalog.models.find((option) => option.id === nextModel) ?? nextCatalog.models[0];
+      setModelCatalog(nextCatalog);
+
+      if (nextSelected) {
+        setModel(nextSelected.id);
+        setReasoningEffort(effortDefault(nextSelected.reasoningEffortLevels, reasoningEffort));
+      } else {
+        setReasoningEffort("");
+      }
+    } catch {
+      setSettingsError("Could not load supported models.");
+    } finally {
+      setLoadingModels(false);
+    }
+  };
+
+  const onProviderChange = (nextProvider: AgentProvider) => {
+    setProvider(nextProvider);
+    void loadModels(nextProvider);
+  };
+
+  const onModelChange = (nextModel: string) => {
+    setModel(nextModel);
+    const option = modelCatalog.models.find((entry) => entry.id === nextModel);
+    setReasoningEffort(effortDefault(option?.reasoningEffortLevels ?? [], reasoningEffort));
+  };
 
   const saveSettings = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -86,6 +164,7 @@ export function AdminConsole({ initialSettings, initialUsers }: AdminConsoleProp
         body: JSON.stringify({
           provider,
           model,
+          reasoningEffort,
           systemApiKey,
           clearSystemApiKey,
         }),
@@ -100,6 +179,7 @@ export function AdminConsole({ initialSettings, initialUsers }: AdminConsoleProp
       setSettings(payload.settings);
       setProvider(payload.settings.provider);
       setModel(payload.settings.model || payload.settings.effectiveModel);
+      setReasoningEffort(payload.settings.reasoningEffort);
       setSystemApiKey("");
       setClearSystemApiKey(false);
       setSettingsMessage("Agent settings saved.");
@@ -163,7 +243,7 @@ export function AdminConsole({ initialSettings, initialUsers }: AdminConsoleProp
         <form className="admin-form" onSubmit={saveSettings}>
           <label>
             <span>Provider routing</span>
-            <select value={provider} onChange={(event) => setProvider(event.target.value as AgentProvider)}>
+            <select value={provider} onChange={(event) => onProviderChange(event.target.value as AgentProvider)}>
               <option value="silo">silo_ai_svc</option>
               <option value="openai">OpenAI direct</option>
             </select>
@@ -171,17 +251,33 @@ export function AdminConsole({ initialSettings, initialUsers }: AdminConsoleProp
 
           <label>
             <span>Model selection</span>
-            <input
-              list="agent-model-options"
+            <select
               value={model}
-              onChange={(event) => setModel(event.target.value)}
-              placeholder={settings.effectiveModel}
-            />
-            <datalist id="agent-model-options">
+              onChange={(event) => onModelChange(event.target.value)}
+              disabled={loadingModels || modelOptions.length === 0}
+            >
               {modelOptions.map((option) => (
-                <option key={option} value={option} />
+                <option key={option.id} value={option.id}>
+                  {option.displayName} ({option.id})
+                </option>
               ))}
-            </datalist>
+            </select>
+          </label>
+
+          <label>
+            <span>Reasoning effort</span>
+            <select
+              value={reasoningEffort}
+              onChange={(event) => setReasoningEffort(event.target.value as AgentSettings["reasoningEffort"])}
+              disabled={effortLevels.length === 0}
+            >
+              {effortLevels.length === 0 ? <option value="">Not supported by selected model</option> : null}
+              {effortLevels.map((level) => (
+                <option key={level} value={level}>
+                  {level}
+                </option>
+              ))}
+            </select>
           </label>
 
           <label>
@@ -210,6 +306,15 @@ export function AdminConsole({ initialSettings, initialUsers }: AdminConsoleProp
         </form>
 
         <div className="status-list status-list--compact">
+          <span>
+            <strong>Model catalog</strong>
+            {loadingModels ? "Loading supported models" : `${modelCatalog.models.length} model${modelCatalog.models.length === 1 ? "" : "s"} from ${modelCatalog.source}`}
+            {modelCatalog.error ? ` (${modelCatalog.error})` : ""}
+          </span>
+          <span>
+            <strong>Reasoning effort</strong>
+            {reasoningEffort || "Not sent"}
+          </span>
           <span>
             <strong>Stored key</strong>
             {settings.hasSystemApiKey ? `Present, updated ${formatDate(settings.systemApiKeyUpdatedAt)}` : "Not stored"}

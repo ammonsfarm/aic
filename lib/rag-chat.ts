@@ -4,6 +4,12 @@ import { getEpisodeRagSources, getEpisodeSummarySources, type EpisodeChatSource 
 
 export type RagProvider = AgentProvider;
 
+export type RagTokenUsage = {
+  total_tokens: number;
+  input_tokens: number;
+  output_tokens: number;
+};
+
 type RagChatSource = {
   citationId: string;
   lane?: string;
@@ -32,6 +38,8 @@ type RagChatResponse = {
   coverageNote?: string;
   escalated?: boolean;
   detailEpisodeIds?: string[];
+  usage?: RagTokenUsage;
+  usageJson?: unknown;
 };
 
 type ResearchLane = {
@@ -157,7 +165,68 @@ async function extractChatText(payload: unknown): Promise<string> {
   return "";
 }
 
-async function callSiloEndpoint(messages: Array<{ role: string; content: string }>, model: string, savedApiKey = "") {
+function numberField(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : null;
+}
+
+function extractUsagePayload(payload: unknown): Record<string, unknown> | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const candidate = payload as { usage?: unknown };
+  return candidate.usage && typeof candidate.usage === "object" ? candidate.usage as Record<string, unknown> : null;
+}
+
+function extractTokenUsage(payload: unknown): RagTokenUsage {
+  const usage = extractUsagePayload(payload);
+  if (!usage) {
+    return { total_tokens: 0, input_tokens: 0, output_tokens: 0 };
+  }
+
+  let inputTokens =
+    numberField(usage.input_tokens) ??
+    numberField(usage.prompt_tokens) ??
+    numberField(usage.inputTokens) ??
+    numberField(usage.promptTokens) ??
+    0;
+  let outputTokens =
+    numberField(usage.output_tokens) ??
+    numberField(usage.completion_tokens) ??
+    numberField(usage.outputTokens) ??
+    numberField(usage.completionTokens) ??
+    0;
+  let totalTokens =
+    numberField(usage.total_tokens) ??
+    numberField(usage.totalTokens) ??
+    numberField(usage.total) ??
+    0;
+
+  if (!totalTokens && (inputTokens || outputTokens)) {
+    totalTokens = inputTokens + outputTokens;
+  }
+
+  if (!inputTokens && totalTokens && outputTokens) {
+    inputTokens = Math.max(0, totalTokens - outputTokens);
+  }
+
+  if (!outputTokens && totalTokens && inputTokens) {
+    outputTokens = Math.max(0, totalTokens - inputTokens);
+  }
+
+  return {
+    total_tokens: totalTokens,
+    input_tokens: inputTokens,
+    output_tokens: outputTokens,
+  };
+}
+
+async function callSiloEndpoint(
+  messages: Array<{ role: string; content: string }>,
+  model: string,
+  savedApiKey = "",
+  reasoningEffort = "",
+) {
   const url = process.env.SILO_CHAT_URL ?? "http://192.168.1.195:4041/v1/chat/completions";
   const token = savedApiKey || process.env.SILO_TEMP_KEY;
 
@@ -174,7 +243,7 @@ async function callSiloEndpoint(messages: Array<{ role: string; content: string 
     body: JSON.stringify({
       model,
       backend_mode: "codex-direct",
-      reasoning: { effort: "medium" },
+      ...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
       messages,
       stream: false,
     }),
@@ -220,23 +289,41 @@ async function callOpenAiEndpoint(messages: Array<{ role: string; content: strin
 async function callChatModel(
   messages: Array<{ role: string; content: string }>,
   provider: RagProvider | undefined,
-): Promise<{ text: string; model: string; provider: RagProvider }> {
+): Promise<{ text: string; model: string; provider: RagProvider; usage: RagTokenUsage; usageJson: unknown }> {
   const runtime = await getAgentRuntimeSettings(provider);
 
   if (runtime.provider === "openai") {
     const output = await callOpenAiEndpoint(messages, runtime.model, runtime.systemApiKey);
-    return { text: await extractChatText(output), model: runtime.model, provider: runtime.provider };
+    return {
+      text: await extractChatText(output),
+      model: runtime.model,
+      provider: runtime.provider,
+      usage: extractTokenUsage(output),
+      usageJson: extractUsagePayload(output) ?? {},
+    };
   }
 
   try {
-    const output = await callSiloEndpoint(messages, runtime.model, runtime.systemApiKey);
+    const output = await callSiloEndpoint(messages, runtime.model, runtime.systemApiKey, runtime.reasoningEffort);
     const text = await extractChatText(output);
-    return { text, model: runtime.model, provider: runtime.provider };
+    return {
+      text,
+      model: runtime.model,
+      provider: runtime.provider,
+      usage: extractTokenUsage(output),
+      usageJson: extractUsagePayload(output) ?? {},
+    };
   } catch (error) {
     if (error instanceof Error && process.env.OPENAI_API_KEY) {
       const fallbackModel = process.env.OPENAI_CHAT_MODEL || runtime.model.replace("openai-codex/", "");
       const output = await callOpenAiEndpoint(messages, fallbackModel);
-      return { text: await extractChatText(output), model: fallbackModel, provider: "openai" };
+      return {
+        text: await extractChatText(output),
+        model: fallbackModel,
+        provider: "openai",
+        usage: extractTokenUsage(output),
+        usageJson: extractUsagePayload(output) ?? {},
+      };
     }
 
     throw error;
@@ -246,9 +333,9 @@ async function callChatModel(
 export async function callArchiveChatModel(
   messages: Array<{ role: string; content: string }>,
   provider?: RagProvider,
-): Promise<{ text: string; model: string }> {
+): Promise<{ text: string; model: string; usage: RagTokenUsage }> {
   const result = await callChatModel(messages, provider);
-  return { text: result.text, model: result.model };
+  return { text: result.text, model: result.model, usage: result.usage };
 }
 
 function buildPrompt(question: string, sources: EpisodeChatSource[]) {
@@ -595,6 +682,8 @@ export async function runRagChat({
     model: chatResult.model,
     sources: limitedSources,
     topEpisodeIds: uniqueEpisodeIds,
+    usage: chatResult.usage,
+    usageJson: chatResult.usageJson,
   };
 }
 
@@ -745,5 +834,7 @@ export async function runResearchAgent({
     coverageNote,
     escalated: detailSources.length > 0,
     detailEpisodeIds: [...new Set(detailSources.map((source) => source.trackId))],
+    usage: chatResult.usage,
+    usageJson: chatResult.usageJson,
   };
 }
