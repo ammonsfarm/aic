@@ -35,18 +35,32 @@ function formatDate(value: string | null) {
     return "No date";
   }
 
+  const dateOnly = value.slice(0, 10);
+  const parts = dateOnly.split("-").map(Number);
+  const date =
+    parts.length === 3 && parts.every(Number.isFinite)
+      ? new Date(parts[0], parts[1] - 1, parts[2])
+      : new Date(value);
+
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
-  }).format(new Date(value));
+  }).format(date);
 }
 
 function formatCompactDate(value: string) {
+  const dateOnly = value.slice(0, 10);
+  const parts = dateOnly.split("-").map(Number);
+  const date =
+    parts.length === 3 && parts.every(Number.isFinite)
+      ? new Date(parts[0], parts[1] - 1, parts[2])
+      : new Date(value);
+
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
-  }).format(new Date(value));
+  }).format(date);
 }
 
 function smoothPath(points: Array<{ x: number; y: number }>) {
@@ -268,7 +282,7 @@ export default async function PodcastStatsPage({
               <h2>{formatCount(dashboard.counts.rangeDownloads)} downloads</h2>
               <p>
                 Daily Podtrac activity from {formatDate(dashboard.range.startDate)} through {formatDate(dashboard.range.endDate)}.
-                All-time indexed total is {formatCount(dashboard.counts.allTimeDownloads)} downloads.
+                Imported history total is {formatCount(dashboard.counts.allTimeDownloads)} downloads.
               </p>
             </div>
             <div className="status-list status-list--wide">
@@ -300,7 +314,7 @@ export default async function PodcastStatsPage({
 
           <section className="split-board split-board--wide">
             <div>
-              <p className="eyebrow">All time</p>
+              <p className="eyebrow">Imported history</p>
               <h2>Top 15 episodes</h2>
               <TopEpisodeBars rows={dashboard.topEpisodes} />
             </div>

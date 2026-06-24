@@ -2175,6 +2175,13 @@ input:disabled {
   display: block;
 }
 
+.stats-aside small {
+  display: block;
+  color: var(--soft-ink-muted);
+  font-size: 0.80rem;
+  line-height: 1.4;
+}
+
 .stats-hero {
   align-items: stretch;
 }
@@ -2539,6 +2546,10 @@ input:disabled {
 .episode-stat-summary strong {
   color: var(--soft-ink);
   font-size: 1.05rem;
+}
+
+.episode-coverage-note {
+  margin: -4px 0 14px;
 }
 
 .episode-trend-list {

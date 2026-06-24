@@ -423,13 +423,20 @@ export type PodcastStatsDashboard = {
 
 export type EpisodeStatisticsDashboard = {
   range: PodtracRange;
+  summary: {
+    importedDownloads: number;
+    rangeDownloads: number;
+    firstActivityDate: string | null;
+    lastActivityDate: string | null;
+    matchedEpisodes: number;
+  };
   episodes: Array<{
     trackId: string;
     title: string;
     publishDate: string;
     podtracEpisodeTitle: string;
     matchStatus: string;
-    allTimeDownloads: number;
+    importedDownloads: number;
     rangeDownloads: number;
     lastActivityDate: string | null;
   }>;
@@ -439,11 +446,12 @@ export type EpisodeStatisticsDashboard = {
     publishDate: string;
     podtracEpisodeTitle: string;
     matchStatus: string;
-    allTimeDownloads: number;
+    importedDownloads: number;
     rangeDownloads: number;
     lastActivityDate: string | null;
     firstActivityDate: string | null;
   } | null;
+  dailyTrend: Array<{ activityDate: string; downloads: number }>;
   selectedDailyTrend: Array<{ activityDate: string; downloads: number }>;
   countryDownloads: Array<{ country: string; downloads: number }>;
   clientDownloads: Array<{ client: string; downloads: number }>;
@@ -1835,49 +1843,90 @@ export async function getEpisodeStatisticsDashboard({
   if (!range.startDate || !range.endDate) {
     return {
       range,
+      summary: {
+        importedDownloads: 0,
+        rangeDownloads: 0,
+        firstActivityDate: null,
+        lastActivityDate: null,
+        matchedEpisodes: 0,
+      },
       episodes: [],
       selectedEpisode: null,
+      dailyTrend: [],
       selectedDailyTrend: [],
       countryDownloads: [],
       clientDownloads: [],
     };
   }
 
-  const episodes = await queryRows<EpisodeStatisticRow>(
-    `
-      with podtrac_by_track as (
+  const [summaryRows, trendRows, episodes, countryDownloads, clientDownloads] = await Promise.all([
+    queryRows<EpisodeStatisticSummaryRow & { matched_episodes: string }>(
+      `
         select
-          pe.track_id,
-          max(pe.title) as podtrac_title,
-          coalesce(string_agg(distinct pe.match_status, ', '), 'unmatched') as match_status,
           coalesce(sum(pda.download_count), 0)::text as all_time_downloads,
           coalesce(sum(pda.download_count) filter (where pda.activity_date between $1::date and $2::date), 0)::text as range_downloads,
-          max(pda.activity_date)::text as last_activity_date
+          min(pda.activity_date)::text as first_activity_date,
+          max(pda.activity_date)::text as last_activity_date,
+          count(distinct pe.track_id)::text as matched_episodes
         from podtrac_episodes pe
         left join podtrac_daily_activity pda on pda.podtrac_episode_id = pe.podtrac_episode_id
         where pe.track_id is not null
-        group by pe.track_id
-      )
-      select
-        e.track_id,
-        e.title,
-        e.publish_date,
-        coalesce(pbt.podtrac_title, '') as podtrac_title,
-        coalesce(pbt.match_status, 'unmatched') as match_status,
-        coalesce(pbt.all_time_downloads, '0') as all_time_downloads,
-        coalesce(pbt.range_downloads, '0') as range_downloads,
-        pbt.last_activity_date
-      from episodes e
-      join podtrac_by_track pbt on pbt.track_id = e.track_id
-      order by coalesce(pbt.all_time_downloads::bigint, 0) desc, e.publish_date desc
-    `,
-    [range.startDate, range.endDate],
-  );
+      `,
+      [range.startDate, range.endDate],
+    ),
+    queryRows<TrendRow>(
+      `
+        with days as (
+          select generate_series($1::date, $2::date, interval '1 day')::date as activity_date
+        )
+        select
+          days.activity_date::text as activity_date,
+          coalesce(sum(pda.download_count), 0)::text as downloads
+        from days
+        left join podtrac_daily_activity pda on pda.activity_date = days.activity_date
+        group by days.activity_date
+        order by days.activity_date asc
+      `,
+      [range.startDate, range.endDate],
+    ),
+    queryRows<EpisodeStatisticRow>(
+      `
+        with podtrac_by_track as (
+          select
+            pe.track_id,
+            max(pe.title) as podtrac_title,
+            coalesce(string_agg(distinct pe.match_status, ', '), 'unmatched') as match_status,
+            coalesce(sum(pda.download_count), 0)::text as all_time_downloads,
+            coalesce(sum(pda.download_count) filter (where pda.activity_date between $1::date and $2::date), 0)::text as range_downloads,
+            max(pda.activity_date)::text as last_activity_date
+          from podtrac_episodes pe
+          left join podtrac_daily_activity pda on pda.podtrac_episode_id = pe.podtrac_episode_id
+          where pe.track_id is not null
+          group by pe.track_id
+        )
+        select
+          e.track_id,
+          e.title,
+          e.publish_date,
+          coalesce(pbt.podtrac_title, '') as podtrac_title,
+          coalesce(pbt.match_status, 'unmatched') as match_status,
+          coalesce(pbt.all_time_downloads, '0') as all_time_downloads,
+          coalesce(pbt.range_downloads, '0') as range_downloads,
+          pbt.last_activity_date
+        from episodes e
+        join podtrac_by_track pbt on pbt.track_id = e.track_id
+        order by coalesce(pbt.all_time_downloads::bigint, 0) desc, e.publish_date desc
+      `,
+      [range.startDate, range.endDate],
+    ),
+    getCountryDownloadsForRange(range, 10),
+    getClientDownloadsForRange(range, 10),
+  ]);
   const selectedTrackId = episodes.some((episode) => episode.track_id === trackId)
     ? trackId
-    : episodes[0]?.track_id;
+    : undefined;
 
-  const [summaryRows, selectedTrendRows, countryDownloads, clientDownloads] = selectedTrackId
+  const [selectedSummaryRows, selectedTrendRows] = selectedTrackId
     ? await Promise.all([
         queryRows<EpisodeStatisticSummaryRow>(
           `
@@ -1910,22 +1959,28 @@ export async function getEpisodeStatisticsDashboard({
           `,
           [selectedTrackId, range.startDate, range.endDate],
         ),
-        getCountryDownloadsForRange(range, 10),
-        getClientDownloadsForRange(range, 10),
       ])
-    : [[], [], [], []];
+    : [[], []];
   const selectedBase = episodes.find((episode) => episode.track_id === selectedTrackId);
-  const selectedSummary = summaryRows[0];
+  const summary = summaryRows[0];
+  const selectedSummary = selectedSummaryRows[0];
 
   return {
     range,
+    summary: {
+      importedDownloads: toNumber(summary?.all_time_downloads),
+      rangeDownloads: toNumber(summary?.range_downloads),
+      firstActivityDate: summary?.first_activity_date ?? null,
+      lastActivityDate: summary?.last_activity_date ?? null,
+      matchedEpisodes: toNumber(summary?.matched_episodes),
+    },
     episodes: episodes.map((row) => ({
       trackId: row.track_id,
       title: row.title,
       publishDate: row.publish_date,
       podtracEpisodeTitle: row.podtrac_title,
       matchStatus: row.match_status,
-      allTimeDownloads: toNumber(row.all_time_downloads),
+      importedDownloads: toNumber(row.all_time_downloads),
       rangeDownloads: toNumber(row.range_downloads),
       lastActivityDate: row.last_activity_date,
     })),
@@ -1936,12 +1991,16 @@ export async function getEpisodeStatisticsDashboard({
           publishDate: selectedBase.publish_date,
           podtracEpisodeTitle: selectedBase.podtrac_title,
           matchStatus: selectedBase.match_status,
-          allTimeDownloads: toNumber(selectedSummary?.all_time_downloads ?? selectedBase.all_time_downloads),
+          importedDownloads: toNumber(selectedSummary?.all_time_downloads ?? selectedBase.all_time_downloads),
           rangeDownloads: toNumber(selectedSummary?.range_downloads ?? selectedBase.range_downloads),
           firstActivityDate: selectedSummary?.first_activity_date ?? null,
           lastActivityDate: selectedSummary?.last_activity_date ?? selectedBase.last_activity_date,
         }
       : null,
+    dailyTrend: trendRows.map((row) => ({
+      activityDate: row.activity_date,
+      downloads: toNumber(row.downloads),
+    })),
     selectedDailyTrend: selectedTrendRows.map((row) => ({
       activityDate: row.activity_date,
       downloads: toNumber(row.downloads),
