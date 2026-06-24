@@ -39,6 +39,28 @@ function formatCoverage(startDate: string | null, endDate: string | null) {
   return `Imported daily data covers ${formatDate(startDate)} through ${formatDate(endDate)}.`;
 }
 
+function episodeStatsHref({
+  range,
+  trackId,
+  downloadDate,
+  hash,
+}: {
+  range: string;
+  trackId?: string;
+  downloadDate?: string | null;
+  hash?: string;
+}) {
+  const params = new URLSearchParams({ range });
+  if (trackId) {
+    params.set("trackId", trackId);
+  }
+  if (downloadDate) {
+    params.set("downloadDate", downloadDate);
+  }
+
+  return `/podcast/episodes?${params.toString()}${hash ? `#${hash}` : ""}`;
+}
+
 function RangeForm({ value, trackId }: { value: string; trackId?: string }) {
   return (
     <form className="range-form" method="get">
@@ -60,32 +82,108 @@ function RangeForm({ value, trackId }: { value: string; trackId?: string }) {
   );
 }
 
-function EpisodeTrend({ rows }: { rows: Array<{ activityDate: string; downloads: number }> }) {
+function EpisodeTrend({
+  rows,
+  range,
+  trackId,
+  selectedDownloadDate,
+}: {
+  rows: Array<{ activityDate: string; downloads: number }>;
+  range: string;
+  trackId?: string;
+  selectedDownloadDate: string | null;
+}) {
   const maxDownloads = Math.max(...rows.map((row) => row.downloads), 1);
 
   return (
     <div className="episode-trend-list">
-      {rows.map((row) => (
-        <div key={row.activityDate} className="trend-row">
-          <span>{formatDate(row.activityDate)}</span>
-          <div className="trend-row__bar" aria-hidden="true">
-            <i style={{ width: `${Math.max(3, Math.round((row.downloads / maxDownloads) * 100))}%` }} />
-          </div>
-          <strong>{formatCount(row.downloads)}</strong>
-        </div>
-      ))}
+      {rows.map((row) => {
+        const selected = row.activityDate === selectedDownloadDate;
+        return (
+          <Link
+            key={row.activityDate}
+            className={selected ? "trend-row trend-row--selected" : "trend-row"}
+            href={episodeStatsHref({ range, trackId, downloadDate: row.activityDate, hash: "date-drilldown" })}
+            aria-current={selected ? "location" : undefined}
+          >
+            <span>{formatDate(row.activityDate)}</span>
+            <div className="trend-row__bar" aria-hidden="true">
+              <i style={{ width: `${Math.max(3, Math.round((row.downloads / maxDownloads) * 100))}%` }} />
+            </div>
+            <strong>{formatCount(row.downloads)}</strong>
+          </Link>
+        );
+      })}
     </div>
+  );
+}
+
+function DateEpisodeGrid({
+  rows,
+  range,
+  selectedTrackId,
+  selectedDownloadDate,
+}: {
+  rows: Array<{ downloadDate: string; trackId: string; title: string; publishDate: string; downloads: number }>;
+  range: string;
+  selectedTrackId?: string;
+  selectedDownloadDate: string;
+}) {
+  return (
+    <section className="podcast-chart-section episode-date-drilldown" id="date-drilldown">
+      <div className="chart-section-head">
+        <div>
+          <p className="eyebrow">Date drill-down</p>
+          <h2>Episodes downloaded on {formatDate(selectedDownloadDate)}</h2>
+        </div>
+        <Link className="button button--ghost" href={episodeStatsHref({ range, trackId: selectedTrackId })}>
+          Clear Date
+        </Link>
+      </div>
+      <div className="episode-date-grid" role="table" aria-label={`Episode downloads on ${formatDate(selectedDownloadDate)}`}>
+        <div className="episode-date-grid__head" role="row">
+          <span role="columnheader">Download Date</span>
+          <span role="columnheader">Episode</span>
+          <span role="columnheader">Count</span>
+        </div>
+        {rows.length > 0 ? (
+          rows.map((row) => (
+            <Link
+              key={`${row.downloadDate}-${row.trackId}`}
+              className="episode-date-grid__row"
+              href={episodeStatsHref({ range, trackId: row.trackId, downloadDate: row.downloadDate, hash: "date-drilldown" })}
+              role="row"
+            >
+              <span role="cell">{formatDate(row.downloadDate)}</span>
+              <span className="episode-date-grid__episode" role="cell">
+                <strong>{row.title}</strong>
+                <small>{formatDate(row.publishDate)}</small>
+              </span>
+              <span className="episode-date-grid__count" role="cell">{formatCount(row.downloads)}</span>
+            </Link>
+          ))
+        ) : (
+          <div className="episode-date-grid__empty" role="row">
+            <span role="cell">No episode downloads were imported for this date.</span>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
 export default async function EpisodeStatisticsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string; trackId?: string }>;
+  searchParams: Promise<{ range?: string; trackId?: string; downloadDate?: string }>;
 }) {
   const params = await searchParams;
   const range = parsePodtracRange(params.range);
-  const dashboard = await getEpisodeStatisticsDashboard({ rangeKey: range, trackId: params.trackId });
+  const dashboard = await getEpisodeStatisticsDashboard({
+    rangeKey: range,
+    trackId: params.trackId,
+    downloadDate: params.downloadDate,
+  });
   const selected = dashboard.selectedEpisode;
   const activeSummary = selected ?? dashboard.summary;
   const activeTrend = selected ? dashboard.selectedDailyTrend : dashboard.dailyTrend;
@@ -144,7 +242,12 @@ export default async function EpisodeStatisticsPage({
                       ? `${formatCoverage(selected.firstActivityDate, selected.lastActivityDate)} This range is for the selected episode.`
                       : formatCoverage(dashboard.range.minDate, dashboard.range.maxDate)}
                   </p>
-                  <EpisodeTrend rows={activeTrend} />
+                  <EpisodeTrend
+                    rows={activeTrend}
+                    range={dashboard.range.key}
+                    trackId={selected?.trackId}
+                    selectedDownloadDate={dashboard.selectedDownloadDate}
+                  />
                 </>
               ) : (
                 <p className="note">No matched Podtrac episode rows are available.</p>
@@ -185,6 +288,15 @@ export default async function EpisodeStatisticsPage({
             </div>
           </section>
 
+          {dashboard.selectedDownloadDate ? (
+            <DateEpisodeGrid
+              rows={dashboard.dateEpisodeDownloads}
+              range={dashboard.range.key}
+              selectedTrackId={selected?.trackId}
+              selectedDownloadDate={dashboard.selectedDownloadDate}
+            />
+          ) : null}
+
           <section className="podcast-chart-section">
             <div className="chart-section-head">
               <div>
@@ -194,15 +306,19 @@ export default async function EpisodeStatisticsPage({
               <span className="scope-pill">Sorted by imported downloads</span>
             </div>
             <div className="episode-stat-table">
-              {dashboard.episodes.map((episode) => {
-                const selectedRow = episode.trackId === selected?.trackId;
-                return (
-                  <Link
-                    key={episode.trackId}
-                    href={`/podcast/episodes?trackId=${episode.trackId}&range=${dashboard.range.key}`}
-                    className={selectedRow ? "episode-stat-row episode-stat-row--selected" : "episode-stat-row"}
-                    aria-current={selectedRow ? "page" : undefined}
-                  >
+	              {dashboard.episodes.map((episode) => {
+	                const selectedRow = episode.trackId === selected?.trackId;
+	                return (
+	                  <Link
+	                    key={episode.trackId}
+	                    href={episodeStatsHref({
+	                      range: dashboard.range.key,
+	                      trackId: episode.trackId,
+	                      downloadDate: dashboard.selectedDownloadDate,
+	                    })}
+	                    className={selectedRow ? "episode-stat-row episode-stat-row--selected" : "episode-stat-row"}
+	                    aria-current={selectedRow ? "page" : undefined}
+	                  >
                     <span className="episode-stat-row__title">
                       <strong>{episode.title}</strong>
                       <small>{formatDate(episode.publishDate)}</small>

@@ -209,6 +209,14 @@ type EpisodeStatisticSummaryRow = {
   last_activity_date: string | null;
 };
 
+type DateEpisodeDownloadRow = {
+  activity_date: string;
+  track_id: string;
+  title: string;
+  publish_date: string;
+  downloads: string;
+};
+
 type VectorSearchTrackRow = {
   source_type: string;
   track_id: string;
@@ -423,6 +431,7 @@ export type PodcastStatsDashboard = {
 
 export type EpisodeStatisticsDashboard = {
   range: PodtracRange;
+  selectedDownloadDate: string | null;
   summary: {
     importedDownloads: number;
     rangeDownloads: number;
@@ -453,6 +462,13 @@ export type EpisodeStatisticsDashboard = {
   } | null;
   dailyTrend: Array<{ activityDate: string; downloads: number }>;
   selectedDailyTrend: Array<{ activityDate: string; downloads: number }>;
+  dateEpisodeDownloads: Array<{
+    downloadDate: string;
+    trackId: string;
+    title: string;
+    publishDate: string;
+    downloads: number;
+  }>;
   countryDownloads: Array<{ country: string; downloads: number }>;
   clientDownloads: Array<{ client: string; downloads: number }>;
 };
@@ -464,6 +480,19 @@ export const podtracRangeOptions: Array<{ key: PodtracRangeKey; label: string }>
   { key: "ytd", label: "Year to date" },
   { key: "max", label: "Max" },
 ];
+
+function normalizeDateParam(value: string | null | undefined): string | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return null;
+  }
+
+  const date = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
+    return null;
+  }
+
+  return value;
+}
 
 function toNumber(value: string | number | null | undefined): number {
   if (typeof value === "number") {
@@ -1834,15 +1863,19 @@ export async function getPodcastStatsDashboard(rangeKey: PodtracRangeKey): Promi
 export async function getEpisodeStatisticsDashboard({
   rangeKey,
   trackId,
+  downloadDate,
 }: {
   rangeKey: PodtracRangeKey;
   trackId?: string;
+  downloadDate?: string;
 }): Promise<EpisodeStatisticsDashboard> {
   const range = await resolvePodtracRange(rangeKey);
+  const selectedDownloadDate = normalizeDateParam(downloadDate);
 
   if (!range.startDate || !range.endDate) {
     return {
       range,
+      selectedDownloadDate: null,
       summary: {
         importedDownloads: 0,
         rangeDownloads: 0,
@@ -1854,6 +1887,7 @@ export async function getEpisodeStatisticsDashboard({
       selectedEpisode: null,
       dailyTrend: [],
       selectedDailyTrend: [],
+      dateEpisodeDownloads: [],
       countryDownloads: [],
       clientDownloads: [],
     };
@@ -1925,48 +1959,84 @@ export async function getEpisodeStatisticsDashboard({
   const selectedTrackId = episodes.some((episode) => episode.track_id === trackId)
     ? trackId
     : undefined;
+  const selectedDateInRange =
+    selectedDownloadDate && selectedDownloadDate >= range.startDate && selectedDownloadDate <= range.endDate
+      ? selectedDownloadDate
+      : null;
 
-  const [selectedSummaryRows, selectedTrendRows] = selectedTrackId
-    ? await Promise.all([
-        queryRows<EpisodeStatisticSummaryRow>(
+  const selectedSummaryPromise = selectedTrackId
+    ? queryRows<EpisodeStatisticSummaryRow>(
+        `
+          select
+            coalesce(sum(pda.download_count), 0)::text as all_time_downloads,
+            coalesce(sum(pda.download_count) filter (where pda.activity_date between $2::date and $3::date), 0)::text as range_downloads,
+            min(pda.activity_date)::text as first_activity_date,
+            max(pda.activity_date)::text as last_activity_date
+          from podtrac_episodes pe
+          left join podtrac_daily_activity pda on pda.podtrac_episode_id = pe.podtrac_episode_id
+          where pe.track_id = $1
+        `,
+        [selectedTrackId, range.startDate, range.endDate],
+      )
+    : Promise.resolve([] as EpisodeStatisticSummaryRow[]);
+  const selectedTrendPromise = selectedTrackId
+    ? queryRows<TrendRow>(
+        `
+          with days as (
+            select generate_series($2::date, $3::date, interval '1 day')::date as activity_date
+          )
+          select
+            days.activity_date::text as activity_date,
+            coalesce(sum(pda.download_count), 0)::text as downloads
+          from days
+          left join podtrac_episodes pe on pe.track_id = $1
+          left join podtrac_daily_activity pda
+            on pda.podtrac_episode_id = pe.podtrac_episode_id
+           and pda.activity_date = days.activity_date
+          group by days.activity_date
+          order by days.activity_date asc
+        `,
+        [selectedTrackId, range.startDate, range.endDate],
+      )
+    : Promise.resolve([] as TrendRow[]);
+  const dateEpisodePromise = selectedDateInRange
+    ? queryRows<DateEpisodeDownloadRow>(
           `
-            select
-              coalesce(sum(pda.download_count), 0)::text as all_time_downloads,
-              coalesce(sum(pda.download_count) filter (where pda.activity_date between $2::date and $3::date), 0)::text as range_downloads,
-              min(pda.activity_date)::text as first_activity_date,
-              max(pda.activity_date)::text as last_activity_date
-            from podtrac_episodes pe
-            left join podtrac_daily_activity pda on pda.podtrac_episode_id = pe.podtrac_episode_id
-            where pe.track_id = $1
-          `,
-          [selectedTrackId, range.startDate, range.endDate],
-        ),
-        queryRows<TrendRow>(
-          `
-            with days as (
-              select generate_series($2::date, $3::date, interval '1 day')::date as activity_date
+            with daily_by_track as (
+              select
+                pe.track_id,
+                coalesce(sum(pda.download_count), 0)::text as downloads
+              from podtrac_daily_activity pda
+              join podtrac_episodes pe on pe.podtrac_episode_id = pda.podtrac_episode_id
+              where pda.activity_date = $1::date
+                and pe.track_id is not null
+              group by pe.track_id
             )
             select
-              days.activity_date::text as activity_date,
-              coalesce(sum(pda.download_count), 0)::text as downloads
-            from days
-            left join podtrac_episodes pe on pe.track_id = $1
-            left join podtrac_daily_activity pda
-              on pda.podtrac_episode_id = pe.podtrac_episode_id
-             and pda.activity_date = days.activity_date
-            group by days.activity_date
-            order by days.activity_date asc
+              $1::date::text as activity_date,
+              e.track_id,
+              e.title,
+              e.publish_date,
+              dbt.downloads
+            from daily_by_track dbt
+            join episodes e on e.track_id = dbt.track_id
+            order by dbt.downloads::bigint desc, e.publish_date desc, e.title asc
           `,
-          [selectedTrackId, range.startDate, range.endDate],
-        ),
-      ])
-    : [[], []];
+          [selectedDateInRange],
+        )
+    : Promise.resolve([] as DateEpisodeDownloadRow[]);
+  const [selectedSummaryRows, selectedTrendRows, dateEpisodeRows] = await Promise.all([
+    selectedSummaryPromise,
+    selectedTrendPromise,
+    dateEpisodePromise,
+  ]);
   const selectedBase = episodes.find((episode) => episode.track_id === selectedTrackId);
   const summary = summaryRows[0];
   const selectedSummary = selectedSummaryRows[0];
 
   return {
     range,
+    selectedDownloadDate: selectedDateInRange,
     summary: {
       importedDownloads: toNumber(summary?.all_time_downloads),
       rangeDownloads: toNumber(summary?.range_downloads),
@@ -2003,6 +2073,13 @@ export async function getEpisodeStatisticsDashboard({
     })),
     selectedDailyTrend: selectedTrendRows.map((row) => ({
       activityDate: row.activity_date,
+      downloads: toNumber(row.downloads),
+    })),
+    dateEpisodeDownloads: dateEpisodeRows.map((row) => ({
+      downloadDate: row.activity_date,
+      trackId: row.track_id,
+      title: row.title,
+      publishDate: row.publish_date,
       downloads: toNumber(row.downloads),
     })),
     countryDownloads,
