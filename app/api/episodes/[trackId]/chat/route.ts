@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { getRagRetrievalSettings } from "@/lib/agent-settings";
 import { recordRagInteraction } from "@/lib/rag-interactions";
 import { runRagChat } from "@/lib/rag-chat";
 import {
@@ -54,7 +55,9 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     return NextResponse.json({ error: questionError }, { status: 400 });
   }
 
-  const boundedTopK = Number.isFinite(topK) ? topK : 10;
+  const retrievalSettings = await getRagRetrievalSettings();
+  const requestedTopK = Number.isFinite(topK) ? Math.trunc(topK) : retrievalSettings.archiveTopK;
+  const boundedTopK = Math.max(1, Math.min(requestedTopK, retrievalSettings.archiveTopK));
   const startedAt = Date.now();
 
   try {
@@ -62,6 +65,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       query: question,
       trackId,
       topK: boundedTopK,
+      retrievalSettings,
       provider: resolveRequestedProvider(payload.provider, true),
     });
     const interaction = await recordRagInteraction({

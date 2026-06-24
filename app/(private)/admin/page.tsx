@@ -22,6 +22,7 @@ export default async function AdminPage() {
           </p>
           <div className="research-aside__list" aria-label="Admin scope">
             <span>Agent provider, model, and System API_KEY</span>
+            <span>RAG retrieval budgets and cited source caps</span>
             <span>User and Admin role assignment</span>
             <span>Per-user research and episode history</span>
           </div>

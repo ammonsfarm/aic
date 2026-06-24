@@ -40,7 +40,6 @@ export default function ResearchPage() {
             submitLabel="Research"
             sourceLabel="Research sources"
             placeholder="Ask about a theme, person, Bible passage, story, sermon illustration, guest, or repeated teaching across the archive."
-            topK={24}
             starterQuestions={starterQuestions}
             showDiagnostics
             historyScope="research"

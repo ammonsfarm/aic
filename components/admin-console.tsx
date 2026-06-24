@@ -10,11 +10,26 @@ type AgentSettings = {
   model: string;
   effectiveModel: string;
   reasoningEffort: "" | "low" | "medium" | "high";
+  retrieval: RetrievalSettings;
   hasSystemApiKey: boolean;
   systemApiKeyUpdatedAt: string | null;
   updatedBy: string;
   updatedAt: string | null;
 };
+
+type RetrievalSettings = {
+  archiveTopK: number;
+  archiveMaxSources: number;
+  researchSourceBudget: number;
+  researchCandidateEpisodes: number;
+  researchSummaryEpisodes: number;
+  researchDetailExcerpts: number;
+  researchMaxSources: number;
+  researchInterviewInventoryLimit: number;
+  researchInterviewMaxSources: number;
+};
+
+type RetrievalKey = keyof RetrievalSettings;
 
 type AgentModelOption = {
   id: string;
@@ -45,6 +60,78 @@ type AdminConsoleProps = {
   initialUsers: AppUser[];
   initialModelCatalog: ModelCatalog;
 };
+
+const retrievalFields: Array<{
+  key: RetrievalKey;
+  label: string;
+  help: string;
+  min: number;
+  max: number;
+}> = [
+  {
+    key: "researchSourceBudget",
+    label: "Research source budget",
+    help: "First-pass structured and semantic matches per lane.",
+    min: 8,
+    max: 60,
+  },
+  {
+    key: "researchCandidateEpisodes",
+    label: "Candidate episodes",
+    help: "Likely episodes used for summaries and detail search.",
+    min: 1,
+    max: 20,
+  },
+  {
+    key: "researchSummaryEpisodes",
+    label: "Summary episodes",
+    help: "Episode summaries added after candidates are found.",
+    min: 0,
+    max: 12,
+  },
+  {
+    key: "researchDetailExcerpts",
+    label: "Detail excerpts",
+    help: "Full-transcript detail snippets added for exact wording.",
+    min: 0,
+    max: 60,
+  },
+  {
+    key: "researchMaxSources",
+    label: "Standard cited sources",
+    help: "Final cited source cap for normal research questions.",
+    min: 8,
+    max: 80,
+  },
+  {
+    key: "researchInterviewInventoryLimit",
+    label: "Interview inventory",
+    help: "Structured interview items considered for guest questions.",
+    min: 0,
+    max: 120,
+  },
+  {
+    key: "researchInterviewMaxSources",
+    label: "Interview cited sources",
+    help: "Final cited source cap for interview and guest questions.",
+    min: 8,
+    max: 120,
+  },
+  {
+    key: "archiveTopK",
+    label: "Archive matches",
+    help: "Semantic matches used by archive and episode chat.",
+    min: 1,
+    max: 40,
+  },
+  {
+    key: "archiveMaxSources",
+    label: "Archive cited sources",
+    help: "Final source cap for archive and episode chat.",
+    min: 1,
+    max: 40,
+  },
+];
 
 function formatDate(value: string | null) {
   if (!value) {
@@ -88,6 +175,7 @@ export function AdminConsole({ initialSettings, initialUsers, initialModelCatalo
   );
   const [modelCatalog, setModelCatalog] = useState(initialModelCatalog);
   const [loadingModels, setLoadingModels] = useState(false);
+  const [retrieval, setRetrieval] = useState<RetrievalSettings>(initialSettings.retrieval);
   const [systemApiKey, setSystemApiKey] = useState("");
   const [clearSystemApiKey, setClearSystemApiKey] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState("");
@@ -151,6 +239,14 @@ export function AdminConsole({ initialSettings, initialUsers, initialModelCatalo
     setReasoningEffort(effortDefault(option?.reasoningEffortLevels ?? [], reasoningEffort));
   };
 
+  const onRetrievalChange = (key: RetrievalKey, nextValue: string) => {
+    const numericValue = Number(nextValue);
+    setRetrieval((current) => ({
+      ...current,
+      [key]: Number.isFinite(numericValue) ? Math.trunc(numericValue) : current[key],
+    }));
+  };
+
   const saveSettings = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSavingSettings(true);
@@ -165,6 +261,7 @@ export function AdminConsole({ initialSettings, initialUsers, initialModelCatalo
           provider,
           model,
           reasoningEffort,
+          retrieval,
           systemApiKey,
           clearSystemApiKey,
         }),
@@ -180,6 +277,7 @@ export function AdminConsole({ initialSettings, initialUsers, initialModelCatalo
       setProvider(payload.settings.provider);
       setModel(payload.settings.model || payload.settings.effectiveModel);
       setReasoningEffort(payload.settings.reasoningEffort);
+      setRetrieval(payload.settings.retrieval);
       setSystemApiKey("");
       setClearSystemApiKey(false);
       setSettingsMessage("Agent settings saved.");
@@ -235,7 +333,7 @@ export function AdminConsole({ initialSettings, initialUsers, initialModelCatalo
         <div className="admin-section__header">
           <div>
             <p className="eyebrow">Agent settings</p>
-            <h2>Model and system API_KEY</h2>
+            <h2>Model, API_KEY, and retrieval</h2>
           </div>
           <span className="status-item">Effective model: {settings.effectiveModel}</span>
         </div>
@@ -300,6 +398,34 @@ export function AdminConsole({ initialSettings, initialUsers, initialModelCatalo
             <span>Clear stored System API_KEY</span>
           </label>
 
+          <div className="admin-form__group">
+            <div className="admin-form__group-head">
+              <div>
+                <p className="eyebrow">RAG retrieval limits</p>
+                <h3>Source and episode budgets</h3>
+              </div>
+              <p>
+                These values set the server-side defaults and caps for research, archive, and episode questions.
+              </p>
+            </div>
+            <div className="admin-limit-grid">
+              {retrievalFields.map((field) => (
+                <label className="admin-limit-field" key={field.key}>
+                  <span>{field.label}</span>
+                  <input
+                    type="number"
+                    min={field.min}
+                    max={field.max}
+                    step="1"
+                    value={retrieval[field.key]}
+                    onChange={(event) => onRetrievalChange(field.key, event.target.value)}
+                  />
+                  <small>{field.help} Range: {field.min}-{field.max}.</small>
+                </label>
+              ))}
+            </div>
+          </div>
+
           <button className="button button--primary" type="submit" disabled={savingSettings}>
             {savingSettings ? "Saving..." : "Save agent settings"}
           </button>
@@ -318,6 +444,14 @@ export function AdminConsole({ initialSettings, initialUsers, initialModelCatalo
           <span>
             <strong>Stored key</strong>
             {settings.hasSystemApiKey ? `Present, updated ${formatDate(settings.systemApiKeyUpdatedAt)}` : "Not stored"}
+          </span>
+          <span>
+            <strong>Research limits</strong>
+            {settings.retrieval.researchSourceBudget} per lane, {settings.retrieval.researchMaxSources} cited sources
+          </span>
+          <span>
+            <strong>Archive limits</strong>
+            {settings.retrieval.archiveTopK} matches, {settings.retrieval.archiveMaxSources} cited sources
           </span>
           <span>
             <strong>Last settings update</strong>

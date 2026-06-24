@@ -116,7 +116,7 @@ export function RagChatWidget({
   compactMode,
   showDiagnostics = false,
   placeholder = "Ask a question about this content",
-  topK = 12,
+  topK,
   starterQuestions = [],
   historyScope,
   historyTrackId,
@@ -202,7 +202,10 @@ export function RagChatWidget({
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ question: trimmedQuestion, topK }),
+        body: JSON.stringify({
+          question: trimmedQuestion,
+          ...(typeof topK === "number" ? { topK } : {}),
+        }),
       });
 
       const body = (await response.json().catch(() => ({}))) as ChatResponse & { error?: string };

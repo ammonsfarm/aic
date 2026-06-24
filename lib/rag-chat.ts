@@ -1,5 +1,10 @@
 import { queryRows } from "@/lib/db";
-import { getAgentRuntimeSettings, type AgentProvider } from "@/lib/agent-settings";
+import {
+  getAgentRuntimeSettings,
+  getRagRetrievalSettings,
+  type AgentProvider,
+  type RagRetrievalSettings,
+} from "@/lib/agent-settings";
 import { getEpisodeRagSources, getEpisodeSummarySources, type EpisodeChatSource } from "@/lib/podcast-data";
 
 export type RagProvider = AgentProvider;
@@ -533,8 +538,14 @@ async function getInterviewInventorySources(limit: number): Promise<RagChatSourc
   return toResearchSources(rows, "structured inventory");
 }
 
-async function getTranscriptDetailSources(question: string, trackIds: string[], limit: number): Promise<RagChatSource[]> {
-  const uniqueTrackIds = [...new Set(trackIds.map((trackId) => trackId.trim()).filter(Boolean))].slice(0, 10);
+async function getTranscriptDetailSources(question: string, trackIds: string[], maxExcerpts: number): Promise<RagChatSource[]> {
+  const uniqueTrackIds = [...new Set(trackIds.map((trackId) => trackId.trim()).filter(Boolean))];
+  const excerptLimit = Math.max(0, Math.trunc(maxExcerpts));
+  if (excerptLimit === 0) {
+    return [];
+  }
+
+  const hitLimit = Math.max(3, Math.min(Math.ceil(excerptLimit / 3), 20));
   const rows = await queryRows<ResearchSearchRow>(
     `
       with q as (
@@ -590,7 +601,7 @@ async function getTranscriptDetailSources(question: string, trackIds: string[], 
       order by score desc, track_id, segment_index
       limit $4
     `,
-    [question, uniqueTrackIds, Math.max(3, Math.min(limit, 12)), Math.max(3, Math.min(limit * 3, 30))],
+    [question, uniqueTrackIds, hitLimit, excerptLimit],
   );
 
   return toResearchSources(rows, "detail");
@@ -599,15 +610,22 @@ async function getTranscriptDetailSources(question: string, trackIds: string[], 
 export async function runRagChat({
   query,
   trackId,
-  topK = 10,
+  topK,
   provider,
+  retrievalSettings,
 }: {
   query: string;
   trackId?: string;
   topK?: number;
   provider?: string;
+  retrievalSettings?: RagRetrievalSettings;
 }): Promise<RagChatResponse> {
   const question = query.trim();
+  const retrieval = retrievalSettings ?? await getRagRetrievalSettings();
+  const requestedTopK = typeof topK === "number" && Number.isFinite(topK)
+    ? Math.trunc(topK)
+    : retrieval.archiveTopK;
+  const boundedTopK = Math.max(1, Math.min(requestedTopK, retrieval.archiveTopK));
 
   if (!question) {
     return {
@@ -620,7 +638,7 @@ export async function runRagChat({
     };
   }
 
-  const sources = await getEpisodeRagSources(question, { trackId, topK: Math.max(1, Math.min(topK, 40)) });
+  const sources = await getEpisodeRagSources(question, { trackId, topK: boundedTopK });
   if (!sources.length) {
     return {
       answer: "I could not find enough indexed sermon content to answer that question. Try a shorter phrasing or include a clearer topic reference.",
@@ -635,9 +653,10 @@ export async function runRagChat({
   const episodeIdsForSummaries = [...new Set(sources.map((source) => source.trackId))].slice(0, 4);
   const summarySources = await getEpisodeSummarySources(episodeIdsForSummaries);
   const combinedSources = [...summarySources, ...sources];
+  const sourceLimit = Math.max(1, Math.min(boundedTopK + 4, retrieval.archiveMaxSources));
 
   const limitedSources = combinedSources
-    .slice(0, Math.max(1, Math.min(topK + 4, 16)))
+    .slice(0, sourceLimit)
     .map((source) => ({
       citationId: "",
       sourceType: source.sourceType,
@@ -689,15 +708,18 @@ export async function runRagChat({
 
 export async function runResearchAgent({
   query,
-  topK = 18,
+  topK,
   provider,
+  retrievalSettings,
 }: {
   query: string;
   topK?: number;
   provider?: string;
+  retrievalSettings?: RagRetrievalSettings;
 }): Promise<RagChatResponse> {
   const question = query.trim();
   const selectedProvider = normalizeRequestedProvider(provider);
+  const retrieval = retrievalSettings ?? await getRagRetrievalSettings();
 
   if (!question) {
     return {
@@ -714,11 +736,16 @@ export async function runResearchAgent({
     };
   }
 
-  const boundedTopK = Math.max(8, Math.min(topK, 36));
+  const requestedTopK = typeof topK === "number" && Number.isFinite(topK)
+    ? Math.trunc(topK)
+    : retrieval.researchSourceBudget;
+  const boundedTopK = Math.max(8, Math.min(requestedTopK, retrieval.researchSourceBudget));
   const [structuredMatches, vectorMatches, inventoryMatches] = await Promise.all([
     getStructuredResearchSources(question, boundedTopK),
     getEpisodeRagSources(question, { topK: boundedTopK }),
-    isInterviewInventoryQuestion(question) ? getInterviewInventorySources(60) : Promise.resolve([]),
+    isInterviewInventoryQuestion(question)
+      ? getInterviewInventorySources(retrieval.researchInterviewInventoryLimit)
+      : Promise.resolve([]),
   ]);
 
   const vectorSources = vectorMatches.map((source) => ({
@@ -738,10 +765,11 @@ export async function runResearchAgent({
     vectorModel: source.vectorModel,
   }));
 
-  const seedEpisodeIds = [...new Set([...structuredMatches, ...inventoryMatches, ...vectorSources].map((source) => source.trackId))].slice(0, 8);
+  const seedEpisodeIds = [...new Set([...structuredMatches, ...inventoryMatches, ...vectorSources].map((source) => source.trackId))]
+    .slice(0, retrieval.researchCandidateEpisodes);
   const [summarySources, detailSources] = await Promise.all([
-    getEpisodeSummarySources(seedEpisodeIds.slice(0, 6)),
-    getTranscriptDetailSources(question, seedEpisodeIds, 10),
+    getEpisodeSummarySources(seedEpisodeIds.slice(0, retrieval.researchSummaryEpisodes)),
+    getTranscriptDetailSources(question, seedEpisodeIds, retrieval.researchDetailExcerpts),
   ]);
 
   const orientationSources = summarySources.map((source) => ({
@@ -762,7 +790,7 @@ export async function runResearchAgent({
   }));
 
   const combinedSources = dedupeSources([
-    ...inventoryMatches.slice(0, 60),
+    ...inventoryMatches.slice(0, retrieval.researchInterviewInventoryLimit),
     ...structuredMatches.slice(0, boundedTopK),
     ...vectorSources.slice(0, boundedTopK),
     ...detailSources,
@@ -784,8 +812,11 @@ export async function runResearchAgent({
     };
   }
 
+  const citedSourceLimit = isInterviewInventoryQuestion(question)
+    ? retrieval.researchInterviewMaxSources
+    : retrieval.researchMaxSources;
   const citedSources = combinedSources
-    .slice(0, isInterviewInventoryQuestion(question) ? 72 : 40)
+    .slice(0, citedSourceLimit)
     .map((source, index) => ({
       ...source,
       citationId: `S${index + 1}`,

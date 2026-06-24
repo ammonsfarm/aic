@@ -7,6 +7,7 @@ type AgentSettingsPayload = {
   provider?: unknown;
   model?: unknown;
   reasoningEffort?: unknown;
+  retrieval?: unknown;
   systemApiKey?: unknown;
   clearSystemApiKey?: unknown;
 };
@@ -35,6 +36,9 @@ export async function POST(request: NextRequest) {
     const provider = normalizeProvider(payload.provider);
     const model = typeof payload.model === "string" ? payload.model.trim() : "";
     const reasoningEffort = typeof payload.reasoningEffort === "string" ? payload.reasoningEffort.trim() : "";
+    const retrieval = payload.retrieval && typeof payload.retrieval === "object"
+      ? payload.retrieval as Record<string, unknown>
+      : undefined;
     const systemApiKey = typeof payload.systemApiKey === "string" ? payload.systemApiKey : "";
     const clearSystemApiKey = payload.clearSystemApiKey === true;
 
@@ -46,6 +50,7 @@ export async function POST(request: NextRequest) {
       provider,
       model,
       reasoningEffort,
+      retrieval,
       systemApiKey,
       clearSystemApiKey,
       updatedBy: admin.email,

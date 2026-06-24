@@ -1429,6 +1429,54 @@ input:disabled {
   align-items: end;
 }
 
+.admin-form__group {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 12px;
+  margin-top: 4px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.admin-form__group-head {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.48fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.admin-form__group-head h3,
+.admin-form__group-head p {
+  margin: 0;
+}
+
+.admin-form__group-head h3 {
+  font-size: 1rem;
+}
+
+.admin-form__group-head > p {
+  max-width: 68ch;
+  color: var(--soft-ink-muted);
+  font-size: 0.86rem;
+}
+
+.admin-limit-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.admin-limit-field {
+  align-content: start;
+  min-width: 0;
+}
+
+.admin-limit-field small {
+  color: var(--soft-ink-muted);
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
 .admin-role-form {
   grid-template-columns: minmax(220px, 1fr) minmax(140px, 0.35fr) auto;
   align-items: end;
@@ -1441,7 +1489,8 @@ input:disabled {
 }
 
 .admin-form label > span,
-.admin-role-form label > span {
+.admin-role-form label > span,
+.admin-limit-field > span {
   color: var(--soft-ink-muted);
   font-size: 0.78rem;
   font-weight: 700;
@@ -3286,9 +3335,13 @@ input:focus {
   .compose-grid,
   .research-lanes,
   .research-method,
-  .overview-grid,
-  .split-board,
-  .split-board--wide { grid-template-columns: 1fr; }
+	  .overview-grid,
+	  .admin-form,
+	  .admin-role-form,
+	  .admin-form__group-head,
+	  .admin-limit-grid,
+	  .split-board,
+	  .split-board--wide { grid-template-columns: 1fr; }
 
   .trend-row,
   .stats-ranked-row,
