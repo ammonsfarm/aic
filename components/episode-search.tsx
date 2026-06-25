@@ -240,23 +240,25 @@ export function EpisodeSearchPanel({
         </label>
         <div className="episode-control episode-control--mode">
           <span className="episode-control__label">Search mode</span>
-          <div className="episode-control__row">
-            <select
-              id="episode-search-mode"
-              value={mode}
-              onChange={(event) => setMode(event.target.value as SearchMode)}
-              title="Use text-only mode for exact name or metadata matching, or hybrid for transcript and RAG-aware results."
-            >
-              <option value="hybrid">Hybrid text + vector</option>
-              <option value="text">Text only</option>
-            </select>
-            <span className="mode-help" tabIndex={0} aria-label="Search mode help">
-              ?
-              <span className="mode-help__text" role="tooltip">
-                Text-only is best for exact names and metadata. Hybrid also uses transcript and RAG-aware matches.
-              </span>
+          <button
+            type="button"
+            className="mode-help"
+            aria-label="Search mode help"
+            title="Text-only is best for exact names and metadata. Hybrid also uses transcript and RAG-aware matches."
+          >
+            *
+            <span className="mode-help__text" role="tooltip">
+              Text-only is best for exact names and metadata. Hybrid also uses transcript and RAG-aware matches.
             </span>
-          </div>
+          </button>
+          <select
+            id="episode-search-mode"
+            value={mode}
+            onChange={(event) => setMode(event.target.value as SearchMode)}
+          >
+            <option value="hybrid">Hybrid text + vector</option>
+            <option value="text">Text only</option>
+          </select>
         </div>
 
         <label htmlFor="episode-search-scope" className="sr-only">
