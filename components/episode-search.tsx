@@ -2,7 +2,7 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import Link from "next/link";
-import type { EpisodeSearchScope } from "@/lib/podcast-data";
+import type { EpisodeSearchScope, EpisodeSortOrder } from "@/lib/podcast-data";
 
 type SearchMode = "hybrid" | "text";
 
@@ -37,6 +37,9 @@ type EpisodeSearchProps = {
   defaultMode?: SearchMode;
   defaultTopK?: number;
   defaultScope?: EpisodeSearchScope;
+  defaultDateStart?: string;
+  defaultDateEnd?: string;
+  defaultSort?: EpisodeSortOrder;
   trackId?: string;
   includeTrackFilter?: boolean;
   showInternalStatus?: boolean;
@@ -85,6 +88,9 @@ async function searchEpisodes(payload: {
   topK: number;
   trackId?: string;
   scope: EpisodeSearchScope;
+  dateStart?: string;
+  dateEnd?: string;
+  sort: EpisodeSortOrder;
   includeInternal?: boolean;
 }): Promise<SearchApiResponse> {
   const params = new URLSearchParams({
@@ -93,7 +99,16 @@ async function searchEpisodes(payload: {
     top_k: String(payload.topK),
     text_only: payload.mode === "text" ? "true" : "false",
     scope: payload.scope,
+    sort: payload.sort,
   });
+
+  if (payload.dateStart) {
+    params.set("date_start", payload.dateStart);
+  }
+
+  if (payload.dateEnd) {
+    params.set("date_end", payload.dateEnd);
+  }
 
   if (payload.includeInternal) {
     params.set("include_internal", "true");
@@ -120,6 +135,9 @@ export function EpisodeSearchPanel({
   defaultMode = "hybrid",
   defaultTopK = 20,
   defaultScope = "all",
+  defaultDateStart = "",
+  defaultDateEnd = "",
+  defaultSort = "relevance",
   trackId,
   includeTrackFilter = false,
   showInternalStatus = false,
@@ -131,6 +149,9 @@ export function EpisodeSearchPanel({
   const [query, setQuery] = useState(defaultQuery);
   const [scope, setScope] = useState<EpisodeSearchScope>(defaultScope);
   const [topK, setTopK] = useState(defaultTopK);
+  const [dateStart, setDateStart] = useState(defaultDateStart);
+  const [dateEnd, setDateEnd] = useState(defaultDateEnd);
+  const [sort, setSort] = useState<EpisodeSortOrder>(defaultSort);
   const [results, setResults] = useState<EpisodeRow[]>(initialRows);
   const [total, setTotal] = useState(initialTotal ?? initialRows.length);
   const [loading, setLoading] = useState(false);
@@ -151,13 +172,10 @@ export function EpisodeSearchPanel({
     topK: number;
     trackId?: string;
     scope: EpisodeSearchScope;
+    dateStart?: string;
+    dateEnd?: string;
+    sort: EpisodeSortOrder;
   }) => {
-    if (!payload.query.trim()) {
-      setError("");
-      setStatusMessage("Enter a search phrase or browse using recent rows.");
-      return;
-    }
-
     setLoading(true);
     setError("");
 
@@ -169,11 +187,18 @@ export function EpisodeSearchPanel({
         topK: payload.topK,
         trackId: payload.trackId,
         scope: payload.scope,
+        dateStart: payload.dateStart,
+        dateEnd: payload.dateEnd,
+        sort: payload.sort,
         includeInternal: showInternalStatus,
       });
       setResults(response.results);
       setTotal(response.total);
-      setStatusMessage(`${response.mode.toUpperCase()} search returned ${response.total} episode row(s).`);
+      setStatusMessage(
+        payload.query.trim()
+          ? `${response.mode.toUpperCase()} search returned ${response.total} episode row(s).`
+          : `Archive browse returned ${response.total} episode row(s).`,
+      );
     } catch (searchError) {
       setError(searchError instanceof Error ? searchError.message : "Search request failed.");
       setResults([]);
@@ -185,12 +210,12 @@ export function EpisodeSearchPanel({
 
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    void runSearch({ query, mode, topK, trackId, scope });
+    void runSearch({ query, mode, topK, trackId, scope, dateStart, dateEnd, sort });
   };
 
   const onQuickSearch = (value: string) => {
     setQuery(value);
-    void runSearch({ query: value, mode, topK, trackId, scope });
+    void runSearch({ query: value, mode, topK, trackId, scope, dateStart, dateEnd, sort });
   };
 
   return (
@@ -199,56 +224,119 @@ export function EpisodeSearchPanel({
         <label htmlFor="episode-search-query" className="sr-only">
           Search episodes
         </label>
-        <input
-          id="episode-search-query"
-          type="text"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search by title, scripture, guest name, sermon theme, story, or question"
-        />
+        <div className="episode-toolbar__wide">
+          <input
+            id="episode-search-query"
+            type="text"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search by title, scripture, guest name, sermon theme, story, or question"
+          />
+        </div>
 
         <label htmlFor="episode-search-mode" className="sr-only">
           Search mode
         </label>
-        <select
-          id="episode-search-mode"
-          value={mode}
-          onChange={(event) => setMode(event.target.value as SearchMode)}
-        >
-          <option value="hybrid">Hybrid text + vector</option>
-          <option value="text">Text only</option>
-        </select>
+        <div className="episode-control episode-control--mode">
+          <span className="episode-control__label">Search mode</span>
+          <div className="episode-control__row">
+            <select
+              id="episode-search-mode"
+              value={mode}
+              onChange={(event) => setMode(event.target.value as SearchMode)}
+              title="Use text-only mode for exact name or metadata matching, or hybrid for transcript and RAG-aware results."
+            >
+              <option value="hybrid">Hybrid text + vector</option>
+              <option value="text">Text only</option>
+            </select>
+            <span className="mode-help" tabIndex={0} aria-label="Search mode help">
+              ?
+              <span className="mode-help__text" role="tooltip">
+                Text-only is best for exact names and metadata. Hybrid also uses transcript and RAG-aware matches.
+              </span>
+            </span>
+          </div>
+        </div>
 
         <label htmlFor="episode-search-scope" className="sr-only">
           Search scope
         </label>
-        <select
-          id="episode-search-scope"
-          value={scope}
-          onChange={(event) => setScope(event.target.value as EpisodeSearchScope)}
-        >
-          <option value="all">All content</option>
-          <option value="title">Title and metadata</option>
-          <option value="passage">Bible passage</option>
-          <option value="guest">Guest or person</option>
-          <option value="interview">Interview</option>
-          <option value="theme">Theme, story, or illustration</option>
-        </select>
+        <div className="episode-control">
+          <span className="episode-control__label">Search scope</span>
+          <select
+            id="episode-search-scope"
+            value={scope}
+            onChange={(event) => setScope(event.target.value as EpisodeSearchScope)}
+          >
+            <option value="all">All content</option>
+            <option value="title">Title and metadata</option>
+            <option value="passage">Bible passage</option>
+            <option value="guest">Guest or person</option>
+            <option value="interview">Interview</option>
+            <option value="theme">Theme, story, or illustration</option>
+          </select>
+        </div>
+
+        <label htmlFor="episode-date-start" className="sr-only">
+          From date
+        </label>
+        <div className="episode-control episode-control--date">
+          <span className="episode-control__label">From</span>
+          <input
+            id="episode-date-start"
+            type="date"
+            value={dateStart}
+            onChange={(event) => setDateStart(event.target.value)}
+          />
+        </div>
+
+        <label htmlFor="episode-date-end" className="sr-only">
+          To date
+        </label>
+        <div className="episode-control episode-control--date">
+          <span className="episode-control__label">To</span>
+          <input
+            id="episode-date-end"
+            type="date"
+            value={dateEnd}
+            onChange={(event) => setDateEnd(event.target.value)}
+          />
+        </div>
+
+        <label htmlFor="episode-search-sort" className="sr-only">
+          Sort by
+        </label>
+        <div className="episode-control">
+          <span className="episode-control__label">Sort by</span>
+          <select
+            id="episode-search-sort"
+            value={sort}
+            onChange={(event) => setSort(event.target.value as EpisodeSortOrder)}
+          >
+            <option value="relevance">Relevance</option>
+            <option value="date_desc">Date, newest first</option>
+            <option value="date_asc">Date, oldest first</option>
+            <option value="title_asc">Title A-Z</option>
+          </select>
+        </div>
 
         <label htmlFor="episode-search-topk" className="sr-only">
           Max results
         </label>
-        <select
-          id="episode-search-topk"
-          value={String(topK)}
-          onChange={(event) => setTopK(Number(event.target.value))}
-        >
-          {topOptions.map((value) => (
-            <option key={value} value={value}>
-              {value} result{value === 1 ? "" : "s"}
-            </option>
-          ))}
-        </select>
+        <div className="episode-control">
+          <span className="episode-control__label">Results</span>
+          <select
+            id="episode-search-topk"
+            value={String(topK)}
+            onChange={(event) => setTopK(Number(event.target.value))}
+          >
+            {topOptions.map((value) => (
+              <option key={value} value={value}>
+                {value} result{value === 1 ? "" : "s"}
+              </option>
+            ))}
+          </select>
+        </div>
 
         {includeTrackFilter && trackId ? (
           <span className="scope-pill">

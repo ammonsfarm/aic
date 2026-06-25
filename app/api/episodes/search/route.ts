@@ -3,7 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 
 import { getEpisodeArchiveRows } from "@/lib/podcast-insights";
 import { searchEpisodesByText, searchEpisodesWithVectorFallback } from "@/lib/podcast-data";
-import type { EpisodeSearchScope } from "@/lib/podcast-data";
+import type { EpisodeSearchScope, EpisodeSortOrder } from "@/lib/podcast-data";
 
 type EpisodeSearchResponse = {
   query: string;
@@ -50,6 +50,19 @@ function parseMode(value: string | null): "text" | "hybrid" {
   return "hybrid";
 }
 
+function parseDateFilter(value: string | null): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed && /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : undefined;
+}
+
+function parseSort(value: string | null): EpisodeSortOrder {
+  if (value === "date_desc" || value === "date_asc" || value === "title_asc") {
+    return value;
+  }
+
+  return "relevance";
+}
+
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   await auth.protect();
@@ -59,16 +72,25 @@ export async function GET(request: NextRequest) {
   const useTextOnly = parseBoolean(params.get("text_only"));
   const trackId = params.get("track_id")?.trim() || undefined;
   const scope = parseScope(params.get("scope"));
+  const dateStart = parseDateFilter(params.get("date_start"));
+  const dateEnd = parseDateFilter(params.get("date_end"));
+  const sort = parseSort(params.get("sort"));
 
   const options = { limit: topK, trackId, scope } as {
     limit: number;
     trackId?: string;
     scope: EpisodeSearchScope;
+    dateStart?: string;
+    dateEnd?: string;
+    sort: EpisodeSortOrder;
   };
+  options.dateStart = dateStart;
+  options.dateEnd = dateEnd;
+  options.sort = sort;
 
   let results;
   if (!rawQuery) {
-    results = await getEpisodeArchiveRows({ query: "", limit: topK + 20, scope });
+    results = await getEpisodeArchiveRows({ query: "", limit: topK + 20, scope, dateStart, dateEnd, sort });
   } else if (useTextOnly || mode === "text") {
     results = await searchEpisodesByText(rawQuery, options);
   } else {

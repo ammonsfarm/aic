@@ -236,9 +236,13 @@ type SearchOptions = {
   trackId?: string;
   includeVector?: boolean;
   scope?: EpisodeSearchScope;
+  dateStart?: string;
+  dateEnd?: string;
+  sort?: EpisodeSortOrder;
 };
 
 export type EpisodeSearchScope = "all" | "title" | "passage" | "guest" | "interview" | "theme";
+export type EpisodeSortOrder = "relevance" | "date_desc" | "date_asc" | "title_asc";
 
 type TopEpisodeRow = {
   track_id: string;
@@ -278,6 +282,54 @@ export type EpisodeSearchItem = {
   hitTypes: string[];
   snippet: string;
 };
+
+function normalizeDateFilter(value?: string) {
+  if (!value) {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : undefined;
+}
+
+function compareEpisodeDates(left: EpisodeSearchItem, right: EpisodeSearchItem, direction: "asc" | "desc") {
+  const leftTime = left.publishDate ? Date.parse(left.publishDate) : Number.NaN;
+  const rightTime = right.publishDate ? Date.parse(right.publishDate) : Number.NaN;
+  const leftValid = Number.isFinite(leftTime);
+  const rightValid = Number.isFinite(rightTime);
+
+  if (leftValid && rightValid && leftTime !== rightTime) {
+    return direction === "asc" ? leftTime - rightTime : rightTime - leftTime;
+  }
+
+  if (leftValid !== rightValid) {
+    return leftValid ? -1 : 1;
+  }
+
+  return left.title.localeCompare(right.title);
+}
+
+function sortEpisodeSearchItems(items: EpisodeSearchItem[], sort: EpisodeSortOrder = "relevance") {
+  return [...items].sort((left, right) => {
+    if (sort === "date_desc") {
+      return compareEpisodeDates(left, right, "desc");
+    }
+
+    if (sort === "date_asc") {
+      return compareEpisodeDates(left, right, "asc");
+    }
+
+    if (sort === "title_asc") {
+      return left.title.localeCompare(right.title) || compareEpisodeDates(left, right, "desc");
+    }
+
+    if (right.score === left.score) {
+      return compareEpisodeDates(left, right, "desc");
+    }
+
+    return right.score - left.score;
+  });
+}
 
 export type EpisodeDetail = {
   episode: {
@@ -792,7 +844,7 @@ export async function getRecentEpisodes(limit = 40): Promise<EpisodeSearchItem[]
 
 export async function searchEpisodesByText(
   query: string,
-  options: { limit?: number; trackId?: string; scope?: EpisodeSearchScope } = {},
+  options: SearchOptions = {},
 ): Promise<EpisodeSearchItem[]> {
   const q = query.trim();
 
@@ -802,6 +854,9 @@ export async function searchEpisodesByText(
 
   const limit = options.limit ?? 40;
   const scope = resolveScopeFilters(options.scope);
+  const dateStart = normalizeDateFilter(options.dateStart);
+  const dateEnd = normalizeDateFilter(options.dateEnd);
+  const sort = options.sort ?? "relevance";
 
   const rows = await queryRows<TextSearchMatchRow>(
     `
@@ -919,10 +974,28 @@ export async function searchEpisodesByText(
       where ($2::text is null or b.track_id = $2)
         and q.raw_query is not null
         and b.track_id is not null
-      order by m.score desc, b.publish_date desc
+        and ($7::date is null or nullif(b.publish_date, '')::date >= $7::date)
+        and ($8::date is null or nullif(b.publish_date, '')::date <= $8::date)
+      order by
+        case when $9::text = 'date_desc' then nullif(b.publish_date, '')::date end desc nulls last,
+        case when $9::text = 'date_asc' then nullif(b.publish_date, '')::date end asc nulls last,
+        case when $9::text = 'title_asc' then b.title end asc,
+        m.score desc,
+        nullif(b.publish_date, '')::date desc nulls last,
+        b.title asc
       limit $3
     `,
-    [q, options.trackId ?? null, limit, scope.includeIntelligenceTextMatch, scope.itemTypes, scope.includeTranscriptTextMatch],
+    [
+      q,
+      options.trackId ?? null,
+      limit,
+      scope.includeIntelligenceTextMatch,
+      scope.itemTypes,
+      scope.includeTranscriptTextMatch,
+      dateStart ?? null,
+      dateEnd ?? null,
+      sort,
+    ],
   );
 
   const merged = new Map<string, EpisodeSearchItem>();
@@ -944,26 +1017,22 @@ export async function searchEpisodesByText(
     addSearchHit(existing, row.hit_source, score, row.snippet);
   }
 
-  return [...merged.values()]
-    .filter((item) => item.hitTypes.length > 0)
-    .sort((left, right) => {
-      if (right.score === left.score) {
-        return right.hitTypes.length - left.hitTypes.length;
-      }
-
-      return right.score - left.score;
-    })
-    .slice(0, limit);
+  return sortEpisodeSearchItems(
+    [...merged.values()].filter((item) => item.hitTypes.length > 0),
+    sort,
+  ).slice(0, limit);
 }
 
 export async function searchEpisodesByVector(
   embedding: number[],
   limit = 20,
-  options: { trackId?: string } = {},
+  options: { trackId?: string; dateStart?: string; dateEnd?: string } = {},
   scope?: EpisodeSearchScope,
 ): Promise<EpisodeSearchItem[]> {
   const embeddingText = `[${embedding.join(",")}]`;
   const activeScope = resolveScopeFilters(scope);
+  const dateStart = normalizeDateFilter(options.dateStart);
+  const dateEnd = normalizeDateFilter(options.dateEnd);
   const rows = await queryRows<VectorSearchTrackRow>(
     `
       with matches as (
@@ -984,6 +1053,8 @@ export async function searchEpisodesByVector(
         where tc.embedding is not null
           and $4::boolean
           and ($2::text is null or tc.track_id = $2)
+          and ($6::date is null or nullif(e.publish_date, '')::date >= $6::date)
+          and ($7::date is null or nullif(e.publish_date, '')::date <= $7::date)
 
         union all
 
@@ -1004,6 +1075,8 @@ export async function searchEpisodesByVector(
         where iv.embedding is not null
           and ($5::text[] is null or iv.vector_type = any($5::text[]))
           and ($2::text is null or iv.track_id = $2)
+          and ($6::date is null or nullif(e.publish_date, '')::date >= $6::date)
+          and ($7::date is null or nullif(e.publish_date, '')::date <= $7::date)
       )
       select
         source_type,
@@ -1028,6 +1101,8 @@ export async function searchEpisodesByVector(
       limit,
       activeScope.includeTranscriptVectorMatch,
       activeScope.vectorTypes,
+      dateStart ?? null,
+      dateEnd ?? null,
     ],
   );
 
@@ -1087,7 +1162,7 @@ export async function searchEpisodesByVector(
     addSearchHit(existing, row.source_type, row.score, row.text.slice(0, 180));
   }
 
-  return [...results.values()].sort((left, right) => right.score - left.score).slice(0, limit);
+  return sortEpisodeSearchItems([...results.values()], "relevance").slice(0, limit);
 }
 
 export async function searchEpisodesWithVectorFallback(
@@ -1099,6 +1174,9 @@ export async function searchEpisodesWithVectorFallback(
     limit,
     trackId: options.trackId,
     scope: options.scope,
+    dateStart: options.dateStart,
+    dateEnd: options.dateEnd,
+    sort: options.sort,
   });
   const resolvedScope = resolveScopeFilters(options.scope);
   const includeVector = (options.includeVector ?? true) && resolvedScope.includeTranscriptVectorMatch;
@@ -1112,7 +1190,7 @@ export async function searchEpisodesWithVectorFallback(
     const byVector = await searchEpisodesByVector(
       embedding,
       limit,
-      { trackId: options.trackId },
+      { trackId: options.trackId, dateStart: options.dateStart, dateEnd: options.dateEnd },
       options.scope,
     );
 
@@ -1139,7 +1217,7 @@ export async function searchEpisodesWithVectorFallback(
       }
     }
 
-    return [...merged.values()].sort((left, right) => right.score - left.score).slice(0, limit);
+    return sortEpisodeSearchItems([...merged.values()], options.sort ?? "relevance").slice(0, limit);
   } catch (error) {
     console.warn("Hybrid episode search degraded to text search", error);
     return byText;

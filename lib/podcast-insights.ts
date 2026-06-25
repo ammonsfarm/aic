@@ -1,7 +1,12 @@
 import "server-only";
 
 import { queryRows } from "@/lib/db";
-import { searchEpisodesByText, type EpisodeSearchItem, type EpisodeSearchScope } from "@/lib/podcast-data";
+import {
+  searchEpisodesByText,
+  type EpisodeSearchItem,
+  type EpisodeSearchScope,
+  type EpisodeSortOrder,
+} from "@/lib/podcast-data";
 
 type EpisodeBaseRow = {
   track_id: string;
@@ -133,16 +138,33 @@ function trimText(value: string, maxLength: number) {
   return `${value.slice(0, maxLength - 1).trimEnd()}…`;
 }
 
+function normalizeDateFilter(value?: string) {
+  if (!value) {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : undefined;
+}
+
 export async function getEpisodeArchiveRows({
   query,
   limit = 240,
   scope,
+  dateStart,
+  dateEnd,
+  sort = "date_desc",
 }: {
   query?: string;
   limit?: number;
   scope?: EpisodeSearchScope;
+  dateStart?: string;
+  dateEnd?: string;
+  sort?: EpisodeSortOrder;
 } = {}): Promise<EpisodeSearchItem[]> {
   const normalizedQuery = query?.trim();
+  const normalizedDateStart = normalizeDateFilter(dateStart);
+  const normalizedDateEnd = normalizeDateFilter(dateEnd);
 
   if (!normalizedQuery) {
     const rows = await queryRows<EpisodeBaseRow>(
@@ -171,16 +193,29 @@ export async function getEpisodeArchiveRows({
               and pe.track_id is not null
           ) as has_podtrac
         from episodes e
-        order by nullif(e.publish_date, '')::date desc nulls last, e.title asc
+        where ($2::date is null or nullif(e.publish_date, '')::date >= $2::date)
+          and ($3::date is null or nullif(e.publish_date, '')::date <= $3::date)
+        order by
+          case when $4::text = 'date_desc' then nullif(e.publish_date, '')::date end desc nulls last,
+          case when $4::text = 'date_asc' then nullif(e.publish_date, '')::date end asc nulls last,
+          case when $4::text = 'title_asc' then e.title end asc,
+          nullif(e.publish_date, '')::date desc nulls last,
+          e.title asc
         limit $1
       `,
-      [limit],
+      [limit, normalizedDateStart ?? null, normalizedDateEnd ?? null, sort],
     );
 
     return rows.map(normalizeSearchRow);
   }
 
-  return searchEpisodesByText(normalizedQuery, { limit, scope });
+  return searchEpisodesByText(normalizedQuery, {
+    limit,
+    scope,
+    dateStart: normalizedDateStart,
+    dateEnd: normalizedDateEnd,
+    sort,
+  });
 }
 
 export async function getPipelineRuns(limit = 10): Promise<PipelineRun[]> {

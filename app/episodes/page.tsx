@@ -3,7 +3,7 @@ import { TopRail } from "@/components/top-rail";
 import { RoutePanel } from "@/components/route-panel";
 import { RagChatWidget } from "@/components/rag-chat-widget";
 import { getEpisodeArchiveRows } from "@/lib/podcast-insights";
-import { searchEpisodesWithVectorFallback, type EpisodeSearchScope } from "@/lib/podcast-data";
+import { searchEpisodesWithVectorFallback, type EpisodeSearchScope, type EpisodeSortOrder } from "@/lib/podcast-data";
 
 type SearchMode = "text" | "hybrid";
 
@@ -36,6 +36,19 @@ function parseScope(value: string | undefined): EpisodeSearchScope {
   return "all";
 }
 
+function parseDateFilter(value: string | undefined) {
+  const trimmed = value?.trim();
+  return trimmed && /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : undefined;
+}
+
+function parseSort(value: string | undefined): EpisodeSortOrder {
+  if (value === "date_desc" || value === "date_asc" || value === "title_asc") {
+    return value;
+  }
+
+  return "relevance";
+}
+
 function cleanPublicSnippet(value: string) {
   return value
     .split(/\r?\n/)
@@ -62,31 +75,57 @@ function toPublicSearchRow(row: EpisodeRow) {
 export default async function PublicEpisodesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; mode?: SearchMode; top_k?: string; scope?: EpisodeSearchScope }>;
+  searchParams: Promise<{
+    q?: string;
+    mode?: SearchMode;
+    top_k?: string;
+    scope?: EpisodeSearchScope;
+    date_start?: string;
+    date_end?: string;
+    sort?: EpisodeSortOrder;
+  }>;
 }) {
-  const { q, mode, top_k, scope } = await searchParams;
+  const { q, mode, top_k, scope, date_start, date_end, sort } = await searchParams;
   const query = q?.trim() ?? "";
   const parsedMode = parseMode(mode);
   const topK = parseTopK(top_k, 20);
   const parsedScope = parseScope(scope);
+  const dateStart = parseDateFilter(date_start);
+  const dateEnd = parseDateFilter(date_end);
+  const parsedSort = parseSort(sort);
   const rows = query && parsedMode === "hybrid"
-    ? await searchEpisodesWithVectorFallback(query, { limit: topK + 20, scope: parsedScope })
-    : await getEpisodeArchiveRows({ query, limit: topK + 20, scope: parsedScope });
+    ? await searchEpisodesWithVectorFallback(query, {
+        limit: topK + 20,
+        scope: parsedScope,
+        dateStart,
+        dateEnd,
+        sort: parsedSort,
+      })
+    : await getEpisodeArchiveRows({
+        query,
+        limit: topK + 20,
+        scope: parsedScope,
+        dateStart,
+        dateEnd,
+        sort: parsedSort,
+      });
 
   return (
     <>
       <TopRail variant="public" />
       <main className="public-shell">
         <RoutePanel
-          eyebrow="Episode archive"
+          eyebrow="AIC Episodes"
           title="Search and browse all episodes"
-        aside={<p className="note">Use text-only mode for exact name/metadata matching, or hybrid for transcript and RAG-aware results.</p>}
-      >
+        >
           <EpisodeSearchPanel
             defaultQuery={query}
             defaultMode={parsedMode}
             defaultScope={parsedScope}
             defaultTopK={topK}
+            defaultDateStart={dateStart}
+            defaultDateEnd={dateEnd}
+            defaultSort={parsedSort}
             detailBasePath="/episodes"
             initialRows={rows.map(toPublicSearchRow)}
             initialTotal={rows.length}
