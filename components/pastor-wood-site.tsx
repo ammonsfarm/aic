@@ -300,9 +300,15 @@ function PersonPhoto({ name, image, compact = false }: { name: string; image?: s
 function PastorWoodNav() {
   return (
     <header className="pw-nav" aria-label="Pastor Wood site navigation">
-      <Link className="pw-brand" href={routes.home} aria-label="Pastor Wood home">
-        <span className="pw-brand__mark">PW</span>
-        <span><strong>Pastor Wood</strong><small>Abiding in Christ</small></span>
+      <Link className="pw-brand pw-brand--wordmark" href={routes.home} aria-label="Pastor Wood home">
+        <span className="pw-brand-wordmark" aria-hidden="true">
+          <svg viewBox="0 0 440 104" role="img" aria-label="Abiding in Christ">
+            <rect width="440" height="104" rx="8" />
+            <path className="pw-brand-wordmark__ridge" d="M22 70 C70 45 105 61 143 44 C184 25 230 56 268 39 C315 18 354 55 417 31" />
+            <path className="pw-brand-wordmark__chapel" d="M53 70 V47 L66 36 L79 47 V70 M62 38 V25 M57 31 H67" />
+            <text x="98" y="67">Abiding in Christ</text>
+          </svg>
+        </span>
       </Link>
       <nav className="pw-nav__links">
         {navLinks.map((item) => <Link key={item.label} href={item.href}>{item.label}</Link>)}
@@ -432,13 +438,12 @@ function PageHero({ eyebrow, title, body }: { eyebrow: string; title: string; bo
 function ContactSection() {
   return (
     <section className="pw-section pw-contact" id="contact">
-      <div><p className="pw-kicker">Contact Pastor Wood</p><h2>Hear Pastor Wood in person.</h2><p>Contact today for your next conference or other speaking engagement.</p></div>
+      <div><p className="pw-kicker">Ministry Office</p><h2>Invite Pastor Wood to speak.</h2><p>For conferences, prayer requests, or ministry correspondence, use the phone, email, or mailing address here.</p></div>
       <div className="pw-contact__panel">
         <p><strong>Toll free</strong> <a href="tel:18664122433">(866) 41Abide / (866) 412-2433</a></p>
         <p><strong>Local</strong> <a href="tel:18654297101">(865) 429-7101</a></p>
         <p><strong>Email</strong> <a href="mailto:Radio@pastorwood.org">Radio@pastorwood.org</a></p>
         <p><strong>Mail</strong> 100 One Fine Place, Sevierville, TN 37862</p>
-        <Link href={routes.contact}>Contact</Link>
       </div>
     </section>
   );
@@ -469,7 +474,7 @@ function PostList({ posts }: { posts: Array<{ title: string; date: string; excer
 function AboutPage() {
   return (
     <>
-      <PageHero eyebrow="Pastor Jim Wood's Bio" title="Bio for Jim Wood" body="Pastor Wood's public biography, carried over from the original Pastor Wood site." />
+      <PageHero eyebrow="Life and Ministry" title="Jim Wood" body="Founder of Wears Valley Ranch, pastor, author, and host of Abiding in Christ." />
       <section className="pw-section pw-story">
         <div className="pw-story__copy">
           <p>Jim Wood is the Founder of Wears Valley Ranch. Growing up in Montreat, North Carolina, Jim began preaching at age fifteen. After graduating from Gordon College in Massachusetts, Jim married Susan McDonald of Shreveport, Louisiana.</p>
@@ -528,7 +533,7 @@ function WrittenResourcesPage() {
 function ContactPage() {
   return (
     <>
-      <PageHero eyebrow="Contact" title="Contact Abiding in Christ" body="We welcome feedback, prayer requests, and speaking requests." />
+      <PageHero eyebrow="Reach Us" title="Get in touch" body="Feedback, prayer requests, and speaking invitations are welcome." />
       <ContactSection />
     </>
   );

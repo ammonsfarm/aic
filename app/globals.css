@@ -4790,3 +4790,57 @@ input:focus {
     flex-direction: column;
   }
 }
+
+/* Pastor Wood wordmark refinement */
+.pw-brand--wordmark {
+  min-width: 0;
+}
+
+.pw-brand-wordmark {
+  display: block;
+  width: clamp(172px, 20vw, 244px);
+  line-height: 0;
+}
+
+.pw-brand-wordmark svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  filter: drop-shadow(0 6px 12px oklch(28% 0.04 105 / 0.12));
+}
+
+.pw-brand-wordmark rect {
+  fill: oklch(68% 0.12 72);
+}
+
+.pw-brand-wordmark text {
+  fill: oklch(96% 0.02 88);
+  font-family: "Apple Chancery", "Brush Script MT", "Segoe Script", cursive;
+  font-size: 43px;
+  font-weight: 400;
+  letter-spacing: -0.05em;
+  paint-order: stroke;
+  stroke: oklch(44% 0.11 70 / 0.28);
+  stroke-width: 1.2px;
+}
+
+.pw-brand-wordmark__ridge,
+.pw-brand-wordmark__chapel {
+  fill: none;
+  stroke: oklch(89% 0.04 90 / 0.42);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@media (max-width: 720px) {
+  .pw-brand-wordmark {
+    width: 170px;
+  }
+}
+
+@media (max-width: 520px) {
+  .pw-brand-wordmark {
+    width: 142px;
+  }
+}
