@@ -1,50 +1,91 @@
 import Image from "next/image";
 import Link from "next/link";
 
-const GPT_URL = "https://chatgpt.com/g/g-6a3c3570a36481919368e6183e90ab12-pastor-wood";
+const originalSite = "https://www.pastorwood.org";
 
-const sourceLinks = [
+const navLinks = [
+  { label: "Home", href: "#top" },
+  { label: "About Us", href: "#bio" },
+  { label: "Radio", href: "#listen" },
+  { label: "Endorsements", href: "#endorsements" },
+  { label: "Contact", href: "#contact" },
+];
+
+const primaryLinks = [
+  { label: "Pastor Jim Wood's Bio", href: `${originalSite}/about-pastor-wood/` },
+  { label: "Books", href: "https://wvr.org/bookstore/" },
+  { label: "Radio Broadcasts", href: `${originalSite}/radio` },
+  { label: "Podcasts", href: "https://itunes.apple.com/us/podcast/abiding-in-christ-w-jim-wood/id375149712?mt=2" },
+  { label: "Weekly Devotional", href: `${originalSite}/bible-study/` },
+  { label: "Written Resources", href: `${originalSite}/written-resources/` },
+  { label: "Speaking / Contact Us", href: `${originalSite}/contact/` },
+  { label: "Donate", href: `${originalSite}/donate/` },
+];
+
+const listenLinks = [
   {
-    title: "SermonAudio archive",
-    eyebrow: "Original audio source",
-    href: "https://www.sermonaudio.com/broadcasters/aic/sermons?media=audio&sort=newest",
-    text: "Browse Abiding in Christ sermons at the source, including older SermonAudio messages.",
+    title: "Podcast on iTunes",
+    href: "https://itunes.apple.com/us/podcast/abiding-in-christ-w-jim-wood/id375149712?mt=2",
+    text: "Listen to Abiding in Christ Radio via iTunes.",
   },
   {
-    title: "Apple Podcasts",
-    eyebrow: "Podcast source",
-    href: "https://podcasts.apple.com/us/podcast/abiding-in-christ-w-jim-wood/id1351579966",
-    text: "Follow the Abiding in Christ podcast in Apple Podcasts for current episodes.",
+    title: "Radio Show Listings",
+    href: `${originalSite}/radio`,
+    text: "Find current Abiding in Christ radio broadcast information and listings.",
   },
   {
-    title: "Radio and broadcast listings",
-    eyebrow: "Listen live",
-    href: "https://www.pastorwood.org/radio/",
-    text: "Find station information and radio times for Abiding in Christ broadcasts.",
+    title: "SiriusXM Family Talk 131",
+    href: `${originalSite}/radio`,
+    text: "Monday through Friday at 8:30 PM EST on Salem Media's SiriusXM Family Talk, Channel 131.",
+  },
+  {
+    title: "Stay Connected",
+    href: "https://www.facebook.com/PastorJimWood/",
+    text: "Follow Pastor Jim Wood on Facebook.",
   },
 ];
 
+const endorsements = [
+  {
+    quote:
+      "Christ in us is what gives us power to live in the world without compromise. I hope you'll read Three Questions. You'll be glad you did.",
+    name: "Franklin Graham",
+    role: "President & CEO, Samaritan's Purse / Billy Graham Evangelistic Association",
+  },
+  {
+    quote:
+      "If you are a fan of Jim Wood's radio program, you'll love Three Questions. With his usual insightful, biblical, accessible style, Jim takes the reader on a journey through three age-old questions that have eternal significance.",
+    name: "Dr. Voddie Baucham, Jr.",
+    role: "Voddie Baucham Ministries",
+  },
+  {
+    quote:
+      "When I'm reading a book on the Christian life, I'm often wondering, 'Does this guy really live what he says?' I assure you, when it comes to prayer, Jim Wood practices what he preaches.",
+    name: "Bryant Wright",
+    role: "President, Send Relief / Right From the Heart Ministries",
+  },
+  {
+    quote:
+      "Jim Wood is one of the most effective communicators I have heard in the last 25 years. He is solidly anchored to the word of God in the principles and precepts he teaches.",
+    name: "Randy Davis",
+    role: "President & Executive Director, Tennessee Baptist Mission Board",
+  },
+];
+
+const affiliateLinks = [
+  { label: "Wears Valley Ranch", href: "https://wvr.org/" },
+  { label: "Covenant Community Church", href: "http://www.cccwearsvalley.org/" },
+  { label: "Board Members", href: `${originalSite}/board-members/` },
+  { label: "Privacy, Terms & Conditions", href: `${originalSite}/privacy-terms-conditions/` },
+];
+
 const resourceLinks = [
-  {
-    title: "Books and resources",
-    href: "https://wvr.org/bookstore/",
-    text: "Books and teaching resources connected with Pastor Wood and Wears Valley Ranch.",
-  },
-  {
-    title: "Weekly devotional",
-    href: "https://www.pastorwood.org/bible-study/",
-    text: "Devotional posts and Bible-study material from the existing Pastor Wood ministry site.",
-  },
-  {
-    title: "Written resources",
-    href: "https://www.pastorwood.org/written-resources/",
-    text: "Articles and written teaching resources intended for study and ministry use.",
-  },
-  {
-    title: "Wears Valley Ranch",
-    href: "https://wvr.org/",
-    text: "Learn about the Christian children's home founded by Jim and Susan Wood.",
-  },
+  { label: "Bible Study", href: `${originalSite}/?attachment_id=1228` },
+  { label: "Radio Shows", href: `${originalSite}/radio` },
+  { label: "Speaking Request", href: `${originalSite}/contact/` },
+  { label: "Contact", href: `${originalSite}/contact/` },
+  { label: "Endorsements", href: `${originalSite}/endorsements/` },
+  { label: "RSS", href: `${originalSite}/feed/` },
 ];
 
 export function PastorWoodSite() {
@@ -59,171 +100,165 @@ export function PastorWoodSite() {
           </span>
         </Link>
         <nav className="pw-nav__links">
-          <Link href="#about">About</Link>
-          <Link href="#listen">Listen</Link>
-          <Link href="#resources">Resources</Link>
-          <Link href="#contact">Contact</Link>
+          {navLinks.map((item) => (
+            <Link href={item.href} key={item.label}>{item.label}</Link>
+          ))}
         </nav>
-        <Link className="pw-nav__cta" href={GPT_URL} target="_blank" rel="noreferrer">
-          Ask the GPT
+        <Link className="pw-nav__cta" href={`${originalSite}/donate/`} target="_blank" rel="noreferrer">
+          Donate
         </Link>
       </header>
 
       <section className="pw-hero" id="top">
-        <div className="pw-hero__media" aria-hidden="true">
+        <div className="pw-hero__image" aria-hidden="true">
           <Image
-            src="/images/mountain-study/valley-sunrise.png"
+            src="/images/pastorwood/smoky-mountain-church.png"
             alt=""
-            width={1100}
-            height={820}
+            width={1792}
+            height={1024}
             priority
           />
-          <div className="pw-hero__portrait">
-            <Image src="/images/pastor-wood.jpg" alt="Pastor Jim Wood" width={320} height={320} priority />
-          </div>
         </div>
-        <div className="pw-hero__copy">
-          <p className="pw-eyebrow">Radio, books, conferences, preaching</p>
-          <h1>Pastor Jim Wood teaching the Bible with clarity, conviction, and hope.</h1>
-          <p className="pw-hero__lead">
-            A public home for Abiding in Christ resources, Pastor Wood&apos;s biography, original-source audio links,
-            and a connected GPT for sermon transcript research.
-          </p>
-          <div className="pw-actions">
-            <Link className="pw-button pw-button--primary" href={GPT_URL} target="_blank" rel="noreferrer">
-              Ask Pastor Wood GPT
-            </Link>
-            <Link className="pw-button pw-button--ghost" href="#listen">
-              Listen from the source
+        <div className="pw-hero__content">
+          <p className="pw-kicker">Radio, Books, Conferences, Preaching</p>
+          <h1>Welcome to Abiding in Christ</h1>
+          <p className="pw-hero__lead">A ministry of Jim Wood.</p>
+          <div className="pw-hero__actions">
+            <Link className="pw-button pw-button--primary" href="#listen">Listen to Abiding in Christ Radio</Link>
+            <Link className="pw-button pw-button--light" href={`${originalSite}/contact/`} target="_blank" rel="noreferrer">
+              Speaking / Contact Us
             </Link>
           </div>
-          <p className="pw-source-note">
-            Audio is linked to original platforms. This site does not host or proxy sermon audio.
-          </p>
         </div>
       </section>
 
-      <section className="pw-strip" aria-label="Ministry highlights">
-        <div>
-          <strong>Montreat roots</strong>
-          <span>Preaching since age fifteen</span>
-        </div>
-        <div>
-          <strong>Abiding in Christ</strong>
-          <span>Radio and podcast teaching</span>
-        </div>
-        <div>
-          <strong>Wears Valley Ranch</strong>
-          <span>Christian home for children</span>
-        </div>
+      <section className="pw-link-band" aria-label="Original Pastor Wood links">
+        {primaryLinks.map((item) => (
+          <Link href={item.href} target="_blank" rel="noreferrer" key={item.label}>{item.label}</Link>
+        ))}
       </section>
 
-      <section className="pw-section pw-about" id="about">
-        <div>
-          <p className="pw-eyebrow">About Pastor Wood</p>
-          <h2>Faithful Bible exposition shaped by decades of ministry.</h2>
+      <section className="pw-section pw-bio" id="bio">
+        <div className="pw-bio__portrait">
+          <Image src="/images/pastor-wood.jpg" alt="Pastor Jim Wood" width={768} height={960} priority />
         </div>
-        <div className="pw-about__body">
+        <div className="pw-bio__copy">
+          <p className="pw-kicker">Brief Bio</p>
+          <h2>About Pastor Wood</h2>
           <p>
-            Jim Wood is the founder of Wears Valley Ranch. Growing up in Montreat, North Carolina, he began
-            preaching as a teenager and has spent his life preaching and teaching Scripture.
+            Jim Wood grew up in Montreat, North Carolina, home of the Billy Graham Evangelistic Association.
+            He began preaching as a teenager and has spent his life preaching and teaching Scripture.
           </p>
           <p>
             Pastor Wood&apos;s ministry includes Abiding in Christ radio broadcasts, books, conferences, and pastoral
-            teaching intended to point listeners to the gospel and the authority of God&apos;s Word.
+            teaching intended to encourage listeners to follow Jesus Christ in whole-hearted obedience.
           </p>
-          <div className="pw-about__links">
-            <Link href="https://www.pastorwood.org/about-pastor-wood/" target="_blank" rel="noreferrer">
-              Read the original bio
-            </Link>
-            <Link href="https://www.pastorwood.org/endorsements/" target="_blank" rel="noreferrer">
-              View endorsements
-            </Link>
-            <Link href="https://www.pastorwood.org/board-members/" target="_blank" rel="noreferrer">
-              Ministry board
-            </Link>
+          <p>
+            Jim and Susan Wood founded Wears Valley Ranch, a home and school for children from families in crisis.
+          </p>
+          <div className="pw-inline-links">
+            <Link href={`${originalSite}/about-pastor-wood/`} target="_blank" rel="noreferrer">About Pastor Wood</Link>
+            <Link href="https://wvr.org/" target="_blank" rel="noreferrer">Wears Valley Ranch</Link>
           </div>
         </div>
       </section>
 
-      <section className="pw-section" id="listen">
-        <div className="pw-section__header">
-          <p className="pw-eyebrow">Listen</p>
-          <h2>Start with the original source.</h2>
+      <section className="pw-section pw-listen" id="listen">
+        <div className="pw-section__intro">
+          <p className="pw-kicker">Listen</p>
+          <h2>Listen to Abiding in Christ Radio</h2>
           <p>
-            Each audio path below sends visitors to the platform where the broadcast or sermon is already published.
+            Whether interviewing guests about current events or preaching directly from the Bible, Pastor Wood
+            encourages his listeners to follow Jesus Christ in whole-hearted obedience.
           </p>
         </div>
-        <div className="pw-card-grid pw-card-grid--three">
-          {sourceLinks.map((item) => (
-            <Link className="pw-card pw-card--source" href={item.href} target="_blank" rel="noreferrer" key={item.title}>
-              <span>{item.eyebrow}</span>
+        <div className="pw-listen__grid">
+          {listenLinks.map((item) => (
+            <Link className="pw-listen-card" href={item.href} target="_blank" rel="noreferrer" key={item.title}>
               <strong>{item.title}</strong>
-              <p>{item.text}</p>
+              <span>{item.text}</span>
             </Link>
           ))}
         </div>
       </section>
 
-      <section className="pw-gpt-panel" id="gpt">
+      <section className="pw-section pw-book">
         <div>
-          <p className="pw-eyebrow">New research tool</p>
-          <h2>Ask questions across the Pastor Wood sermon transcript index.</h2>
+          <p className="pw-kicker">Featured book</p>
+          <h2>Three Questions</h2>
           <p>
-            The Pastor Wood GPT uses a connected retrieval API to search transcript excerpts and answer from
-            indexed sermon material. Use it for Bible study, sermon research, and finding relevant teaching.
+            Endorsements on the current Pastor Wood site commend Three Questions for its clear focus on the gospel,
+            the Christian life, prayer, and obedience to Christ.
           </p>
         </div>
-        <Link className="pw-button pw-button--dark" href={GPT_URL} target="_blank" rel="noreferrer">
-          Open Pastor Wood GPT
+        <Link className="pw-button pw-button--primary" href={`${originalSite}/resources/three-questions-jim-wood/`} target="_blank" rel="noreferrer">
+          Read about Three Questions
         </Link>
       </section>
 
-      <section className="pw-section" id="resources">
-        <div className="pw-section__header">
-          <p className="pw-eyebrow">Resources</p>
-          <h2>Books, devotionals, ministry background, and written teaching.</h2>
+      <section className="pw-section" id="endorsements">
+        <div className="pw-section__intro">
+          <p className="pw-kicker">Endorsements</p>
+          <h2>What ministry leaders have said</h2>
         </div>
-        <div className="pw-resource-list">
-          {resourceLinks.map((item) => (
-            <Link className="pw-resource" href={item.href} target="_blank" rel="noreferrer" key={item.title}>
-              <span>{item.title}</span>
-              <p>{item.text}</p>
-            </Link>
+        <div className="pw-endorsement-grid">
+          {endorsements.map((item) => (
+            <figure className="pw-endorsement" key={item.name}>
+              <blockquote>{item.quote}</blockquote>
+              <figcaption>
+                <strong>{item.name}</strong>
+                <span>{item.role}</span>
+              </figcaption>
+            </figure>
           ))}
         </div>
+        <Link className="pw-text-link" href={`${originalSite}/endorsements/`} target="_blank" rel="noreferrer">
+          More Endorsements
+        </Link>
       </section>
 
       <section className="pw-section pw-contact" id="contact">
         <div>
-          <p className="pw-eyebrow">Contact and speaking</p>
-          <h2>Reach the ministry team.</h2>
-          <p>
-            For feedback, prayer requests, speaking requests, or broadcast questions, use the ministry contact
-            channels from the existing Pastor Wood site.
-          </p>
+          <p className="pw-kicker">Contact Pastor Wood</p>
+          <h2>Hear Pastor Wood in person.</h2>
+          <p>Contact today for your next conference or other speaking engagement.</p>
         </div>
         <div className="pw-contact__panel">
           <p><strong>Toll free</strong> <a href="tel:18664122433">(866) 412-2433</a></p>
           <p><strong>Local</strong> <a href="tel:18654297101">(865) 429-7101</a></p>
           <p><strong>Email</strong> <a href="mailto:Radio@pastorwood.org">Radio@pastorwood.org</a></p>
           <p><strong>Mail</strong> 100 One Fine Place, Sevierville, TN 37862</p>
-          <Link href="https://www.pastorwood.org/contact/" target="_blank" rel="noreferrer">
-            Open contact page
-          </Link>
+          <Link href={`${originalSite}/contact/`} target="_blank" rel="noreferrer">Contact</Link>
         </div>
       </section>
 
-      <footer className="pw-footer">
+      <section className="pw-section pw-devotional">
         <div>
-          <strong>Pastor Wood</strong>
-          <span>Abiding in Christ public resource site</span>
+          <p className="pw-kicker">Subscribe To Our Weekly Devotional</p>
+          <h2>Join our mailing list to receive encouragment as you walk with Christ.</h2>
         </div>
-        <nav>
-          <Link href="https://www.pastorwood.org/donate/" target="_blank" rel="noreferrer">Donate</Link>
-          <Link href="https://www.pastorwood.org/privacy-terms-conditions/" target="_blank" rel="noreferrer">Privacy</Link>
-          <Link href="https://www.pastorwood.org/" target="_blank" rel="noreferrer">Legacy site</Link>
-        </nav>
+        <Link className="pw-button pw-button--light" href={`${originalSite}/bible-study/`} target="_blank" rel="noreferrer">
+          Subscribe
+        </Link>
+      </section>
+
+      <footer className="pw-footer">
+        <div className="pw-footer__brand">
+          <strong>Pastor Jim Wood</strong>
+          <span>A Ministry of Jim Wood</span>
+        </div>
+        <div className="pw-footer__links" aria-label="Affiliated Sites">
+          <strong>Affiliated Sites</strong>
+          {affiliateLinks.map((item) => (
+            <Link href={item.href} target="_blank" rel="noreferrer" key={item.label}>{item.label}</Link>
+          ))}
+        </div>
+        <div className="pw-footer__links" aria-label="Resources">
+          <strong>Resources</strong>
+          {resourceLinks.map((item) => (
+            <Link href={item.href} target="_blank" rel="noreferrer" key={item.label}>{item.label}</Link>
+          ))}
+        </div>
       </footer>
     </main>
   );
