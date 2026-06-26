@@ -40,6 +40,9 @@ type EpisodeDetailRow = {
   category: string;
   detail: string;
   source_file: string;
+  source_url: string;
+  sermon_url: string;
+  external_audio_url: string;
   has_transcript: boolean;
   has_intelligence: boolean;
   has_vectors: boolean;
@@ -345,6 +348,8 @@ export type EpisodeDetail = {
     hasVectors: boolean;
     hasPodtrac: boolean;
     audioUrl: string;
+    sourceUrl: string;
+    sermonUrl: string;
   };
   intelligence: {
     episodeType: string;
@@ -648,8 +653,16 @@ function normalizeJsonArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
-function buildAudioUrl(_sourceFile: string, trackId: string): string | null {
+function buildAudioUrl(_sourceFile: string, trackId: string, externalAudioUrl = ""): string | null {
+  if (externalAudioUrl) {
+    return externalAudioUrl;
+  }
+
   if (!trackId) {
+    return null;
+  }
+
+  if (!/^\d+$/.test(trackId)) {
     return null;
   }
 
@@ -1246,6 +1259,9 @@ export async function getEpisodeDetail(trackId: string): Promise<EpisodeDetail |
             e.category,
             e.detail,
             e.source_file,
+            coalesce(nullif(sa.sermon_url, ''), nullif(sa.audio_url, ''), '') as source_url,
+            coalesce(nullif(sa.sermon_url, ''), '') as sermon_url,
+            coalesce(nullif(sa.audio_url, ''), nullif(sa.audio_download_url, ''), '') as external_audio_url,
             exists(select 1 from transcript_segments ts where ts.track_id = e.track_id)
             or exists(select 1 from transcript_chunks tc where tc.track_id = e.track_id) as has_transcript,
             exists(select 1 from episode_intelligence ei where ei.track_id = e.track_id) as has_intelligence,
@@ -1263,6 +1279,7 @@ export async function getEpisodeDetail(trackId: string): Promise<EpisodeDetail |
                 and pe.track_id is not null
             ) as has_podtrac
           from episodes e
+          left join sermonaudio_sermons sa on sa.track_id = e.track_id
           where e.track_id = $1
           limit 1
         `,
@@ -1482,7 +1499,9 @@ export async function getEpisodeDetail(trackId: string): Promise<EpisodeDetail |
       hasIntelligence: episode.has_intelligence,
       hasVectors: episode.has_vectors,
       hasPodtrac: episode.has_podtrac,
-      audioUrl: buildAudioUrl(episode.source_file, episode.track_id) ?? "",
+      audioUrl: buildAudioUrl(episode.source_file, episode.track_id, episode.external_audio_url) ?? "",
+      sourceUrl: episode.source_url || episode.external_audio_url || "",
+      sermonUrl: episode.sermon_url || "",
     },
     intelligence: intelligence
       ? {

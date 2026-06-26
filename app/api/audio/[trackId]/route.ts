@@ -6,6 +6,8 @@ import { promisify } from "node:util";
 import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 
+import { queryRows } from "@/lib/db";
+
 export const runtime = "nodejs";
 
 type RouteParams = {
@@ -44,6 +46,24 @@ async function statAudio(trackId: string): Promise<number | null> {
   } catch {
     return null;
   }
+}
+
+async function getExternalAudioUrl(trackId: string): Promise<string | null> {
+  if (!/^sa_\d+$/.test(trackId)) {
+    return null;
+  }
+
+  const rows = await queryRows<{ audio_url: string; audio_download_url: string; sermon_url: string }>(
+    `
+      select audio_url, audio_download_url, sermon_url
+      from sermonaudio_sermons
+      where track_id = $1
+      limit 1
+    `,
+    [trackId],
+  );
+  const row = rows[0];
+  return row?.audio_url || row?.audio_download_url || row?.sermon_url || null;
 }
 
 function parseRange(value: string | null, size: number): { start: number; end: number; partial: boolean } | null {
@@ -112,6 +132,11 @@ class LimitStream extends Transform {
 export async function GET(request: NextRequest, { params }: RouteContext) {
   const { trackId } = await params;
   await auth.protect();
+
+  const externalAudioUrl = await getExternalAudioUrl(trackId);
+  if (externalAudioUrl) {
+    return NextResponse.redirect(externalAudioUrl);
+  }
 
   if (!/^\d+$/.test(trackId)) {
     return NextResponse.json({ error: "Invalid track id" }, { status: 400 });

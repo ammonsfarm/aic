@@ -72,9 +72,14 @@ export default async function EpisodeDetailPage({
               <Link className="button button--ghost" href="/episodes">
                 Back to episodes
               </Link>
-              {detail.episode.audioUrl ? (
-                <a className="button button--primary" href={detail.episode.audioUrl} target="_blank" rel="noopener noreferrer">
-                  Open audio file
+              {detail.episode.sourceUrl || detail.episode.audioUrl ? (
+                <a
+                  className="button button--primary"
+                  href={detail.episode.sourceUrl || detail.episode.audioUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Open source audio
                 </a>
               ) : null}
             </div>
