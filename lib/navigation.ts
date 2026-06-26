@@ -1,8 +1,9 @@
 export type ConsoleNavItem = {
   href: string;
   label: string;
-  description: string;
+  description?: string;
   adminOnly?: boolean;
+  children?: ConsoleNavItem[];
 };
 
 export const consoleNav: ConsoleNavItem[] = [
@@ -41,10 +42,27 @@ export const consoleNav: ConsoleNavItem[] = [
     label: "Admin",
     description: "Agent settings and user roles.",
     adminOnly: true,
+    children: [
+      {
+        href: "/admin",
+        label: "Admin overview",
+        description: "Review secured console settings.",
+      },
+      {
+        href: "/admin#agent-settings",
+        label: "Agent settings",
+        description: "Model, API key, and retrieval configuration.",
+      },
+      {
+        href: "/admin#user-security",
+        label: "User security",
+        description: "Assign and review user roles.",
+      },
+    ],
   },
 ];
 
-export const publicNav = [
+export const publicNav: ConsoleNavItem[] = [
   { href: "/", label: "Home" },
   { href: "/episodes", label: "Episodes" },
   { href: "/sermons", label: "Sermons" },

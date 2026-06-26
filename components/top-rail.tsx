@@ -35,8 +35,32 @@ export function TopRail({ variant, isAdmin = false }: TopRailProps) {
 
       <nav className="top-rail__nav" aria-label={variant === "private" ? "Console navigation" : "Site navigation"}>
         {nav.map((item) => {
-          const active = item.href === "/" ? pathname === item.href : pathname.startsWith(item.href);
+          const itemPath = item.href.split("#")[0];
+          const active = item.href === "/" ? pathname === itemPath : pathname.startsWith(itemPath);
           const external = item.href.startsWith("http");
+          if (item.children?.length) {
+            return (
+              <div className="top-rail__menu" key={item.href}>
+                <Link
+                  href={item.href}
+                  aria-current={active ? "page" : undefined}
+                  aria-haspopup="true"
+                  className="top-rail__menu-trigger"
+                >
+                  {item.label}
+                  <span aria-hidden="true">v</span>
+                </Link>
+                <div className="top-rail__submenu" role="menu">
+                  {item.children.map((child) => (
+                    <Link href={child.href} key={child.href} role="menuitem">
+                      <strong>{child.label}</strong>
+                      <small>{child.description}</small>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            );
+          }
           return (
             <Link
               key={item.href}

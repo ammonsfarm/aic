@@ -1,10 +1,22 @@
 import Link from "next/link";
 import Image from "next/image";
+import { headers } from "next/headers";
+import { PastorWoodSite } from "@/components/pastor-wood-site";
 import { TopRail } from "@/components/top-rail";
 import { MountainPanel } from "@/components/mountain-panel";
 import { isCurrentUserAdministrator } from "@/lib/rbac";
 
+function isPastorWoodHost(host: string | null) {
+  const normalized = (host ?? "").split(":")[0].toLowerCase();
+  return normalized === "pastorwood.ammonsfarm.org" || normalized === "www.pastorwood.ammonsfarm.org";
+}
+
 export default async function Home() {
+  const requestHeaders = await headers();
+  if (isPastorWoodHost(requestHeaders.get("host"))) {
+    return <PastorWoodSite />;
+  }
+
   const isAdministrator = await isCurrentUserAdministrator();
 
   return (

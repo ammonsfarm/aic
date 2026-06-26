@@ -329,7 +329,7 @@ export function AdminConsole({ initialSettings, initialUsers, initialModelCatalo
 
   return (
     <div className="admin-console">
-      <section className="admin-section">
+      <section className="admin-section" id="agent-settings">
         <div className="admin-section__header">
           <div>
             <p className="eyebrow">Agent settings</p>
@@ -464,7 +464,7 @@ export function AdminConsole({ initialSettings, initialUsers, initialModelCatalo
         {settingsError ? <p className="empty-state empty-state--error">{settingsError}</p> : null}
       </section>
 
-      <section className="admin-section">
+      <section className="admin-section" id="user-security">
         <div className="admin-section__header">
           <div>
             <p className="eyebrow">User security</p>
