@@ -5,7 +5,12 @@ import {
   type AgentProvider,
   type RagRetrievalSettings,
 } from "@/lib/agent-settings";
-import { getEpisodeRagSources, getEpisodeSummarySources, type EpisodeChatSource } from "@/lib/podcast-data";
+import {
+  getEpisodeRagSources,
+  getEpisodeSummarySources,
+  getPastorWoodPostRagSources,
+  type EpisodeChatSource,
+} from "@/lib/podcast-data";
 
 export type RagProvider = AgentProvider;
 
@@ -30,6 +35,7 @@ type RagChatSource = {
   speakers: string[];
   score: number;
   vectorModel: string;
+  sourceUrl?: string;
 };
 
 type RagChatResponse = {
@@ -67,6 +73,7 @@ type ResearchSearchRow = {
   speakers: unknown;
   score: number;
   source_model: string | null;
+  source_url?: string | null;
 };
 
 type SpeakerField = {
@@ -129,6 +136,11 @@ function formatResearchSourceContext(sources: RagChatSource[]) {
     .map((source) => {
       const when = source.startTime || source.endTime ? ` (${source.startTime || "?"}-${source.endTime || "?"})` : "";
       const lane = source.lane ? ` • lane: ${source.lane}` : "";
+      if (source.sourceType.startsWith("pastorwood.")) {
+        const sourceUrl = source.sourceUrl ? `\n${source.sourceUrl}` : "";
+        return `[${source.citationId}] ${source.title}${lane}\n` +
+          `Pastor Wood post ${source.trackId} (${source.vectorModel || "indexed"}) ${source.sourceType}${sourceUrl}\n${truncateText(source.text, 720)}`;
+      }
       return `[${source.citationId}] ${source.title}${when}${lane}\n` +
         `Track ${source.trackId} (${source.vectorModel || "indexed"}) ${source.sourceType}\n${truncateText(source.text, 720)}`;
     })
@@ -374,9 +386,10 @@ function buildResearchPrompt(question: string, sources: RagChatSource[], lanes: 
     .join("\n");
 
   return [
-    "Answer the research question using only the supplied AIC corpus context.",
+    "Answer the research question using only the supplied AIC corpus context, including Pastor Wood devotional posts when present.",
     "Use citations like [S1], [S2] for claims. If the retrieved context is only a sample, say so clearly.",
-    "Prefer transcript/detail sources for exact wording. Use structured intelligence as an index and orientation.",
+    "Prefer transcript/detail sources for sermon wording. Treat devotional posts as primary written-source evidence for devotional themes.",
+    "Use structured intelligence as an index and orientation.",
     "For counting or inventory questions, count only the supplied structured inventory unless the context explicitly says the list is complete.",
     "Do not invent guests, dates, quotations, scripture references, or episode titles.",
     "",
@@ -413,6 +426,7 @@ function toResearchSources(rows: ResearchSearchRow[], lane: string): RagChatSour
     speakers: normalizeSpeakers(row.speakers),
     score: Number(row.score),
     vectorModel: row.source_model ?? "",
+    sourceUrl: row.source_url ?? "",
   }));
 }
 
@@ -740,9 +754,10 @@ export async function runResearchAgent({
     ? Math.trunc(topK)
     : retrieval.researchSourceBudget;
   const boundedTopK = Math.max(8, Math.min(requestedTopK, retrieval.researchSourceBudget));
-  const [structuredMatches, vectorMatches, inventoryMatches] = await Promise.all([
+  const [structuredMatches, vectorMatches, devotionalMatches, inventoryMatches] = await Promise.all([
     getStructuredResearchSources(question, boundedTopK),
     getEpisodeRagSources(question, { topK: boundedTopK }),
+    getPastorWoodPostRagSources(question, { topK: Math.min(boundedTopK, 24) }),
     isInterviewInventoryQuestion(question)
       ? getInterviewInventorySources(retrieval.researchInterviewInventoryLimit)
       : Promise.resolve([]),
@@ -763,6 +778,25 @@ export async function runResearchAgent({
     speakers: source.speakers,
     score: source.score,
     vectorModel: source.vectorModel,
+    sourceUrl: source.sourceUrl,
+  }));
+
+  const devotionalSources = devotionalMatches.map((source) => ({
+    citationId: "",
+    lane: "Pastor Wood devotionals",
+    sourceType: source.sourceType,
+    trackId: source.trackId,
+    title: source.title,
+    publishDate: source.publishDate,
+    segmentId: source.segmentId,
+    snippet: source.text,
+    text: source.text,
+    startTime: source.startTime,
+    endTime: source.endTime,
+    speakers: source.speakers,
+    score: source.score,
+    vectorModel: source.vectorModel,
+    sourceUrl: source.sourceUrl,
   }));
 
   const seedEpisodeIds = [...new Set([...structuredMatches, ...inventoryMatches, ...vectorSources].map((source) => source.trackId))]
@@ -787,12 +821,14 @@ export async function runResearchAgent({
     speakers: source.speakers,
     score: source.score,
     vectorModel: source.vectorModel,
+    sourceUrl: source.sourceUrl,
   }));
 
   const combinedSources = dedupeSources([
     ...inventoryMatches.slice(0, retrieval.researchInterviewInventoryLimit),
     ...structuredMatches.slice(0, boundedTopK),
     ...vectorSources.slice(0, boundedTopK),
+    ...devotionalSources.slice(0, boundedTopK),
     ...detailSources,
     ...orientationSources,
   ]);
@@ -806,7 +842,7 @@ export async function runResearchAgent({
       sources: [],
       topEpisodeIds: [],
       retrievalLanes: [],
-      coverageNote: "No structured, vector, or detail transcript sources were returned.",
+      coverageNote: "No structured, vector, devotional, or detail transcript sources were returned.",
       escalated: false,
       detailEpisodeIds: [],
     };
@@ -828,14 +864,21 @@ export async function runResearchAgent({
       ...structuredMatches,
     ]),
     summarizeLane("semantic", "Semantic retrieval", "Vector matches from transcript chunks and intelligence vectors.", vectorSources),
+    summarizeLane("pastorwood-devotionals", "Pastor Wood devotionals", "Vector matches from weekly devotional posts scraped from pastorwood.org.", devotionalSources),
     summarizeLane("detail", "Detail transcript search", "Full transcript segment matches with adjacent context from likely episodes.", detailSources),
     summarizeLane("orientation", "Episode summaries", "Episode-level summaries added after candidate episodes were identified.", orientationSources),
   ].filter((lane) => lane.sourceCount > 0);
 
-  const topEpisodeIds = [...new Set(citedSources.map((source) => source.trackId))];
+  const topEpisodeIds = [...new Set(citedSources
+    .filter((source) => !source.sourceType.startsWith("pastorwood."))
+    .map((source) => source.trackId))];
+  const pastorWoodPostIds = [...new Set(citedSources
+    .filter((source) => source.sourceType.startsWith("pastorwood."))
+    .map((source) => source.trackId))];
   const coverageNote = [
-    `Retrieved ${citedSources.length} source excerpts from ${topEpisodeIds.length} episodes.`,
+    `Retrieved ${citedSources.length} source excerpts from ${topEpisodeIds.length} episodes and ${pastorWoodPostIds.length} Pastor Wood posts.`,
     inventoryMatches.length ? `Structured interview inventory returned ${inventoryMatches.length} candidate item${inventoryMatches.length === 1 ? "" : "s"}.` : "",
+    devotionalSources.length ? `Weekly devotional retrieval returned ${devotionalSources.length} candidate excerpt${devotionalSources.length === 1 ? "" : "s"}.` : "",
     detailSources.length ? "Escalated into transcript detail search for likely episodes." : "No exact transcript detail escalation matches were found for this wording.",
   ]
     .filter(Boolean)

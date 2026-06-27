@@ -16,6 +16,7 @@ type ChatSource = {
   speakers: string[];
   score: number;
   vectorModel: string;
+  sourceUrl?: string;
 };
 
 type RetrievalLane = {
@@ -81,6 +82,10 @@ type RagChatWidgetProps = {
 };
 
 function sourceTimeLabel(source: ChatSource) {
+  if (source.sourceType.startsWith("pastorwood.")) {
+    return "post excerpt";
+  }
+
   if (!source.startTime && !source.endTime) {
     return "transcript context";
   }
@@ -104,6 +109,14 @@ function formatHistoryDate(value: string) {
     hour: "numeric",
     minute: "2-digit",
   }).format(parsed);
+}
+
+function sourceMetaLabel(source: ChatSource) {
+  if (source.sourceType.startsWith("pastorwood.")) {
+    return `Post ${source.trackId.replace(/^pastorwood:/, "")} · ${source.publishDate} · ${source.sourceType}`;
+  }
+
+  return `Track ${source.trackId} · ${source.publishDate} · ${source.sourceType}`;
 }
 
 export function RagChatWidget({
@@ -299,7 +312,8 @@ export function RagChatWidget({
                     <div key={lane.id} className="research-lane">
                       <strong>{lane.label}</strong>
                       <span>
-                        {lane.sourceCount} source{lane.sourceCount === 1 ? "" : "s"} · {lane.episodeCount} episode
+                        {lane.sourceCount} source{lane.sourceCount === 1 ? "" : "s"} · {lane.episodeCount}{" "}
+                        {lane.id === "pastorwood-devotionals" ? "post" : "episode"}
                         {lane.episodeCount === 1 ? "" : "s"}
                       </span>
                       <small>{lane.description}</small>
@@ -326,7 +340,13 @@ export function RagChatWidget({
                       </summary>
                       <div>
                         <p className="chat-source__meta">
-                          Track {source.trackId} · {source.publishDate} · {source.sourceType}
+                          {sourceMetaLabel(source)}
+                          {source.sourceUrl ? (
+                            <>
+                              {" · "}
+                              <a href={source.sourceUrl} target="_blank" rel="noopener">Source</a>
+                            </>
+                          ) : null}
                         </p>
                         <p>{source.snippet}</p>
                       </div>

@@ -23,11 +23,12 @@ export default function ResearchPage() {
             <div className="research-aside">
               <p>
                 The agent searches structured episode intelligence first, then semantic transcript and
-                intelligence vectors, then transcript detail where exact wording is needed.
+                intelligence vectors, weekly devotional posts, then transcript detail where exact wording is needed.
               </p>
               <div className="research-aside__list" aria-label="Research retrieval order">
                 <span>Structured summaries and extracted items</span>
                 <span>Semantic matches across the corpus</span>
+                <span>Pastor Wood weekly devotional posts</span>
                 <span>Full transcript detail escalation</span>
               </div>
             </div>
@@ -36,7 +37,7 @@ export default function ResearchPage() {
           <RagChatWidget
             action="/api/research/chat"
             heading="Archive research agent"
-            description="Ask source-backed questions across every indexed episode, sermon, interview, and transcript."
+            description="Ask source-backed questions across indexed episodes, sermons, interviews, transcripts, and weekly devotionals."
             submitLabel="Research"
             sourceLabel="Research sources"
             placeholder="Ask about a theme, person, Bible passage, story, sermon illustration, guest, or repeated teaching across the archive."
@@ -53,7 +54,7 @@ export default function ResearchPage() {
             <p>
               Broad questions start from the structured intelligence tables so interview, story,
               topic, scripture, and summary data can identify candidate episodes. The agent then
-              uses semantic retrieval and full transcript matches to ground the answer in source text.
+              uses semantic retrieval, devotional post retrieval, and full transcript matches to ground the answer in source text.
             </p>
           </div>
           <div>

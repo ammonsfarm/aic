@@ -165,6 +165,7 @@ type RAGVectorHitRow = {
   speakers: unknown;
   score: number;
   source_model: string | null;
+  source_url?: string | null;
 };
 
 type EpisodeSummarySourceRow = {
@@ -420,6 +421,7 @@ export type EpisodeChatSource = {
   speakers: string[];
   score: number;
   vectorModel: string;
+  sourceUrl?: string;
 };
 
 export type PodtracDashboard = {
@@ -1616,7 +1618,61 @@ export async function getEpisodeRagSources(
     speakers: normalizeArray(row.speakers),
     score: Number(row.score),
     vectorModel: row.source_model ?? "",
+    sourceUrl: row.source_url ?? "",
   }));
+}
+
+export async function getPastorWoodPostRagSources(
+  query: string,
+  options: { topK?: number; sourceType?: "pastorwood_devotional" | "pastorwood_resource" } = {},
+): Promise<EpisodeChatSource[]> {
+  const sourceType = options.sourceType ?? "pastorwood_devotional";
+  const topK = options.topK ?? 10;
+  const embedding = await embedQuery(query);
+  const rows = await queryRows<RAGVectorHitRow>(
+    `
+      select
+        case
+          when pc.source_type = 'pastorwood_devotional' then 'pastorwood.devotional'
+          when pc.source_type = 'pastorwood_resource' then 'pastorwood.resource'
+          else pc.source_type
+        end as source_type,
+        'pastorwood:' || pc.post_id::text as track_id,
+        coalesce(pc.title, 'Pastor Wood post') as title,
+        coalesce(pc.publish_date, '') as publish_date,
+        pc.custom_id,
+        coalesce(pc.text, '') as text,
+        null::text as start_time,
+        null::text as end_time,
+        '[]'::jsonb as speakers,
+        coalesce(1 - (pc.embedding <=> $1::vector), 0) as score,
+        coalesce(pc.embedding_model, '') as source_model,
+        coalesce(pc.source_url, '') as source_url
+      from pastorwood_post_chunks pc
+      where pc.embedding is not null
+        and pc.source_type = $2
+      order by score desc
+      limit $3
+    `,
+    [`[${embedding.join(",")}]`, sourceType, topK],
+  );
+
+  return rows
+    .filter((row) => Number(row.score) > 0.2)
+    .map((row) => ({
+      sourceType: row.source_type,
+      trackId: row.track_id,
+      title: row.title,
+      publishDate: row.publish_date,
+      segmentId: row.custom_id,
+      text: row.text,
+      startTime: row.start_time ?? "",
+      endTime: row.end_time ?? "",
+      speakers: normalizeArray(row.speakers),
+      score: Number(row.score),
+      vectorModel: row.source_model ?? "",
+      sourceUrl: row.source_url ?? "",
+    }));
 }
 
 export async function getEpisodeSummarySources(trackIds: string[]): Promise<EpisodeChatSource[]> {
