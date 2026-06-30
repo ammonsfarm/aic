@@ -40,6 +40,9 @@ export default async function WritingsPage({
   const { q } = await searchParams;
   const data = await getPastorWoodWritings({ query: q, limit: 36 });
   const devotionalSummary = data.summaries.find((summary) => summary.sourceType === "pastorwood_devotional");
+  const resourceSummary = data.summaries.find((summary) => summary.sourceType === "pastorwood_resource");
+  const totalPostCount = data.summaries.reduce((sum, summary) => sum + summary.postCount, 0);
+  const totalEmbeddedChunkCount = data.summaries.reduce((sum, summary) => sum + summary.embeddedChunkCount, 0);
   const resultLabel = data.query ? `${data.rows.length} matching ${data.rows.length === 1 ? "entry" : "entries"}` : "Latest entries";
 
   return (
@@ -52,13 +55,17 @@ export default async function WritingsPage({
           aside={
             <div className="writings-aside">
               <span>
-                <strong>{devotionalSummary?.postCount.toLocaleString() ?? "0"}</strong>
-                <small>Weekly devotionals indexed</small>
+                <strong>{totalPostCount.toLocaleString()}</strong>
+                <small>Writings indexed locally</small>
               </span>
               <span>
-                <strong>{devotionalSummary?.embeddedChunkCount.toLocaleString() ?? "0"}</strong>
+                <strong>{totalEmbeddedChunkCount.toLocaleString()}</strong>
                 <small>Searchable RAG excerpts</small>
               </span>
+              <p>
+                {devotionalSummary?.postCount.toLocaleString() ?? "0"} devotionals
+                {resourceSummary ? ` · ${resourceSummary.postCount.toLocaleString()} resources` : ""}
+              </p>
               <p>{dateRange(devotionalSummary)}</p>
               <p className="note">Book texts can join this collection as a separate writing type when source text is ready.</p>
             </div>
@@ -66,7 +73,7 @@ export default async function WritingsPage({
         >
           <div className="writings-index">
             <form action="/writings" className="writings-search">
-              <label htmlFor="writings-query">Search devotionals</label>
+              <label htmlFor="writings-query">Search writings</label>
               <div>
                 <input
                   id="writings-query"
@@ -98,16 +105,19 @@ export default async function WritingsPage({
                     <div className="writing-row__main">
                       <p className="eyebrow">{formatDate(row.publishDate)} · {row.sourceLabel}</p>
                       <h2>
-                        <a href={row.sourceUrl} target="_blank" rel="noopener">
+                        <Link href={row.localPath}>
                           {row.title}
-                        </a>
+                        </Link>
                       </h2>
                       {row.snippet ? <p>{row.snippet}</p> : null}
                     </div>
                     <div className="writing-row__actions">
                       <span>{row.sourceType.replace(/^pastorwood_/, "")}</span>
-                      <a className="button button--ghost" href={row.sourceUrl} target="_blank" rel="noopener">
-                        Open source
+                      <Link className="button button--ghost" href={row.localPath}>
+                        Read
+                      </Link>
+                      <a className="button button--ghost" href={row.sourceUrl} target="_blank" rel="noopener noreferrer">
+                        Original source
                       </a>
                     </div>
                   </article>

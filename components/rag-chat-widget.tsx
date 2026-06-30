@@ -50,7 +50,7 @@ type TokenUsage = {
 
 type ChatHistoryItem = {
   id: string;
-  scope: "research" | "archive" | "episode";
+  scope: "research" | "archive" | "episode" | "writing";
   trackId: string;
   question: string;
   answer: string;
@@ -149,6 +149,7 @@ export function RagChatWidget({
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState("");
   const fieldId = `${action.replace(/[^a-z0-9]+/gi, "-")}-question`;
+  const laneItemLabel = (laneId: string) => (laneId.startsWith("pastorwood") ? "post" : "episode");
 
   const loadHistory = useCallback(async () => {
     if (!historyScope) {
@@ -313,7 +314,7 @@ export function RagChatWidget({
                       <strong>{lane.label}</strong>
                       <span>
                         {lane.sourceCount} source{lane.sourceCount === 1 ? "" : "s"} · {lane.episodeCount}{" "}
-                        {lane.id === "pastorwood-devotionals" ? "post" : "episode"}
+                        {laneItemLabel(lane.id)}
                         {lane.episodeCount === 1 ? "" : "s"}
                       </span>
                       <small>{lane.description}</small>

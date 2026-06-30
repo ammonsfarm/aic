@@ -4,7 +4,7 @@ import { getUserRagHistory, type RagInteractionScope } from "@/lib/rag-interacti
 import { requireSignedInAppUser } from "@/lib/rbac";
 
 function parseScope(value: string | null): RagInteractionScope | undefined {
-  if (value === "research" || value === "archive" || value === "episode") {
+  if (value === "research" || value === "archive" || value === "episode" || value === "writing") {
     return value;
   }
 

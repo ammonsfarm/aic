@@ -1666,6 +1666,31 @@ input:disabled {
   white-space: nowrap;
 }
 
+.writing-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.42fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.writing-article-section {
+  display: grid;
+  gap: 12px;
+}
+
+.writing-article {
+  display: grid;
+  gap: 14px;
+  max-width: 75ch;
+}
+
+.writing-article p {
+  margin: 0;
+  color: var(--soft-ink);
+  font-size: 1rem;
+  line-height: 1.72;
+}
+
 /* ─── Admin console ─────────────────────────────────────────────────── */
 .admin-console {
   display: grid;
@@ -3614,6 +3639,7 @@ input:focus {
 	  .admin-role-form,
 	  .admin-form__group-head,
 	  .admin-limit-grid,
+	  .writing-detail-grid,
 	  .split-board,
 	  .split-board--wide { grid-template-columns: 1fr; }
 

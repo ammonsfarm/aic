@@ -2240,7 +2240,7 @@ export async function getEpisodeStatisticsDashboard({
   };
 }
 
-async function embedQuery(query: string): Promise<number[]> {
+export async function embedQuery(query: string): Promise<number[]> {
   const apiKey = process.env.OPENAI_API_KEY;
   const model = process.env.OPENAI_EMBEDDING_MODEL || "text-embedding-3-small";
 

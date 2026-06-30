@@ -11,6 +11,7 @@ import {
   getPastorWoodPostRagSources,
   type EpisodeChatSource,
 } from "@/lib/podcast-data";
+import { getPastorWoodWritingRagSources } from "@/lib/pastorwood-writings";
 
 export type RagProvider = AgentProvider;
 
@@ -380,6 +381,10 @@ function buildResearchSystemPrompt() {
   return "You are a careful archive research agent. You answer from supplied AIC corpus sources only, cite evidence, and label uncertainty.";
 }
 
+function buildWritingSystemPrompt() {
+  return "You are a grounded assistant that only answers using the supplied Pastor Wood writing excerpts.";
+}
+
 function buildResearchPrompt(question: string, sources: RagChatSource[], lanes: ResearchLane[], coverageNote: string) {
   const laneContext = lanes
     .map((lane) => `${lane.label}: ${lane.sourceCount} sources from ${lane.episodeCount} episodes. ${lane.description}`)
@@ -395,6 +400,23 @@ function buildResearchPrompt(question: string, sources: RagChatSource[], lanes: 
     "",
     "RETRIEVAL LANES:",
     laneContext || "No retrieval lanes returned sources.",
+    "",
+    "COVERAGE NOTE:",
+    coverageNote,
+    "",
+    "SOURCES:",
+    formatResearchSourceContext(sources),
+    "",
+    `QUESTION: ${question}`,
+  ].join("\n");
+}
+
+function buildWritingPrompt(question: string, sources: RagChatSource[], coverageNote: string) {
+  return [
+    "Answer the question using only the selected Pastor Wood writing context below.",
+    "Treat these excerpts as primary written-source evidence. Use citations like [S1], [S2] for claims.",
+    "If the answer is not supported by the excerpts, say that the selected writing does not provide enough evidence.",
+    "Do not invent dates, quotations, scripture references, or titles.",
     "",
     "COVERAGE NOTE:",
     coverageNote,
@@ -715,6 +737,106 @@ export async function runRagChat({
     model: chatResult.model,
     sources: limitedSources,
     topEpisodeIds: uniqueEpisodeIds,
+    usage: chatResult.usage,
+    usageJson: chatResult.usageJson,
+  };
+}
+
+export async function runPastorWoodWritingChat({
+  postId,
+  query,
+  topK,
+  provider,
+}: {
+  postId: string;
+  query: string;
+  topK?: number;
+  provider?: string;
+}): Promise<RagChatResponse> {
+  const question = query.trim();
+  const selectedProvider = normalizeRequestedProvider(provider);
+  const requestedTopK = typeof topK === "number" && Number.isFinite(topK) ? Math.trunc(topK) : 8;
+  const boundedTopK = Math.max(2, Math.min(requestedTopK, 12));
+
+  if (!question) {
+    return {
+      answer: "Ask a clear question about this writing.",
+      query: "",
+      provider: selectedProvider ?? "silo",
+      model: "",
+      sources: [],
+      topEpisodeIds: [],
+      retrievalLanes: [],
+      coverageNote: "",
+    };
+  }
+
+  const sourceRows = await getPastorWoodWritingRagSources({ postId, query: question, topK: boundedTopK });
+  const citedSources = sourceRows.map((source, index) => ({
+    citationId: `S${index + 1}`,
+    lane: "Selected writing",
+    sourceType: source.sourceType,
+    trackId: source.trackId,
+    title: source.title,
+    publishDate: source.publishDate,
+    segmentId: source.segmentId,
+    snippet: source.text,
+    text: source.text,
+    startTime: source.startTime,
+    endTime: source.endTime,
+    speakers: source.speakers,
+    score: source.score,
+    vectorModel: source.vectorModel,
+    sourceUrl: source.sourceUrl,
+  }));
+
+  if (!citedSources.length) {
+    return {
+      answer: "I could not find local excerpts for this writing. Try another writing or check whether the import completed.",
+      query: question,
+      provider: selectedProvider ?? "silo",
+      model: "",
+      sources: [],
+      topEpisodeIds: [],
+      retrievalLanes: [],
+      coverageNote: "No Pastor Wood writing chunks were returned for this post.",
+    };
+  }
+
+  const lanes = [
+    summarizeLane(
+      "pastorwood-writing",
+      "Selected Pastor Wood writing",
+      "Opening context plus matching chunks from the selected local writing.",
+      citedSources,
+    ),
+  ];
+  const postCount = new Set(citedSources.map((source) => source.trackId)).size;
+  const coverageNote = `Retrieved ${citedSources.length} excerpt${citedSources.length === 1 ? "" : "s"} from ${postCount} selected Pastor Wood post${postCount === 1 ? "" : "s"}.`;
+
+  const chatResult = await callChatModel(
+    [
+      {
+        role: "system",
+        content: buildWritingSystemPrompt(),
+      },
+      {
+        role: "user",
+        content: buildWritingPrompt(question, citedSources, coverageNote),
+      },
+    ],
+    selectedProvider,
+  );
+
+  return {
+    answer: chatResult.text || "The model returned no answer text. Try rephrasing the question.",
+    query: question,
+    provider: chatResult.provider,
+    model: chatResult.model,
+    sources: citedSources,
+    topEpisodeIds: [],
+    retrievalLanes: lanes,
+    coverageNote,
     usage: chatResult.usage,
     usageJson: chatResult.usageJson,
   };

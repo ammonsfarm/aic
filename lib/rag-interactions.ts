@@ -3,7 +3,7 @@ import "server-only";
 import { queryRows } from "@/lib/db";
 import type { CurrentAppUser } from "@/lib/rbac";
 
-export type RagInteractionScope = "research" | "archive" | "episode";
+export type RagInteractionScope = "research" | "archive" | "episode" | "writing";
 
 export type RagInteractionHistoryItem = {
   id: string;
