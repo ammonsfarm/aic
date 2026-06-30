@@ -2,7 +2,7 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
 const isApiRoute = createRouteMatcher(["/api(.*)"]);
-const isPublicPageRoute = createRouteMatcher(["/reading-plan(.*)", "/privacy(.*)"]);
+const isPublicPageRoute = createRouteMatcher(["/reading-plan(.*)", "/privacy(.*)", "/writings(.*)"]);
 const pastorWoodHosts = new Set(["pastorwood.ammonsfarm.org", "www.pastorwood.ammonsfarm.org"]);
 
 function isPastorWoodHost(request: Request) {
