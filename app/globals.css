@@ -1540,6 +1540,132 @@ input:disabled {
   background: var(--parchment);
 }
 
+/* ─── Writings route ─────────────────────────────────────────────── */
+.writings-aside,
+.writings-index,
+.writings-results {
+  display: grid;
+  gap: 12px;
+}
+
+.writings-aside span {
+  display: grid;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--parchment-warm);
+}
+
+.writings-aside strong {
+  color: var(--soft-ink);
+  font-size: 1.25rem;
+  line-height: 1.1;
+}
+
+.writings-aside small,
+.writings-aside p {
+  color: var(--soft-ink-muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.writings-aside p {
+  margin-bottom: 0;
+}
+
+.writings-search {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--parchment-warm);
+}
+
+.writings-search label {
+  color: var(--soft-ink-muted);
+  font-size: 0.76rem;
+  font-weight: 650;
+}
+
+.writings-search > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.writings-search input {
+  flex: 1 1 280px;
+  min-width: min(100%, 240px);
+}
+
+.writings-results__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.writings-results__head p {
+  margin-bottom: 0;
+  color: var(--soft-ink-muted);
+}
+
+.writing-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: start;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--parchment);
+}
+
+.writing-row__main {
+  min-width: 0;
+}
+
+.writing-row h2 {
+  margin: 0 0 6px;
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
+.writing-row h2 a {
+  color: var(--soft-ink);
+  text-decoration: none;
+}
+
+.writing-row h2 a:hover {
+  color: var(--cypress);
+}
+
+.writing-row p:not(.eyebrow) {
+  margin-bottom: 0;
+  color: var(--soft-ink-muted);
+  line-height: 1.5;
+}
+
+.writing-row__actions {
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+}
+
+.writing-row__actions span {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 4px 9px;
+  background: var(--cypress-faint);
+  color: var(--cypress);
+  font-size: 0.74rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
 /* ─── Admin console ─────────────────────────────────────────────────── */
 .admin-console {
   display: grid;
@@ -3554,6 +3680,14 @@ input:focus {
 
   .sermon-card__meta span {
     text-align: left;
+  }
+
+  .writing-row {
+    grid-template-columns: 1fr;
+  }
+
+  .writing-row__actions {
+    justify-items: start;
   }
 
   .episode-badges { justify-content: flex-start; }

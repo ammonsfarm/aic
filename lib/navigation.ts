@@ -66,6 +66,7 @@ export const publicNav: ConsoleNavItem[] = [
   { href: "/", label: "Home" },
   { href: "/episodes", label: "Episodes" },
   { href: "/sermons", label: "Sermons" },
+  { href: "/writings", label: "Writings" },
   { href: "/research", label: "Research" },
   { href: "/reading-plan", label: "Reading Plan" },
   { href: "/podcast", label: "Podcast" },
