@@ -33,6 +33,7 @@ type WritingDetailRow = {
   excerpt_html: string;
   content_html: string;
   text: string;
+  summary: string;
   chunk_count: string;
   embedded_chunk_count: string;
 };
@@ -138,27 +139,6 @@ function splitParagraphs(value: string) {
     .filter(Boolean);
 }
 
-function trimToSentence(value: string, maxLength: number) {
-  const normalized = value.replace(/\s+/g, " ").trim();
-  if (normalized.length <= maxLength) {
-    return normalized;
-  }
-
-  const slice = normalized.slice(0, maxLength + 1);
-  const sentenceEnd = Math.max(slice.lastIndexOf(". "), slice.lastIndexOf("? "), slice.lastIndexOf("! "));
-  if (sentenceEnd > Math.floor(maxLength * 0.45)) {
-    return slice.slice(0, sentenceEnd + 1).trim();
-  }
-
-  return `${normalized.slice(0, maxLength).trimEnd()}...`;
-}
-
-function buildSummary(text: string) {
-  const paragraphs = splitParagraphs(text);
-  const lead = paragraphs.slice(0, 2).join(" ");
-  return trimToSentence(lead || text, 680);
-}
-
 function localWritingPath(slug: string, postId: string) {
   const safeSlug = slug.trim() || postId;
   return `/writings/${encodeURIComponent(safeSlug)}`;
@@ -255,10 +235,11 @@ export async function getPastorWoodWritings({
           p.source_url,
           p.slug,
           case
-            when q.query_ts is null then left(p.text, 420)
+            when q.query_ts is null then coalesce(nullif(p.summary, ''), '')
             else regexp_replace(
               coalesce(
                 ts_headline('english', p.text, q.query_ts, 'MaxWords=46, MinWords=18, ShortWord=3'),
+                nullif(p.summary, ''),
                 left(p.text, 420)
               ),
               '<[^>]+>',
@@ -336,6 +317,7 @@ export async function getPastorWoodWritingBySlug(slugOrPostId: string): Promise<
         p.excerpt_html,
         p.content_html,
         p.text,
+        coalesce(p.summary, '') as summary,
         count(pc.custom_id)::text as chunk_count,
         count(pc.custom_id) filter (where pc.embedding is not null)::text as embedded_chunk_count
       from pastorwood_posts p
@@ -351,7 +333,8 @@ export async function getPastorWoodWritingBySlug(slugOrPostId: string): Promise<
         p.publish_date,
         p.excerpt_html,
         p.content_html,
-        p.text
+        p.text,
+        p.summary
       limit 1
     `,
     [normalized],
@@ -377,7 +360,7 @@ export async function getPastorWoodWritingBySlug(slugOrPostId: string): Promise<
     ...base,
     contentHtml: row.content_html,
     text: row.text,
-    summary: buildSummary(row.text),
+    summary: row.summary.trim(),
     paragraphs: splitParagraphs(row.text),
     chunkCount: toNumber(row.chunk_count),
     embeddedChunkCount: toNumber(row.embedded_chunk_count),

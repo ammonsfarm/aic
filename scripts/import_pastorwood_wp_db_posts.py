@@ -332,6 +332,22 @@ def upsert_post(conn: psycopg.Connection, row: dict[str, Any], run_id: int, args
           content_html = excluded.content_html,
           text = excluded.text,
           content_hash = excluded.content_hash,
+          summary = case
+            when pastorwood_posts.content_hash is distinct from excluded.content_hash then ''
+            else pastorwood_posts.summary
+          end,
+          summary_model = case
+            when pastorwood_posts.content_hash is distinct from excluded.content_hash then ''
+            else pastorwood_posts.summary_model
+          end,
+          summary_input_hash = case
+            when pastorwood_posts.content_hash is distinct from excluded.content_hash then ''
+            else pastorwood_posts.summary_input_hash
+          end,
+          summary_updated_at = case
+            when pastorwood_posts.content_hash is distinct from excluded.content_hash then null
+            else pastorwood_posts.summary_updated_at
+          end,
           raw_json = excluded.raw_json,
           last_scrape_run_id = excluded.last_scrape_run_id,
           updated_at = case

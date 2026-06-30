@@ -96,9 +96,9 @@ export default async function WritingDetailPage({
           </section>
 
           <section className="detail-section">
-            <h3>Summary</h3>
+            <h3>Generated summary</h3>
             <div className="summary-block">
-              <p>{detail.summary || "No summary text is available for this writing."}</p>
+              <p>{detail.summary || "A generated summary has not been created for this writing yet."}</p>
             </div>
           </section>
 
