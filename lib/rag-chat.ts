@@ -876,10 +876,11 @@ export async function runResearchAgent({
     ? Math.trunc(topK)
     : retrieval.researchSourceBudget;
   const boundedTopK = Math.max(8, Math.min(requestedTopK, retrieval.researchSourceBudget));
-  const [structuredMatches, vectorMatches, devotionalMatches, inventoryMatches] = await Promise.all([
+  const [structuredMatches, vectorMatches, devotionalMatches, resourceMatches, inventoryMatches] = await Promise.all([
     getStructuredResearchSources(question, boundedTopK),
     getEpisodeRagSources(question, { topK: boundedTopK }),
     getPastorWoodPostRagSources(question, { topK: Math.min(boundedTopK, 24) }),
+    getPastorWoodPostRagSources(question, { topK: Math.min(boundedTopK, 12), sourceType: "pastorwood_resource" }),
     isInterviewInventoryQuestion(question)
       ? getInterviewInventorySources(retrieval.researchInterviewInventoryLimit)
       : Promise.resolve([]),
@@ -906,6 +907,24 @@ export async function runResearchAgent({
   const devotionalSources = devotionalMatches.map((source) => ({
     citationId: "",
     lane: "Pastor Wood devotionals",
+    sourceType: source.sourceType,
+    trackId: source.trackId,
+    title: source.title,
+    publishDate: source.publishDate,
+    segmentId: source.segmentId,
+    snippet: source.text,
+    text: source.text,
+    startTime: source.startTime,
+    endTime: source.endTime,
+    speakers: source.speakers,
+    score: source.score,
+    vectorModel: source.vectorModel,
+    sourceUrl: source.sourceUrl,
+  }));
+
+  const resourceSources = resourceMatches.map((source) => ({
+    citationId: "",
+    lane: "Pastor Wood resources",
     sourceType: source.sourceType,
     trackId: source.trackId,
     title: source.title,
@@ -951,6 +970,7 @@ export async function runResearchAgent({
     ...structuredMatches.slice(0, boundedTopK),
     ...vectorSources.slice(0, boundedTopK),
     ...devotionalSources.slice(0, boundedTopK),
+    ...resourceSources.slice(0, boundedTopK),
     ...detailSources,
     ...orientationSources,
   ]);
@@ -987,6 +1007,7 @@ export async function runResearchAgent({
     ]),
     summarizeLane("semantic", "Semantic retrieval", "Vector matches from transcript chunks and intelligence vectors.", vectorSources),
     summarizeLane("pastorwood-devotionals", "Pastor Wood devotionals", "Vector matches from weekly devotional posts scraped from pastorwood.org.", devotionalSources),
+    summarizeLane("pastorwood-resources", "Pastor Wood resources", "Vector matches from resource posts imported from the Pastor Wood WordPress database.", resourceSources),
     summarizeLane("detail", "Detail transcript search", "Full transcript segment matches with adjacent context from likely episodes.", detailSources),
     summarizeLane("orientation", "Episode summaries", "Episode-level summaries added after candidate episodes were identified.", orientationSources),
   ].filter((lane) => lane.sourceCount > 0);
@@ -1001,6 +1022,7 @@ export async function runResearchAgent({
     `Retrieved ${citedSources.length} source excerpts from ${topEpisodeIds.length} episodes and ${pastorWoodPostIds.length} Pastor Wood posts.`,
     inventoryMatches.length ? `Structured interview inventory returned ${inventoryMatches.length} candidate item${inventoryMatches.length === 1 ? "" : "s"}.` : "",
     devotionalSources.length ? `Weekly devotional retrieval returned ${devotionalSources.length} candidate excerpt${devotionalSources.length === 1 ? "" : "s"}.` : "",
+    resourceSources.length ? `Pastor Wood resource retrieval returned ${resourceSources.length} candidate excerpt${resourceSources.length === 1 ? "" : "s"}.` : "",
     detailSources.length ? "Escalated into transcript detail search for likely episodes." : "No exact transcript detail escalation matches were found for this wording.",
   ]
     .filter(Boolean)
