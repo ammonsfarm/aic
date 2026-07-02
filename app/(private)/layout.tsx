@@ -6,7 +6,7 @@ export default async function PrivateLayout({ children }: Readonly<{ children: R
 
   return (
     <>
-      <TopRail variant="private" isAdmin={appUser.role === "Admin"} />
+      <TopRail variant="private" isAdmin={appUser.role === "Admin"} role={appUser.role} />
       <main className="public-shell">{children}</main>
     </>
   );

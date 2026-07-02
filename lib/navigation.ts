@@ -1,8 +1,11 @@
+export type AicNavRole = "User" | "Admin" | "Content Manager" | "Research User" | "Read Only";
+
 export type ConsoleNavItem = {
   href: string;
   label: string;
   description?: string;
   adminOnly?: boolean;
+  contentOnly?: boolean;
   children?: ConsoleNavItem[];
 };
 
@@ -26,6 +29,39 @@ export const consoleNav: ConsoleNavItem[] = [
     href: "/compose",
     label: "Compose",
     description: "Source-backed sermon, article, and manuscript drafting.",
+  },
+  {
+    href: "/content",
+    label: "Content",
+    description: "Public site pages, posts, podcast uploads, newsletters, and media.",
+    contentOnly: true,
+    children: [
+      {
+        href: "/content",
+        label: "Content overview",
+        description: "Review the editorial portal plan and publishing workflow.",
+      },
+      {
+        href: "/content/pages",
+        label: "Site pages",
+        description: "Edit evergreen public website pages and page sections.",
+      },
+      {
+        href: "/content/posts",
+        label: "Posts and writings",
+        description: "Manage devotionals, written resources, and article drafts.",
+      },
+      {
+        href: "/content/podcast",
+        label: "Podcast uploads",
+        description: "Upload MP3s, set metadata, and publish archive entries.",
+      },
+      {
+        href: "/content/newsletters",
+        label: "Newsletters",
+        description: "Draft newsletter archive posts and prepare Mailchimp handoff.",
+      },
+    ],
   },
   {
     href: "/podcast",

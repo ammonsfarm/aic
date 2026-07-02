@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 
 import { queryRows } from "@/lib/db";
 
-export type AicRole = "User" | "Admin";
+export type AicRole = "User" | "Admin" | "Content Manager" | "Research User" | "Read Only";
 
 export type CurrentAppUser = {
   clerkUserId: string;
@@ -24,8 +24,8 @@ export type AppUserRow = {
 };
 
 class ForbiddenError extends Error {
-  constructor() {
-    super("Administrator role is required.");
+  constructor(message = "Administrator role is required.") {
+    super(message);
     this.name = "ForbiddenError";
   }
 }
@@ -61,6 +61,18 @@ export function normalizeAicRole(value: unknown): AicRole | null {
 
   if (normalized === "user") {
     return "User";
+  }
+
+  if (normalized === "content manager" || normalized === "content_manager" || normalized === "contentmanager") {
+    return "Content Manager";
+  }
+
+  if (normalized === "research user" || normalized === "research_user" || normalized === "researcher") {
+    return "Research User";
+  }
+
+  if (normalized === "read only" || normalized === "read_only" || normalized === "readonly" || normalized === "viewer") {
+    return "Read Only";
   }
 
   return null;
@@ -183,8 +195,24 @@ export async function getCurrentUserRole(): Promise<AicRole> {
   return upsertCurrentRole(identity);
 }
 
+export function isAdministratorRole(role: AicRole) {
+  return role === "Admin";
+}
+
+export function isContentManagerRole(role: AicRole) {
+  return role === "Admin" || role === "Content Manager";
+}
+
+export function isResearchUserRole(role: AicRole) {
+  return role === "Admin" || role === "Content Manager" || role === "Research User" || role === "User";
+}
+
 export async function isCurrentUserAdministrator() {
-  return (await getCurrentUserRole()) === "Admin";
+  return isAdministratorRole(await getCurrentUserRole());
+}
+
+export async function isCurrentUserContentManager() {
+  return isContentManagerRole(await getCurrentUserRole());
 }
 
 export async function requireAdministrator(redirectTo = "/podcast") {
@@ -193,10 +221,41 @@ export async function requireAdministrator(redirectTo = "/podcast") {
   }
 }
 
+export async function requireContentManagerOrAdmin(redirectTo = "/overview") {
+  const appUser = await requireSignedInAppUser();
+  if (!isContentManagerRole(appUser.role)) {
+    redirect(redirectTo);
+  }
+
+  return appUser;
+}
+
+export async function requireContentManager(redirectTo = "/overview") {
+  return requireContentManagerOrAdmin(redirectTo);
+}
+
+export async function requireResearchUser(redirectTo = "/overview") {
+  const appUser = await requireSignedInAppUser();
+  if (!isResearchUserRole(appUser.role)) {
+    redirect(redirectTo);
+  }
+
+  return appUser;
+}
+
 export async function requireAdminApiUser(): Promise<CurrentAppUser> {
   const appUser = await requireSignedInAppUser();
-  if (appUser.role !== "Admin") {
+  if (!isAdministratorRole(appUser.role)) {
     throw new ForbiddenError();
+  }
+
+  return appUser;
+}
+
+export async function requireContentManagerApiUser(): Promise<CurrentAppUser> {
+  const appUser = await requireSignedInAppUser();
+  if (!isContentManagerRole(appUser.role)) {
+    throw new ForbiddenError("Content Manager role is required.");
   }
 
   return appUser;

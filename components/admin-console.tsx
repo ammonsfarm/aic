@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from "react";
 
-type AicRole = "User" | "Admin";
+type AicRole = "User" | "Admin" | "Content Manager" | "Research User" | "Read Only";
 type AgentProvider = "silo" | "openai";
 
 type AgentSettings = {
@@ -60,6 +60,8 @@ type AdminConsoleProps = {
   initialUsers: AppUser[];
   initialModelCatalog: ModelCatalog;
 };
+
+const roleOptions: AicRole[] = ["User", "Admin", "Content Manager", "Research User", "Read Only"];
 
 const retrievalFields: Array<{
   key: RetrievalKey;
@@ -486,8 +488,9 @@ export function AdminConsole({ initialSettings, initialUsers, initialModelCatalo
           <label>
             <span>Role</span>
             <select value={role} onChange={(event) => setRole(event.target.value as AicRole)}>
-              <option value="User">User</option>
-              <option value="Admin">Admin</option>
+              {roleOptions.map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
             </select>
           </label>
           <button className="button button--primary" type="submit" disabled={Boolean(savingRole) || !roleEmail.trim()}>
@@ -516,8 +519,9 @@ export function AdminConsole({ initialSettings, initialUsers, initialModelCatalo
                   disabled={Boolean(savingRole)}
                   aria-label={`Role for ${user.email}`}
                 >
-                  <option value="User">User</option>
-                  <option value="Admin">Admin</option>
+                  {roleOptions.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
                 </select>
               </span>
               <span role="cell">{formatDate(user.lastSeenAt)}</span>

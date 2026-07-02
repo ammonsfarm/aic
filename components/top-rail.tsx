@@ -4,16 +4,30 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { SignInButton, SignUpButton, Show, UserButton } from "@clerk/nextjs";
-import { consoleNav, publicNav } from "@/lib/navigation";
+import { consoleNav, publicNav, type AicNavRole } from "@/lib/navigation";
 
 type TopRailProps = {
   variant: "private" | "public";
   isAdmin?: boolean;
+  role?: AicNavRole;
 };
 
-export function TopRail({ variant, isAdmin = false }: TopRailProps) {
+function canSeePrivateNavItem(item: (typeof consoleNav)[number], role: AicNavRole) {
+  if (item.adminOnly && role !== "Admin") {
+    return false;
+  }
+
+  if (item.contentOnly && role !== "Admin" && role !== "Content Manager") {
+    return false;
+  }
+
+  return true;
+}
+
+export function TopRail({ variant, isAdmin = false, role }: TopRailProps) {
   const pathname = usePathname();
-  const nav = variant === "private" ? consoleNav.filter((item) => !item.adminOnly || isAdmin) : publicNav;
+  const effectiveRole: AicNavRole = role ?? (isAdmin ? "Admin" : "User");
+  const nav = variant === "private" ? consoleNav.filter((item) => canSeePrivateNavItem(item, effectiveRole)) : publicNav;
 
   return (
     <header className="top-rail">

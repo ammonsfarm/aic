@@ -24,3 +24,5 @@ yarn-error.log*
 
 # clerk configuration (can include secrets)
 /.clerk/
+
+route-placeholder.txt
