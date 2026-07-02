@@ -55,7 +55,7 @@ select
     'phase', 'phase-2-inventory'
   ),
   '',
-  case when s.slug = 'about-pastor-wood' then 'Published' else 'Draft' end,
+  case when s.slug in ('about-pastor-wood', 'contact') then 'Published' else 'Draft' end,
   'seed',
   'Initial CMS inventory seed. Public rendering still uses current Next.js routes.'
 from upsert_pages p
@@ -71,7 +71,7 @@ update content_page_revisions r
 set status = 'Published'
 from content_pages p
 where p.id = r.page_id
-  and p.slug = 'about-pastor-wood'
+  and p.slug in ('about-pastor-wood', 'contact')
   and r.revision_number = 1;
 
 update content_pages p
@@ -82,5 +82,5 @@ set status = 'Published',
     updated_at = now()
 from content_page_revisions r
 where r.page_id = p.id
-  and p.slug = 'about-pastor-wood'
+  and p.slug in ('about-pastor-wood', 'contact')
   and r.revision_number = 1;

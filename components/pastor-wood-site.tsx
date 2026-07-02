@@ -539,10 +539,13 @@ function WrittenResourcesPage() {
   );
 }
 
-function ContactPage() {
+function ContactPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
+  const heroTitle = cmsPage?.heroTitle || "Get in touch";
+  const heroBody = cmsPage?.heroBody || "Feedback, prayer requests, and speaking invitations are welcome.";
+
   return (
     <>
-      <PageHero eyebrow="Reach Us" title="Get in touch" body="Feedback, prayer requests, and speaking invitations are welcome." />
+      <PageHero eyebrow="Reach Us" title={heroTitle} body={heroBody} />
       <ContactSection />
     </>
   );
@@ -576,7 +579,7 @@ export function PastorWoodContentPage({ page, cmsPage }: { page: PageKey; cmsPag
     board: <BoardPage />,
     devotional: <DevotionalPage />,
     written: <WrittenResourcesPage />,
-    contact: <ContactPage />,
+    contact: <ContactPage cmsPage={cmsPage} />,
     donate: <DonatePage />,
     donorDashboard: <DonatePage donorDashboard />,
     privacy: <PrivacyPage />,
