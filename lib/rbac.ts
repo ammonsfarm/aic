@@ -167,8 +167,17 @@ export async function ensureCurrentAppUser(): Promise<CurrentAppUser | null> {
     return null;
   }
 
-  const role = await upsertCurrentRole(identity);
-  return { ...identity, role };
+  try {
+    const role = await upsertCurrentRole(identity);
+    return { ...identity, role };
+  } catch (error) {
+    if (process.env.NODE_ENV !== "production" && isBootstrapAdminEmail(identity.email)) {
+      console.error("Local role lookup failed; using bootstrap admin fallback.", error);
+      return { ...identity, role: "Admin" };
+    }
+
+    throw error;
+  }
 }
 
 export async function requireSignedInAppUser(): Promise<CurrentAppUser> {
