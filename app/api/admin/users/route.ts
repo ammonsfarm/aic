@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     const role = normalizeAicRole(payload.role);
 
     if (!role) {
-      return NextResponse.json({ error: "Choose User or Admin." }, { status: 400 });
+      return NextResponse.json({ error: "Choose User, Content Manager, Research User, Read Only, or Admin." }, { status: 400 });
     }
 
     const user = await assignUserRole({ email, role, assignedBy: admin.email });

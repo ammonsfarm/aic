@@ -196,12 +196,17 @@ export async function getCurrentUserRole(): Promise<AicRole> {
     return "User";
   }
 
-  if (isBootstrapAdminEmail(identity.email)) {
-    await upsertCurrentRole(identity);
-    return "Admin";
-  }
+  try {
+    const role = await upsertCurrentRole(identity);
+    return isBootstrapAdminEmail(identity.email) ? "Admin" : role;
+  } catch (error) {
+    if (process.env.NODE_ENV !== "production" && isBootstrapAdminEmail(identity.email)) {
+      console.error("Local role lookup failed; using bootstrap admin fallback.", error);
+      return "Admin";
+    }
 
-  return upsertCurrentRole(identity);
+    throw error;
+  }
 }
 
 export function isAdministratorRole(role: AicRole) {
@@ -275,31 +280,47 @@ export function isForbiddenError(error: unknown) {
 }
 
 export async function listAppUsers(): Promise<AppUserRow[]> {
-  const rows = await queryRows<UserListRow>(
-    `
-      select
-        u.clerk_user_id,
-        coalesce(u.email, r.email) as email,
-        coalesce(u.name, '') as name,
-        coalesce(r.role, 'User') as role,
-        u.last_seen_at::text,
-        coalesce(r.updated_at, u.updated_at)::text as updated_at
-      from aic_user_roles r
-      full outer join aic_users u on u.email = r.email
-      order by
-        case when coalesce(r.role, 'User') = 'Admin' then 0 else 1 end,
-        coalesce(u.email, r.email)
-    `,
-  );
+  try {
+    const rows = await queryRows<UserListRow>(
+      `
+        select
+          u.clerk_user_id,
+          coalesce(u.email, r.email) as email,
+          coalesce(u.name, '') as name,
+          coalesce(r.role, 'User') as role,
+          u.last_seen_at::text,
+          coalesce(r.updated_at, u.updated_at)::text as updated_at
+        from aic_user_roles r
+        full outer join aic_users u on u.email = r.email
+        order by
+          case when coalesce(r.role, 'User') = 'Admin' then 0 else 1 end,
+          coalesce(u.email, r.email)
+      `,
+    );
 
-  return rows.map((row) => ({
-    clerkUserId: row.clerk_user_id ?? "",
-    email: row.email,
-    name: row.name ?? "",
-    role: normalizeAicRole(row.role) ?? "User",
-    lastSeenAt: row.last_seen_at,
-    updatedAt: row.updated_at,
-  }));
+    return rows.map((row) => ({
+      clerkUserId: row.clerk_user_id ?? "",
+      email: row.email,
+      name: row.name ?? "",
+      role: normalizeAicRole(row.role) ?? "User",
+      lastSeenAt: row.last_seen_at,
+      updatedAt: row.updated_at,
+    }));
+  } catch (error) {
+    if (process.env.NODE_ENV !== "production") {
+      console.error("Local user list lookup failed; showing bootstrap admin fallback.", error);
+      return configuredAdminEmails().map((email) => ({
+        clerkUserId: "",
+        email,
+        name: "Local bootstrap admin",
+        role: "Admin",
+        lastSeenAt: null,
+        updatedAt: null,
+      }));
+    }
+
+    throw error;
+  }
 }
 
 export async function assignUserRole({
