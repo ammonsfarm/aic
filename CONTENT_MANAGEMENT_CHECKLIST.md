@@ -170,45 +170,45 @@ Goal: create database-backed content models before replacing hardcoded public co
 
 ### Migrations
 
-- [ ] Create migration for `content_pages`
-- [ ] Create migration for `content_page_revisions`
-- [ ] Create migration for `content_posts`
-- [ ] Create migration for `content_post_revisions`
-- [ ] Create migration for `content_podcast_uploads`
-- [ ] Create migration for `content_newsletters`
-- [ ] Create migration for `content_media_assets`
-- [ ] Create migration for `content_workflow_events`
-- [ ] Create migration for `content_audit_log`
-- [ ] Add indexes for slug lookup
-- [ ] Add indexes for status/publish date filtering
-- [ ] Add foreign keys for published revision references
-- [ ] Add constraints for status values
-- [ ] Add constraints for unique public slugs where needed
+- [x] Create migration for `content_pages`
+- [x] Create migration for `content_page_revisions`
+- [x] Create migration for `content_posts`
+- [x] Create migration for `content_post_revisions`
+- [x] Create migration for `content_podcast_uploads`
+- [x] Create migration for `content_newsletters`
+- [x] Create migration for `content_media_assets`
+- [x] Create migration for `content_workflow_events`
+- [x] Create migration for `content_audit_log`
+- [x] Add indexes for slug lookup
+- [x] Add indexes for status/publish date filtering
+- [x] Add foreign keys for published revision references
+- [x] Add constraints for status values
+- [~] Add constraints for unique public slugs where needed
 
 ### Data access modules
 
-- [ ] Add `lib/content-pages.ts`
-- [ ] Add `lib/content-posts.ts`
-- [ ] Add `lib/content-podcast.ts`
-- [ ] Add `lib/content-newsletters.ts`
-- [ ] Add `lib/content-media.ts`
-- [ ] Add `lib/content-workflow.ts`
-- [ ] Add `lib/content-audit.ts`
-- [ ] Add published-only read helpers for public rendering
-- [ ] Add draft/revision read helpers for protected editing
+- [x] Add `lib/content-pages.ts`
+- [x] Add `lib/content-posts.ts`
+- [x] Add `lib/content-podcast.ts`
+- [x] Add `lib/content-newsletters.ts`
+- [x] Add `lib/content-media.ts`
+- [x] Add `lib/content-workflow.ts`
+- [x] Add `lib/content-audit.ts`
+- [x] Add published-only read helpers for public rendering
+- [~] Add draft/revision read helpers for protected editing
 
 ### Seed/import foundation
 
-- [ ] Create seed script for current public page content
-- [ ] Seed Home page
-- [ ] Seed About Pastor Wood page
-- [ ] Seed Radio landing page
-- [ ] Seed Contact page
-- [ ] Seed Donate page
-- [ ] Seed Endorsements page
-- [ ] Seed Board Members page
-- [ ] Seed Privacy / Terms page
-- [ ] Preserve current hardcoded content during seed validation
+- [x] Create seed script for current public page content
+- [~] Seed Home page
+- [~] Seed About Pastor Wood page
+- [~] Seed Radio landing page
+- [~] Seed Contact page
+- [~] Seed Donate page
+- [~] Seed Endorsements page
+- [~] Seed Board Members page
+- [~] Seed Privacy / Terms page
+- [x] Preserve current hardcoded content during seed validation
 
 Validation commands:
 
@@ -221,7 +221,11 @@ npm run build
 
 Phase 2 notes:
 
-- Add migration IDs and validation results here.
+- 2026-07-01: Added migration `postgres/migrations/012_content_management_core.sql` for core CMS tables and indexes.
+- 2026-07-01: Added read modules for pages, posts, podcast uploads, newsletters, media, workflow, and audit history.
+- 2026-07-01: Added `scripts/seed_content_pages.sql` as a page inventory seed. It creates Draft inventory rows and does not affect current route rendering.
+- 2026-07-01: `npm exec eslint .` passed with existing `<img>` warnings in `components/pastor-wood-site.tsx`.
+- 2026-07-01: `npm run build` passed.
 
 ## Phase 3: Public rendering from CMS
 
@@ -604,6 +608,7 @@ Deployment notes:
 - Michael confirmed Phase 0 and approved proceeding to Phase 1.
 - Started Phase 1 and added protected placeholder routes, role expansion, and navigation filtering.
 - Validation: `npm run lint` passed with existing warnings; `npm run build` passed.
+- Started Phase 2 and added the schema/read-layer foundation.
 - Committed CMS foundation locally as `0b0ea95 Add content management portal foundation`.
 - Pushed `0b0ea95` to `origin/main`.
 - Deployed to `farm:/mnt/storage/aic`; `aic-web.service` restarted and reported active.
