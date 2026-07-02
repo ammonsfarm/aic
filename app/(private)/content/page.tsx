@@ -8,8 +8,8 @@ const contentAreas = [
     eyebrow: "Public website",
     description:
       "Edit evergreen pages that replace the older pastorwood.org content: home, about, radio, board, endorsements, contact, donate, privacy, and ministry landing pages.",
-    href: "/content/pages",
-    status: "Needs page schema + editor",
+    href: "/content/strapi-pages",
+    status: "Strapi-backed editor active",
   },
   {
     title: "Posts and writings",

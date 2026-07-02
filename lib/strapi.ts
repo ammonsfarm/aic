@@ -1,6 +1,7 @@
 import "server-only";
 
 export type StrapiMedia = {
+  id?: number;
   url: string;
   alternativeText: string;
   name: string;
@@ -22,6 +23,10 @@ export type StrapiPage = {
   pageKey: string;
   slug: string;
   title: string;
+  active: boolean;
+  showInNavigation: boolean;
+  navigationLabel: string;
+  navigationOrder: number | null;
   heroTitle: string;
   heroBody: string;
   seoTitle: string;
@@ -63,6 +68,14 @@ function getString(value: unknown) {
   return typeof value === "string" ? value : "";
 }
 
+function getBoolean(value: unknown, fallback = false) {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function getNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 function normalizeMedia(media: unknown): StrapiMedia | null {
   if (!media || typeof media !== "object") {
     return null;
@@ -80,6 +93,7 @@ function normalizeMedia(media: unknown): StrapiMedia | null {
   const url = rawUrl.startsWith("http") || !baseUrl ? rawUrl : new URL(rawUrl, baseUrl).toString();
 
   return {
+    id: typeof entity.id === "number" ? entity.id : undefined,
     url,
     alternativeText: getString(source.alternativeText),
     name: getString(source.name),
@@ -123,6 +137,10 @@ function normalizePage(entity: StrapiEntity<StrapiPage>): StrapiPage | null {
     pageKey,
     slug,
     title,
+    active: getBoolean(source.active, true),
+    showInNavigation: getBoolean(source.showInNavigation),
+    navigationLabel: getString(source.navigationLabel),
+    navigationOrder: getNumber(source.navigationOrder),
     heroTitle: getString(source.heroTitle),
     heroBody: getString(source.heroBody),
     seoTitle: getString(source.seoTitle),
