@@ -4958,14 +4958,20 @@ input:focus {
 
 .pw-brand-wordmark {
   display: block;
-  width: clamp(172px, 20vw, 244px);
+  width: clamp(190px, 24vw, 320px);
+  max-width: 34vw;
+  height: 74px;
   line-height: 0;
+  overflow: hidden;
 }
 
-.pw-brand-wordmark svg {
+.pw-brand-wordmark svg,
+.pw-brand-wordmark img {
   width: 100%;
-  height: auto;
+  height: 100%;
   display: block;
+  object-fit: contain;
+  object-position: left center;
   filter: drop-shadow(0 6px 12px oklch(28% 0.04 105 / 0.12));
 }
 
@@ -4996,11 +5002,13 @@ input:focus {
 @media (max-width: 720px) {
   .pw-brand-wordmark {
     width: 170px;
+    height: 54px;
   }
 }
 
 @media (max-width: 520px) {
   .pw-brand-wordmark {
     width: 142px;
+    height: 46px;
   }
 }
