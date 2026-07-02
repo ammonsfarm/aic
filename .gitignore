@@ -26,3 +26,4 @@ yarn-error.log*
 /.clerk/
 
 route-placeholder.txt
+.local-aic-user-roles.json

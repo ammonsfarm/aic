@@ -4,6 +4,7 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
 import { queryRows } from "@/lib/db";
+import { assignLocalUserRole, getLocalUserRole, listLocalAppUsers } from "./local-role-store";
 
 export type AicRole = "User" | "Admin" | "Content Manager" | "Research User" | "Read Only";
 
@@ -171,9 +172,17 @@ export async function ensureCurrentAppUser(): Promise<CurrentAppUser | null> {
     const role = await upsertCurrentRole(identity);
     return { ...identity, role };
   } catch (error) {
-    if (process.env.NODE_ENV !== "production" && isBootstrapAdminEmail(identity.email)) {
-      console.error("Local role lookup failed; using bootstrap admin fallback.", error);
-      return { ...identity, role: "Admin" };
+    if (process.env.NODE_ENV !== "production") {
+      const localRole = await getLocalUserRole(identity.email);
+      if (localRole) {
+        console.error("Local role lookup failed; using local role override.", error);
+        return { ...identity, role: localRole };
+      }
+
+      if (isBootstrapAdminEmail(identity.email)) {
+        console.error("Local role lookup failed; using bootstrap admin fallback.", error);
+        return { ...identity, role: "Admin" };
+      }
     }
 
     throw error;
@@ -200,9 +209,17 @@ export async function getCurrentUserRole(): Promise<AicRole> {
     const role = await upsertCurrentRole(identity);
     return isBootstrapAdminEmail(identity.email) ? "Admin" : role;
   } catch (error) {
-    if (process.env.NODE_ENV !== "production" && isBootstrapAdminEmail(identity.email)) {
-      console.error("Local role lookup failed; using bootstrap admin fallback.", error);
-      return "Admin";
+    if (process.env.NODE_ENV !== "production") {
+      const localRole = await getLocalUserRole(identity.email);
+      if (localRole) {
+        console.error("Local role lookup failed; using local role override.", error);
+        return localRole;
+      }
+
+      if (isBootstrapAdminEmail(identity.email)) {
+        console.error("Local role lookup failed; using bootstrap admin fallback.", error);
+        return "Admin";
+      }
     }
 
     throw error;
@@ -308,15 +325,18 @@ export async function listAppUsers(): Promise<AppUserRow[]> {
     }));
   } catch (error) {
     if (process.env.NODE_ENV !== "production") {
-      console.error("Local user list lookup failed; showing bootstrap admin fallback.", error);
-      return configuredAdminEmails().map((email) => ({
+      console.error("Local user list lookup failed; showing local role fallbacks.", error);
+      const bootstrapAdmins = configuredAdminEmails().map((email) => ({
         clerkUserId: "",
         email,
         name: "Local bootstrap admin",
-        role: "Admin",
+        role: "Admin" as AicRole,
         lastSeenAt: null,
         updatedAt: null,
       }));
+      const localUsers = await listLocalAppUsers();
+      const bootstrapEmails = new Set(bootstrapAdmins.map((user) => user.email));
+      return [...bootstrapAdmins, ...localUsers.filter((user) => !bootstrapEmails.has(user.email))];
     }
 
     throw error;
@@ -341,31 +361,40 @@ export async function assignUserRole({
     throw new Error("The bootstrap admin account must remain Admin.");
   }
 
-  const rows = await queryRows<UserListRow>(
-    `
-      insert into aic_user_roles(email, role, assigned_by, updated_at)
-      values ($1, $2, $3, now())
-      on conflict (email) do update
-      set role = excluded.role,
-          assigned_by = excluded.assigned_by,
-          updated_at = now()
-      returning
-        null::text as clerk_user_id,
-        email,
-        ''::text as name,
-        role,
-        null::text as last_seen_at,
-        updated_at::text
-    `,
-    [normalizedEmail, role, assignedBy],
-  );
+  try {
+    const rows = await queryRows<UserListRow>(
+      `
+        insert into aic_user_roles(email, role, assigned_by, updated_at)
+        values ($1, $2, $3, now())
+        on conflict (email) do update
+        set role = excluded.role,
+            assigned_by = excluded.assigned_by,
+            updated_at = now()
+        returning
+          null::text as clerk_user_id,
+          email,
+          ''::text as name,
+          role,
+          null::text as last_seen_at,
+          updated_at::text
+      `,
+      [normalizedEmail, role, assignedBy],
+    );
 
-  return {
-    clerkUserId: rows[0]?.clerk_user_id ?? "",
-    email: rows[0]?.email ?? normalizedEmail,
-    name: rows[0]?.name ?? "",
-    role: normalizeAicRole(rows[0]?.role) ?? role,
-    lastSeenAt: rows[0]?.last_seen_at ?? null,
-    updatedAt: rows[0]?.updated_at ?? null,
-  };
+    return {
+      clerkUserId: rows[0]?.clerk_user_id ?? "",
+      email: rows[0]?.email ?? normalizedEmail,
+      name: rows[0]?.name ?? "",
+      role: normalizeAicRole(rows[0]?.role) ?? role,
+      lastSeenAt: rows[0]?.last_seen_at ?? null,
+      updatedAt: rows[0]?.updated_at ?? null,
+    };
+  } catch (error) {
+    if (process.env.NODE_ENV !== "production") {
+      console.error("Database role assignment failed; saving local role override.", error);
+      return assignLocalUserRole({ email: normalizedEmail, role });
+    }
+
+    throw error;
+  }
 }
