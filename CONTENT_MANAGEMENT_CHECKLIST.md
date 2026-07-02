@@ -30,6 +30,8 @@ Conventions:
 - [x] Phase 0 confirmed by Michael on 2026-07-01
 - [x] Checklist committed and pushed
 - [x] Checklist deployed to `farm:/mnt/storage/aic`
+- [x] Local-only workflow adopted for current development; farm deploys paused unless explicitly requested
+- [x] Content Manager role verified locally with `parkrangervan@gmail.com`
 
 Notes:
 
@@ -53,6 +55,11 @@ Notes:
   - Decision: archive newsletters locally first; add Mailchimp sync/send later as explicit audited actions.
 
 No active blockers are currently recorded from the initial decision list.
+
+Local development note:
+
+- 2026-07-01: `.env.local` controls the local DB connection before `.env`. Local DB is currently expected to use the Tailscale host when testing CMS data.
+- 2026-07-01: Local role overrides are supported through ignored file `.local-aic-user-roles.json` so Content Manager behavior can be tested without changing production roles.
 
 ## Decision log
 
@@ -164,6 +171,9 @@ Phase 1 notes:
 - 2026-07-01: Updated protected nav filtering so Content is shown only to Admin and Content Manager roles.
 - 2026-07-01: `npm run lint` passed with existing `<img>` warnings in `components/pastor-wood-site.tsx`.
 - 2026-07-01: `npm run build` passed and listed the new `/content/*` routes.
+- 2026-07-01: Added local bootstrap-admin fallback so `/content` and `/admin` do not crash when the local database is unreachable.
+- 2026-07-01: Added local role override store and verified `parkrangervan@gmail.com` can enter `/content` as `Content Manager` in local development.
+- 2026-07-01: Confirmed security behavior: Admin can access `/admin`; Content Manager can access `/content`; Content Manager is not treated as Admin.
 
 ## Phase 2: CMS database schema and server read layer
 
@@ -298,15 +308,15 @@ Goal: allow content managers to edit public pages and posts without code changes
 
 ### Page list and editor
 
-- [ ] Build `/content/pages` list
+- [x] Build `/content/pages` list
 - [ ] Add filters by status and page type
-- [ ] Add page detail/editor screen
-- [ ] Add field: title
-- [ ] Add field: slug
-- [ ] Add field: SEO title
-- [ ] Add field: SEO description
-- [ ] Add field: hero title
-- [ ] Add field: hero body
+- [~] Add page detail/editor screen
+- [x] Add field: title
+- [x] Add field: slug
+- [x] Add field: SEO title
+- [x] Add field: SEO description
+- [x] Add field: hero title
+- [x] Add field: hero body
 - [ ] Add structured body content editor
 - [ ] Add CTA/link editor
 - [ ] Add image/media picker
@@ -355,7 +365,10 @@ npm run build
 
 Phase 4 notes:
 
-- Add editor implementation notes here.
+- 2026-07-01: Built `/content/pages` as a real CMS page inventory using `listContentPages()` with a safe fallback if the local database is unavailable.
+- 2026-07-01: Added reusable table/status/card styles for CMS inventory screens.
+- 2026-07-01: Added initial `/content/pages/[pageId]` editor shell and `getContentPageById()` data helper.
+- 2026-07-01: Editor scaffold is visible and security-tested, but save/publish actions are not wired yet.
 
 ## Phase 5: Media library
 
