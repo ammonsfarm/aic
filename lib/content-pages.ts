@@ -126,6 +126,27 @@ export async function listContentPages(): Promise<ContentPageSummary[]> {
   return rows.map(mapPage);
 }
 
+export async function getContentPageById(id: number): Promise<ContentPageDetail | null> {
+  const rows = await queryRows<ContentPageRow>(
+    `
+      select id, slug, title, page_type, status, published_revision_id, updated_at::text, published_at::text, scheduled_for::text
+      from content_pages
+      where id = $1
+      limit 1
+    `,
+    [id],
+  );
+
+  const page = rows[0];
+  if (!page) {
+    return null;
+  }
+
+  const revisionId = toNumber(page.published_revision_id);
+  const revision = revisionId ? await getContentPageRevision(revisionId) : null;
+  return mapPageDetail(page, revision);
+}
+
 export async function getContentPageBySlug(slug: string): Promise<ContentPageDetail | null> {
   const rows = await queryRows<ContentPageRow>(
     `
