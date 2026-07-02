@@ -471,10 +471,18 @@ function PostList({ posts }: { posts: Array<{ title: string; date: string; excer
   );
 }
 
-function AboutPage() {
+export type PastorWoodCmsPage = {
+  heroTitle?: string;
+  heroBody?: string;
+};
+
+function AboutPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
+  const heroTitle = cmsPage?.heroTitle || "Jim Wood";
+  const heroBody = cmsPage?.heroBody || "Founder of Wears Valley Ranch, pastor, author, and host of Abiding in Christ.";
+
   return (
     <>
-      <PageHero eyebrow="Life and Ministry" title="Jim Wood" body="Founder of Wears Valley Ranch, pastor, author, and host of Abiding in Christ." />
+      <PageHero eyebrow="Life and Ministry" title={heroTitle} body={heroBody} />
       <section className="pw-section pw-story">
         <div className="pw-story__copy">
           <p>Jim Wood is the Founder of Wears Valley Ranch. Growing up in Montreat, North Carolina, Jim began preaching at age fifteen. After graduating from Gordon College in Massachusetts, Jim married Susan McDonald of Shreveport, Louisiana.</p>
@@ -560,9 +568,9 @@ function PrivacyPage() {
   );
 }
 
-export function PastorWoodContentPage({ page }: { page: PageKey }) {
+export function PastorWoodContentPage({ page, cmsPage }: { page: PageKey; cmsPage?: PastorWoodCmsPage | null }) {
   const content = {
-    about: <AboutPage />,
+    about: <AboutPage cmsPage={cmsPage} />,
     endorsements: <EndorsementsPage />,
     board: <BoardPage />,
     devotional: <DevotionalPage />,

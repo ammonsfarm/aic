@@ -237,16 +237,16 @@ Goal: replace hardcoded public page content with published CMS records while pre
 
 ### Published-only public rendering
 
-- [ ] Build generic published content fetcher
-- [ ] Build public page renderer component
-- [ ] Add safe fallback for missing published content
-- [ ] Ensure draft content is never returned by public fetchers
-- [ ] Ensure scheduled content is hidden until scheduled date/time
+- [x] Build generic published content fetcher
+- [~] Build public page renderer component
+- [x] Add safe fallback for missing published content
+- [x] Ensure draft content is never returned by public fetchers
+- [~] Ensure scheduled content is hidden until scheduled date/time
 - [ ] Add preview route or preview mode requiring auth
 
 ### Convert public pages
 
-- [ ] Convert `/about-pastor-wood` to CMS-backed rendering
+- [x] Convert `/about-pastor-wood` to CMS-backed rendering
 - [ ] Convert `/contact` to CMS-backed rendering
 - [ ] Convert `/donate` to CMS-backed rendering
 - [ ] Convert `/endorsements` to CMS-backed rendering
@@ -278,7 +278,11 @@ curl -LfsS --max-time 20 https://pastorwood.ammonsfarm.org/ | grep -F 'Welcome t
 
 Phase 3 notes:
 
-- Add converted route notes here.
+- 2026-07-01: Converted `/about-pastor-wood` to read the published CMS hero title/body through `getPublishedContentPage("about-pastor-wood")`.
+- 2026-07-01: Kept existing static body content as the page shell/fallback so the public page does not break if CMS lookup fails.
+- 2026-07-01: Updated `scripts/seed_content_pages.sql` to publish the seeded About page revision while leaving other seeded pages as Draft inventory.
+- 2026-07-01: Local `npm exec eslint .` passed with existing `<img>` warnings in `components/pastor-wood-site.tsx`.
+- 2026-07-01: Local `npm run build` passed after making `/about-pastor-wood` dynamic.
 
 ## Phase 4: Page and post editors
 
@@ -616,6 +620,7 @@ Deployment notes:
 - Committed, pushed, and deployed Phase 2 as `948fdaa Add CMS schema and read layer`.
 - Verified migration `012_content_management_core.sql` was applied on farm and service remained active.
 - Expanded and ran the page inventory seed on farm; verified 12 pages and 12 first revisions.
+- Started Phase 3 by converting `/about-pastor-wood` to use the published CMS hero title/body with static fallback content.
 - Committed CMS foundation locally as `0b0ea95 Add content management portal foundation`.
 - Pushed `0b0ea95` to `origin/main`.
 - Deployed to `farm:/mnt/storage/aic`; `aic-web.service` restarted and reported active.
