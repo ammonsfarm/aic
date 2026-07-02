@@ -28,8 +28,8 @@ Conventions:
 - [x] Long-form project plan created: `CONTENT_MANAGEMENT_PROJECT_PLAN.md`
 - [x] Living checklist created: `CONTENT_MANAGEMENT_CHECKLIST.md`
 - [x] Phase 0 confirmed by Michael on 2026-07-01
-- [ ] Checklist committed and pushed
-- [ ] Checklist deployed to `farm:/mnt/storage/aic`
+- [x] Checklist committed and pushed
+- [x] Checklist deployed to `farm:/mnt/storage/aic`
 
 Notes:
 
@@ -84,9 +84,9 @@ Goal: establish the working structure and shared project documents.
 - [x] Create long-form project plan markdown
 - [x] Create living checklist markdown
 - [x] Commit Phase 0 files
-- [ ] Push Phase 0 files
-- [ ] Deploy Phase 0 to farm
-- [ ] Verify `/content` is protected in production
+- [x] Push Phase 0 files
+- [x] Deploy Phase 0 to farm
+- [x] Verify `/content` is protected in production
 
 Validation notes:
 
@@ -604,8 +604,10 @@ Deployment notes:
 - Michael confirmed Phase 0 and approved proceeding to Phase 1.
 - Started Phase 1 and added protected placeholder routes, role expansion, and navigation filtering.
 - Validation: `npm run lint` passed with existing warnings; `npm run build` passed.
-- Committed CMS foundation locally as `cf61156 Add content management portal foundation`.
-- Push and deploy still pending.
+- Committed CMS foundation locally as `0b0ea95 Add content management portal foundation`.
+- Pushed `0b0ea95` to `origin/main`.
+- Deployed to `farm:/mnt/storage/aic`; `aic-web.service` restarted and reported active.
+- Verified unauthenticated `/content` returns `307 Temporary Redirect` to `/login?redirect_url=%2Fcontent`.
 
 ## Change log
 
