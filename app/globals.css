@@ -4952,6 +4952,20 @@ input:focus {
   line-height: 1.72;
 }
 
+.pw-story-section {
+  display: grid;
+  gap: 10px;
+}
+
+.pw-story-section + .pw-story-section {
+  margin-top: 18px;
+}
+
+.pw-story-section h2 {
+  margin: 0;
+  font-size: clamp(1.4rem, 3vw, 2rem);
+}
+
 .pw-story__images {
   display: grid;
   gap: 18px;

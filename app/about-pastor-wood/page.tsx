@@ -11,6 +11,7 @@ async function getAboutStrapiPage(): Promise<PastorWoodCmsPage | null> {
       ? {
           heroTitle: page.heroTitle,
           heroBody: page.heroBody,
+          sections: page.sections,
         }
       : null;
   } catch (error) {

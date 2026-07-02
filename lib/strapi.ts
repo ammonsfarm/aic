@@ -1,5 +1,16 @@
 import "server-only";
 
+export type StrapiPageSection = {
+  id?: number;
+  component: string;
+  eyebrow: string;
+  heading: string;
+  body: string;
+  buttonLabel: string;
+  buttonUrl: string;
+  imageSide: "none" | "left" | "right" | "";
+};
+
 export type StrapiPage = {
   pageKey: string;
   slug: string;
@@ -8,6 +19,7 @@ export type StrapiPage = {
   heroBody: string;
   seoTitle: string;
   seoDescription: string;
+  sections: StrapiPageSection[];
 };
 
 type StrapiEntity<T> = {
@@ -32,6 +44,26 @@ function getString(value: unknown) {
   return typeof value === "string" ? value : "";
 }
 
+function normalizePageSection(section: unknown): StrapiPageSection | null {
+  if (!section || typeof section !== "object") {
+    return null;
+  }
+
+  const source = section as Record<string, unknown>;
+  const imageSide = getString(source.imageSide);
+
+  return {
+    id: typeof source.id === "number" ? source.id : undefined,
+    component: getString(source.__component),
+    eyebrow: getString(source.eyebrow),
+    heading: getString(source.heading),
+    body: getString(source.body),
+    buttonLabel: getString(source.buttonLabel),
+    buttonUrl: getString(source.buttonUrl),
+    imageSide: imageSide === "none" || imageSide === "left" || imageSide === "right" ? imageSide : "",
+  };
+}
+
 function normalizePage(entity: StrapiEntity<StrapiPage>): StrapiPage | null {
   const source = entity.attributes ?? entity;
   const pageKey = getString(source.pageKey);
@@ -42,6 +74,8 @@ function normalizePage(entity: StrapiEntity<StrapiPage>): StrapiPage | null {
     return null;
   }
 
+  const rawSections = Array.isArray(source.sections) ? source.sections : [];
+
   return {
     pageKey,
     slug,
@@ -50,6 +84,10 @@ function normalizePage(entity: StrapiEntity<StrapiPage>): StrapiPage | null {
     heroBody: getString(source.heroBody),
     seoTitle: getString(source.seoTitle),
     seoDescription: getString(source.seoDescription),
+    sections: rawSections.flatMap((section) => {
+      const normalized = normalizePageSection(section);
+      return normalized ? [normalized] : [];
+    }),
   };
 }
 
@@ -83,6 +121,7 @@ export async function getStrapiPageByPageKey(pageKey: string): Promise<StrapiPag
   url.searchParams.set("filters[pageKey][$eq]", pageKey);
   url.searchParams.set("status", "published");
   url.searchParams.set("pagination[pageSize]", "1");
+  url.searchParams.set("populate[sections][populate]", "*");
 
   return fetchStrapiPages(url);
 }
@@ -97,6 +136,7 @@ export async function getStrapiPageBySlug(slug: string): Promise<StrapiPage | nu
   url.searchParams.set("filters[slug][$eq]", slug);
   url.searchParams.set("status", "published");
   url.searchParams.set("pagination[pageSize]", "1");
+  url.searchParams.set("populate[sections][populate]", "*");
 
   return fetchStrapiPages(url);
 }

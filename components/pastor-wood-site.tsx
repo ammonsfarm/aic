@@ -472,26 +472,56 @@ function PostList({ posts }: { posts: Array<{ title: string; date: string; excer
   );
 }
 
+export type PastorWoodCmsSection = {
+  component?: string;
+  eyebrow?: string;
+  heading?: string;
+  body?: string;
+};
+
 export type PastorWoodCmsPage = {
   heroTitle?: string;
   heroBody?: string;
+  sections?: PastorWoodCmsSection[];
 };
+
+function textToParagraphs(value: string) {
+  return value
+    .split(/\n{2,}/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
 
 function AboutPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
   const heroTitle = cmsPage?.heroTitle || "Jim Wood";
   const heroBody = cmsPage?.heroBody || "Founder of Wears Valley Ranch, pastor, author, and host of Abiding in Christ.";
+  const textSections = (cmsPage?.sections ?? []).filter((section) => section.component === "page-sections.text-section" && section.body);
 
   return (
     <>
       <PageHero eyebrow="Life and Ministry" title={heroTitle} body={heroBody} />
       <section className="pw-section pw-story">
         <div className="pw-story__copy">
-          <p>Jim Wood is the Founder of Wears Valley Ranch. Growing up in Montreat, North Carolina, Jim began preaching at age fifteen. After graduating from Gordon College in Massachusetts, Jim married Susan McDonald of Shreveport, Louisiana.</p>
-          <p>They began married life at French Camp Academy in Mississippi, where they were house parents and teachers for two years. From French Camp, Jim returned to New England and attended Gordon-Conwell Theological Seminary where he earned an M.A. in Church History.</p>
-          <p>After pastoring in New England for five years, Jim was called as senior pastor of Mount Vernon Baptist Church in Sandy Springs, Georgia. He served there for six years. During that time he helped develop relationships among pastors of various denominations who covenanted to pray for one another, encourage one another, and hold one another accountable.</p>
-          <p>In 1991, Jim, Susan and their three sons left Mount Vernon to fulfill a vision for which they had prayed for over twenty years. In the Great Smoky Mountains in Tennessee, they established Wears Valley Ranch to provide Christian homes, education, and counseling for children from difficult family situations.</p>
-          <p>Having served as Executive Director of Wears Valley Ranch for nearly 30 years, Jim retired from this capacity in December 2020. He remains as the Ranch&apos;s Founder, continuing his ministry of teaching and preaching at the Ranch, on radio and elsewhere.</p>
-          <p>Jim&apos;s radio program, Abiding in Christ, airs weekdays on SiriusXM 131 satellite radio and is available on podcast. He and his wife, Susan, have authored 14 books and often lead seminars on marriage and parenting.</p>
+          {textSections.length > 0 ? (
+            textSections.map((section) => (
+              <article className="pw-story-section" key={`${section.heading}-${section.eyebrow}`}>
+                {section.eyebrow ? <p className="pw-kicker">{section.eyebrow}</p> : null}
+                {section.heading ? <h2>{section.heading}</h2> : null}
+                {textToParagraphs(section.body ?? "").map((paragraph) => (
+                  <p key={paragraph}>{paragraph}</p>
+                ))}
+              </article>
+            ))
+          ) : (
+            <>
+              <p>Jim Wood is the Founder of Wears Valley Ranch. Growing up in Montreat, North Carolina, Jim began preaching at age fifteen. After graduating from Gordon College in Massachusetts, Jim married Susan McDonald of Shreveport, Louisiana.</p>
+              <p>They began married life at French Camp Academy in Mississippi, where they were house parents and teachers for two years. From French Camp, Jim returned to New England and attended Gordon-Conwell Theological Seminary where he earned an M.A. in Church History.</p>
+              <p>After pastoring in New England for five years, Jim was called as senior pastor of Mount Vernon Baptist Church in Sandy Springs, Georgia. He served there for six years. During that time he helped develop relationships among pastors of various denominations who covenanted to pray for one another, encourage one another, and hold one another accountable.</p>
+              <p>In 1991, Jim, Susan and their three sons left Mount Vernon to fulfill a vision for which they had prayed for over twenty years. In the Great Smoky Mountains in Tennessee, they established Wears Valley Ranch to provide Christian homes, education, and counseling for children from difficult family situations.</p>
+              <p>Having served as Executive Director of Wears Valley Ranch for nearly 30 years, Jim retired from this capacity in December 2020. He remains as the Ranch&apos;s Founder, continuing his ministry of teaching and preaching at the Ranch, on radio and elsewhere.</p>
+              <p>Jim&apos;s radio program, Abiding in Christ, airs weekdays on SiriusXM 131 satellite radio and is available on podcast. He and his wife, Susan, have authored 14 books and often lead seminars on marriage and parenting.</p>
+            </>
+          )}
         </div>
         <div className="pw-story__images">
           <img src={`${originalSite}/wp-content/uploads/2019/02/Jim-and-Susan-2018-10_5-300x240.jpg`} alt="Pastor Jim and Mrs. Susan Wood" />
