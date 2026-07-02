@@ -65,6 +65,7 @@ No active blockers are currently recorded from the initial decision list.
 | 2026-07-01 | Use MinIO as the initial MP3 storage location | Matches current storage direction while preserving future R2 migration option | Accepted |
 | 2026-07-01 | Auto-publish imported historical WordPress posts | Historical content is treated as migrated public content, not new draft content | Accepted |
 | 2026-07-01 | Eventually route `www.pastorwood.org` to this app | This app is intended to replace the old Pastor Wood site | Accepted |
+| 2026-07-01 | Use `aic.ammonsfarm.org` as the single public site host | Removes the host split; `/content/*` remains the private CMS area | Accepted |
 | 2026-07-01 | Keep existing research routes protected as-is for now | Avoids unnecessary route churn while CMS work begins | Accepted |
 | 2026-07-01 | Archive newsletters locally first, then add explicit Mailchimp sync/send later | Prevents accidental emails and keeps Mailchimp send explicit | Accepted |
 
@@ -259,7 +260,7 @@ Goal: replace hardcoded public page content with published CMS records while pre
 
 ### Public site validation
 
-- [ ] Confirm public home loads without login
+- [x] Confirm public home loads without login
 - [ ] Confirm public content matches or improves current visual design
 - [ ] Confirm navigation works on desktop
 - [ ] Confirm navigation works on mobile
@@ -286,6 +287,7 @@ Phase 3 notes:
 - 2026-07-01: Committed, pushed, and deployed as `39e97d4 Render About page hero from CMS`.
 - 2026-07-01: Reran `scripts/seed_content_pages.sql` on farm so `about-pastor-wood` and its first revision are `Published`.
 - 2026-07-01: Verified the Pastor Wood host `/about-pastor-wood` route returns 200 and contains the expected hero text.
+- 2026-07-01: Updated architecture so the public site is no longer selected by host. `/` and public Pastor Wood routes are public on normal hosts such as `localhost`, LAN IP, and `aic.ammonsfarm.org`; `/content/*` remains login-protected.
 
 ## Phase 4: Page and post editors
 
