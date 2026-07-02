@@ -479,6 +479,12 @@ export type PastorWoodCmsSection = {
   body?: string;
   buttonLabel?: string;
   buttonUrl?: string;
+  imageSide?: "none" | "left" | "right" | "";
+  image?: {
+    url: string;
+    alternativeText?: string;
+    name?: string;
+  } | null;
 };
 
 export type PastorWoodCmsPage = {
@@ -494,22 +500,6 @@ function textToParagraphs(value: string) {
     .filter(Boolean);
 }
 
-function CmsTextSections({ sections }: { sections: PastorWoodCmsSection[] }) {
-  return (
-    <section className="pw-section pw-cms-sections">
-      {sections.map((section) => (
-        <article className="pw-story-section" key={`${section.component}-${section.heading}-${section.eyebrow}`}>
-          {section.eyebrow ? <p className="pw-kicker">{section.eyebrow}</p> : null}
-          {section.heading ? <h2>{section.heading}</h2> : null}
-          {textToParagraphs(section.body ?? "").map((paragraph) => (
-            <p key={paragraph}>{paragraph}</p>
-          ))}
-        </article>
-      ))}
-    </section>
-  );
-}
-
 function CmsPageSections({ sections }: { sections?: PastorWoodCmsSection[] }) {
   const renderedSections = (sections ?? []).filter((section) => section.body || section.heading || section.buttonLabel);
 
@@ -521,15 +511,26 @@ function CmsPageSections({ sections }: { sections?: PastorWoodCmsSection[] }) {
     <section className="pw-section pw-cms-sections">
       {renderedSections.map((section) => {
         const isCta = section.component === "page-sections.cta-section";
+        const isImageText = section.component === "page-sections.image-text-section";
+        const imageFirst = isImageText && section.imageSide === "left";
+        const copy = (
+          <div>
+            {section.eyebrow ? <p className="pw-kicker">{section.eyebrow}</p> : null}
+            {section.heading ? <h2>{section.heading}</h2> : null}
+            {textToParagraphs(section.body ?? "").map((paragraph) => (
+              <p key={paragraph}>{paragraph}</p>
+            ))}
+          </div>
+        );
+        const image = isImageText && section.image ? (
+          <img src={section.image.url} alt={section.image.alternativeText || section.image.name || section.heading || "Pastor Wood ministry image"} />
+        ) : null;
+
         return (
-          <article className={isCta ? "pw-donate-panel" : "pw-story-section"} key={`${section.component}-${section.heading}-${section.eyebrow}`}>
-            <div>
-              {section.eyebrow ? <p className="pw-kicker">{section.eyebrow}</p> : null}
-              {section.heading ? <h2>{section.heading}</h2> : null}
-              {textToParagraphs(section.body ?? "").map((paragraph) => (
-                <p key={paragraph}>{paragraph}</p>
-              ))}
-            </div>
+          <article className={isCta ? "pw-donate-panel" : isImageText ? `pw-image-text pw-image-text--${section.imageSide || "right"}` : "pw-story-section"} key={`${section.component}-${section.heading}-${section.eyebrow}`}>
+            {imageFirst ? image : null}
+            {copy}
+            {!imageFirst ? image : null}
             {isCta && section.buttonLabel && section.buttonUrl ? (
               <a className="pw-button pw-button--primary" href={section.buttonUrl} target={section.buttonUrl.startsWith("http") ? "_blank" : undefined} rel={section.buttonUrl.startsWith("http") ? "noreferrer" : undefined}>{section.buttonLabel}</a>
             ) : null}
@@ -543,7 +544,7 @@ function CmsPageSections({ sections }: { sections?: PastorWoodCmsSection[] }) {
 function AboutPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
   const heroTitle = cmsPage?.heroTitle || "Jim Wood";
   const heroBody = cmsPage?.heroBody || "Founder of Wears Valley Ranch, pastor, author, and host of Abiding in Christ.";
-  const textSections = (cmsPage?.sections ?? []).filter((section) => section.component === "page-sections.text-section" && section.body);
+  const textSections = (cmsPage?.sections ?? []).filter((section) => (section.component === "page-sections.text-section" || section.component === "page-sections.image-text-section") && section.body);
 
   return (
     <>
@@ -551,7 +552,7 @@ function AboutPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
       <section className="pw-section pw-story">
         <div className="pw-story__copy">
           {textSections.length > 0 ? (
-            <CmsTextSections sections={textSections} />
+            <CmsPageSections sections={textSections} />
           ) : (
             <>
               <p>Jim Wood is the Founder of Wears Valley Ranch. Growing up in Montreat, North Carolina, Jim began preaching at age fifteen. After graduating from Gordon College in Massachusetts, Jim married Susan McDonald of Shreveport, Louisiana.</p>
@@ -563,10 +564,12 @@ function AboutPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
             </>
           )}
         </div>
-        <div className="pw-story__images">
-          <img src={`${originalSite}/wp-content/uploads/2019/02/Jim-and-Susan-2018-10_5-300x240.jpg`} alt="Pastor Jim and Mrs. Susan Wood" />
-          <img src={`${originalSite}/wp-content/uploads/2015/02/jimwoodfamily2013Christmas.jpg`} alt="Pastor Wood and Family" />
-        </div>
+        {textSections.length > 0 ? null : (
+          <div className="pw-story__images">
+            <img src={`${originalSite}/wp-content/uploads/2019/02/Jim-and-Susan-2018-10_5-300x240.jpg`} alt="Pastor Jim and Mrs. Susan Wood" />
+            <img src={`${originalSite}/wp-content/uploads/2015/02/jimwoodfamily2013Christmas.jpg`} alt="Pastor Wood and Family" />
+          </div>
+        )}
       </section>
     </>
   );

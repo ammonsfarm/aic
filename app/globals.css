@@ -4966,6 +4966,36 @@ input:focus {
   font-size: clamp(1.4rem, 3vw, 2rem);
 }
 
+.pw-image-text {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(220px, 0.65fr);
+  gap: clamp(18px, 3vw, 36px);
+  align-items: center;
+}
+
+.pw-image-text + .pw-image-text,
+.pw-image-text + .pw-story-section,
+.pw-story-section + .pw-image-text {
+  margin-top: 24px;
+}
+
+.pw-image-text--left {
+  grid-template-columns: minmax(220px, 0.65fr) minmax(0, 1.1fr);
+}
+
+.pw-image-text img {
+  width: 100%;
+  border-radius: 24px;
+  box-shadow: 0 24px 50px rgba(31, 30, 20, 0.18);
+}
+
+@media (max-width: 760px) {
+  .pw-image-text,
+  .pw-image-text--left {
+    grid-template-columns: 1fr;
+  }
+}
+
 .pw-story__images {
   display: grid;
   gap: 18px;

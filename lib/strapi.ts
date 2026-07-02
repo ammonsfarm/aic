@@ -1,5 +1,11 @@
 import "server-only";
 
+export type StrapiMedia = {
+  url: string;
+  alternativeText: string;
+  name: string;
+};
+
 export type StrapiPageSection = {
   id?: number;
   component: string;
@@ -9,6 +15,7 @@ export type StrapiPageSection = {
   buttonLabel: string;
   buttonUrl: string;
   imageSide: "none" | "left" | "right" | "";
+  image: StrapiMedia | null;
 };
 
 export type StrapiPage = {
@@ -44,6 +51,29 @@ function getString(value: unknown) {
   return typeof value === "string" ? value : "";
 }
 
+function normalizeMedia(media: unknown): StrapiMedia | null {
+  if (!media || typeof media !== "object") {
+    return null;
+  }
+
+  const entity = media as Record<string, unknown>;
+  const source = entity.attributes && typeof entity.attributes === "object" ? entity.attributes as Record<string, unknown> : entity;
+  const rawUrl = getString(source.url);
+
+  if (!rawUrl) {
+    return null;
+  }
+
+  const baseUrl = strapiBaseUrl();
+  const url = rawUrl.startsWith("http") || !baseUrl ? rawUrl : new URL(rawUrl, baseUrl).toString();
+
+  return {
+    url,
+    alternativeText: getString(source.alternativeText),
+    name: getString(source.name),
+  };
+}
+
 function normalizePageSection(section: unknown): StrapiPageSection | null {
   if (!section || typeof section !== "object") {
     return null;
@@ -61,6 +91,7 @@ function normalizePageSection(section: unknown): StrapiPageSection | null {
     buttonLabel: getString(source.buttonLabel),
     buttonUrl: getString(source.buttonUrl),
     imageSide: imageSide === "none" || imageSide === "left" || imageSide === "right" ? imageSide : "",
+    image: normalizeMedia(source.image),
   };
 }
 
