@@ -2,6 +2,7 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
 const isApiRoute = createRouteMatcher(["/api(.*)"]);
+const isPublicApiRoute = createRouteMatcher(["/api/revalidate/strapi"]);
 const isPublicPageRoute = createRouteMatcher([
   "/",
   "/about-pastor-wood(.*)",
@@ -24,7 +25,7 @@ export default clerkMiddleware(async (auth, request) => {
   const { userId } = await auth();
 
   if (isApiRoute(request)) {
-    if (userId) {
+    if (isPublicApiRoute(request) || userId) {
       return;
     }
 
