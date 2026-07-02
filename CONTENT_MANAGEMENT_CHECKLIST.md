@@ -248,7 +248,7 @@ Goal: replace hardcoded public page content with published CMS records while pre
 ### Convert public pages
 
 - [x] Convert `/about-pastor-wood` to CMS-backed rendering
-- [ ] Convert `/contact` to CMS-backed rendering
+- [x] Convert `/contact` to CMS-backed rendering
 - [ ] Convert `/donate` to CMS-backed rendering
 - [ ] Convert `/endorsements` to CMS-backed rendering
 - [ ] Convert `/board-members` to CMS-backed rendering
@@ -288,6 +288,9 @@ Phase 3 notes:
 - 2026-07-01: Reran `scripts/seed_content_pages.sql` on farm so `about-pastor-wood` and its first revision are `Published`.
 - 2026-07-01: Verified the Pastor Wood host `/about-pastor-wood` route returns 200 and contains the expected hero text.
 - 2026-07-01: Updated architecture so the public site is no longer selected by host. `/` and public Pastor Wood routes are public on normal hosts such as `localhost`, LAN IP, and `aic.ammonsfarm.org`; `/content/*` remains login-protected.
+- 2026-07-01: Committed and deployed `6d2c91a Use optimized transparent nav logo`; the nav now uses an 18K transparent WebP logo.
+- 2026-07-01: Committed and deployed `89aa271 Render Contact page hero from CMS`; reran the CMS seed so `contact` and its first revision are `Published`.
+- 2026-07-01: Verified `/contact` returns `200`, `/content` returns `307`, and `aic-web.service` is active on farm.
 
 ## Phase 4: Page and post editors
 
