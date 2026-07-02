@@ -58,7 +58,7 @@ select
   'Draft',
   'seed',
   'Initial CMS inventory seed. Public rendering still uses current Next.js routes.'
-from content_pages p
+from upsert_pages p
 join page_seed s on s.slug = p.slug
 where not exists (
   select 1
