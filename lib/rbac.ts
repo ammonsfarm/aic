@@ -168,6 +168,13 @@ export async function ensureCurrentAppUser(): Promise<CurrentAppUser | null> {
     return null;
   }
 
+  if (process.env.NODE_ENV !== "production") {
+    const localRole = await getLocalUserRole(identity.email);
+    if (localRole) {
+      return { ...identity, role: localRole };
+    }
+  }
+
   try {
     const role = await upsertCurrentRole(identity);
     return { ...identity, role };
@@ -203,6 +210,13 @@ export async function getCurrentUserRole(): Promise<AicRole> {
   const identity = await getCurrentIdentity();
   if (!identity) {
     return "User";
+  }
+
+  if (process.env.NODE_ENV !== "production") {
+    const localRole = await getLocalUserRole(identity.email);
+    if (localRole) {
+      return localRole;
+    }
   }
 
   try {
