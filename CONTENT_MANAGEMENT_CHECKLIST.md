@@ -226,6 +226,9 @@ Phase 2 notes:
 - 2026-07-01: Added `scripts/seed_content_pages.sql` as a page inventory seed. It creates Draft inventory rows and does not affect current route rendering.
 - 2026-07-01: `npm exec eslint .` passed with existing `<img>` warnings in `components/pastor-wood-site.tsx`.
 - 2026-07-01: `npm run build` passed.
+- 2026-07-01: Committed and pushed as `948fdaa Add CMS schema and read layer`.
+- 2026-07-01: Deployed to `farm:/mnt/storage/aic`; migration `012_content_management_core.sql` applied and then verified as skipped on rerun.
+- 2026-07-01: Verified `aic-web.service` active and unauthenticated `/content` still redirects to `/login?redirect_url=%2Fcontent`.
 
 ## Phase 3: Public rendering from CMS
 
@@ -609,6 +612,8 @@ Deployment notes:
 - Started Phase 1 and added protected placeholder routes, role expansion, and navigation filtering.
 - Validation: `npm run lint` passed with existing warnings; `npm run build` passed.
 - Started Phase 2 and added the schema/read-layer foundation.
+- Committed, pushed, and deployed Phase 2 as `948fdaa Add CMS schema and read layer`.
+- Verified migration `012_content_management_core.sql` was applied on farm and service remained active.
 - Committed CMS foundation locally as `0b0ea95 Add content management portal foundation`.
 - Pushed `0b0ea95` to `origin/main`.
 - Deployed to `farm:/mnt/storage/aic`; `aic-web.service` restarted and reported active.
