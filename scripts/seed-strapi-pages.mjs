@@ -31,11 +31,36 @@ const headers = {
 
 const pages = [
   {
+    pageKey: "contact",
+    slug: "contact",
+    title: "Contact",
+    heroTitle: "Get in touch",
+    heroBody: "Contact the ministry office or invite Pastor Wood to speak.",
+    sections: [
+      {
+        __component: "page-sections.text-section",
+        eyebrow: "Ministry Office",
+        heading: "Invite Pastor Wood to speak.",
+        body: "For conferences, prayer requests, or ministry correspondence, use the phone, email, or mailing address here.\n\nToll free: (866) 41Abide / (866) 412-2433\n\nLocal: (865) 429-7101\n\nEmail: Radio@pastorwood.org\n\nMail: 100 One Fine Place, Sevierville, TN 37862",
+      },
+    ],
+  },
+  {
     pageKey: "donate",
     slug: "donate",
     title: "Donate",
     heroTitle: "Donate Today",
     heroBody: "Donation processing and donor account access remain on the original Pastor Wood site for now.",
+    sections: [
+      {
+        __component: "page-sections.cta-section",
+        eyebrow: "Support Abiding in Christ",
+        heading: "Support Abiding in Christ",
+        body: "Use the original secure giving page to support Pastor Wood and Abiding in Christ.",
+        buttonLabel: "Open on pastorwood.org",
+        buttonUrl: "https://www.pastorwood.org/donate/",
+      },
+    ],
   },
   {
     pageKey: "donor-dashboard",
@@ -43,6 +68,16 @@ const pages = [
     title: "Donor Dashboard",
     heroTitle: "Donor Dashboard",
     heroBody: "Donation processing and donor account access remain on the original Pastor Wood site for now.",
+    sections: [
+      {
+        __component: "page-sections.cta-section",
+        eyebrow: "Donor Dashboard",
+        heading: "Access your donor dashboard",
+        body: "Use the original donor dashboard for account access and giving history.",
+        buttonLabel: "Open on pastorwood.org",
+        buttonUrl: "https://www.pastorwood.org/donor-dashboard/",
+      },
+    ],
   },
   {
     pageKey: "bible-study",
@@ -78,6 +113,16 @@ const pages = [
     title: "Privacy, Terms & Conditions",
     heroTitle: "Privacy, Terms & Conditions",
     heroBody: "The original privacy, terms, and conditions page remains the current policy source.",
+    sections: [
+      {
+        __component: "page-sections.cta-section",
+        eyebrow: "Current policy source",
+        heading: "Current policy source",
+        body: "Open the original Pastor Wood policy page for the current privacy, terms, and conditions content.",
+        buttonLabel: "Open Policy",
+        buttonUrl: "https://www.pastorwood.org/privacy-terms-conditions/",
+      },
+    ],
   },
 ];
 

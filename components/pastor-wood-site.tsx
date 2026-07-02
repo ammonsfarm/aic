@@ -477,6 +477,8 @@ export type PastorWoodCmsSection = {
   eyebrow?: string;
   heading?: string;
   body?: string;
+  buttonLabel?: string;
+  buttonUrl?: string;
 };
 
 export type PastorWoodCmsPage = {
@@ -492,6 +494,52 @@ function textToParagraphs(value: string) {
     .filter(Boolean);
 }
 
+function CmsTextSections({ sections }: { sections: PastorWoodCmsSection[] }) {
+  return (
+    <section className="pw-section pw-cms-sections">
+      {sections.map((section) => (
+        <article className="pw-story-section" key={`${section.component}-${section.heading}-${section.eyebrow}`}>
+          {section.eyebrow ? <p className="pw-kicker">{section.eyebrow}</p> : null}
+          {section.heading ? <h2>{section.heading}</h2> : null}
+          {textToParagraphs(section.body ?? "").map((paragraph) => (
+            <p key={paragraph}>{paragraph}</p>
+          ))}
+        </article>
+      ))}
+    </section>
+  );
+}
+
+function CmsPageSections({ sections }: { sections?: PastorWoodCmsSection[] }) {
+  const renderedSections = (sections ?? []).filter((section) => section.body || section.heading || section.buttonLabel);
+
+  if (renderedSections.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="pw-section pw-cms-sections">
+      {renderedSections.map((section) => {
+        const isCta = section.component === "page-sections.cta-section";
+        return (
+          <article className={isCta ? "pw-donate-panel" : "pw-story-section"} key={`${section.component}-${section.heading}-${section.eyebrow}`}>
+            <div>
+              {section.eyebrow ? <p className="pw-kicker">{section.eyebrow}</p> : null}
+              {section.heading ? <h2>{section.heading}</h2> : null}
+              {textToParagraphs(section.body ?? "").map((paragraph) => (
+                <p key={paragraph}>{paragraph}</p>
+              ))}
+            </div>
+            {isCta && section.buttonLabel && section.buttonUrl ? (
+              <a className="pw-button pw-button--primary" href={section.buttonUrl} target={section.buttonUrl.startsWith("http") ? "_blank" : undefined} rel={section.buttonUrl.startsWith("http") ? "noreferrer" : undefined}>{section.buttonLabel}</a>
+            ) : null}
+          </article>
+        );
+      })}
+    </section>
+  );
+}
+
 function AboutPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
   const heroTitle = cmsPage?.heroTitle || "Jim Wood";
   const heroBody = cmsPage?.heroBody || "Founder of Wears Valley Ranch, pastor, author, and host of Abiding in Christ.";
@@ -503,15 +551,7 @@ function AboutPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
       <section className="pw-section pw-story">
         <div className="pw-story__copy">
           {textSections.length > 0 ? (
-            textSections.map((section) => (
-              <article className="pw-story-section" key={`${section.heading}-${section.eyebrow}`}>
-                {section.eyebrow ? <p className="pw-kicker">{section.eyebrow}</p> : null}
-                {section.heading ? <h2>{section.heading}</h2> : null}
-                {textToParagraphs(section.body ?? "").map((paragraph) => (
-                  <p key={paragraph}>{paragraph}</p>
-                ))}
-              </article>
-            ))
+            <CmsTextSections sections={textSections} />
           ) : (
             <>
               <p>Jim Wood is the Founder of Wears Valley Ranch. Growing up in Montreat, North Carolina, Jim began preaching at age fifteen. After graduating from Gordon College in Massachusetts, Jim married Susan McDonald of Shreveport, Louisiana.</p>
@@ -584,7 +624,7 @@ function ContactPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
   return (
     <>
       <PageHero eyebrow="Reach Us" title={heroTitle} body={heroBody} />
-      <ContactSection />
+      {cmsPage?.sections?.length ? <CmsPageSections sections={cmsPage.sections} /> : <ContactSection />}
     </>
   );
 }
@@ -595,10 +635,14 @@ function DonatePage({ cmsPage, donorDashboard = false }: { cmsPage?: PastorWoodC
   return (
     <>
       <PageHero eyebrow="Donate" title={heroTitle} body={heroBody} />
-      <section className="pw-section pw-donate-panel">
-        <div><h2>{donorDashboard ? "Access your donor dashboard" : "Support Abiding in Christ"}</h2><p>{donorDashboard ? "Use the original donor dashboard for account access and giving history." : "Use the original secure giving page to support Pastor Wood and Abiding in Christ."}</p></div>
-        <a className="pw-button pw-button--primary" href={donorDashboard ? `${originalSite}/donor-dashboard/` : `${originalSite}/donate/`} target="_blank" rel="noreferrer">Open on pastorwood.org</a>
-      </section>
+      {cmsPage?.sections?.length ? (
+        <CmsPageSections sections={cmsPage.sections} />
+      ) : (
+        <section className="pw-section pw-donate-panel">
+          <div><h2>{donorDashboard ? "Access your donor dashboard" : "Support Abiding in Christ"}</h2><p>{donorDashboard ? "Use the original donor dashboard for account access and giving history." : "Use the original secure giving page to support Pastor Wood and Abiding in Christ."}</p></div>
+          <a className="pw-button pw-button--primary" href={donorDashboard ? `${originalSite}/donor-dashboard/` : `${originalSite}/donate/`} target="_blank" rel="noreferrer">Open on pastorwood.org</a>
+        </section>
+      )}
     </>
   );
 }
@@ -609,7 +653,7 @@ function PrivacyPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
   return (
     <>
       <PageHero eyebrow="Privacy" title={heroTitle} body={heroBody} />
-      <section className="pw-section pw-donate-panel"><div><h2>Current policy source</h2><p>Open the original Pastor Wood policy page for the current privacy, terms, and conditions content.</p></div><a className="pw-button pw-button--primary" href={`${originalSite}/privacy-terms-conditions/`} target="_blank" rel="noreferrer">Open Policy</a></section>
+      {cmsPage?.sections?.length ? <CmsPageSections sections={cmsPage.sections} /> : <section className="pw-section pw-donate-panel"><div><h2>Current policy source</h2><p>Open the original Pastor Wood policy page for the current privacy, terms, and conditions content.</p></div><a className="pw-button pw-button--primary" href={`${originalSite}/privacy-terms-conditions/`} target="_blank" rel="noreferrer">Open Policy</a></section>}
     </>
   );
 }
