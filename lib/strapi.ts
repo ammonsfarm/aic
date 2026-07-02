@@ -63,7 +63,9 @@ async function fetchStrapiPages(url: URL): Promise<StrapiPage | null> {
   });
 
   if (!response.ok) {
-    throw new Error(`Strapi request failed with ${response.status}`);
+    const details = await response.text().catch(() => "");
+    console.warn(`Strapi page request failed with ${response.status}. Falling back.`, details.slice(0, 500));
+    return null;
   }
 
   const payload = (await response.json()) as StrapiListResponse<StrapiPage>;
@@ -79,7 +81,7 @@ export async function getStrapiPageByPageKey(pageKey: string): Promise<StrapiPag
 
   const url = new URL("/api/pages", baseUrl);
   url.searchParams.set("filters[pageKey][$eq]", pageKey);
-  url.searchParams.set("publicationState", "live");
+  url.searchParams.set("status", "published");
   url.searchParams.set("pagination[pageSize]", "1");
 
   return fetchStrapiPages(url);
@@ -93,7 +95,7 @@ export async function getStrapiPageBySlug(slug: string): Promise<StrapiPage | nu
 
   const url = new URL("/api/pages", baseUrl);
   url.searchParams.set("filters[slug][$eq]", slug);
-  url.searchParams.set("publicationState", "live");
+  url.searchParams.set("status", "published");
   url.searchParams.set("pagination[pageSize]", "1");
 
   return fetchStrapiPages(url);
