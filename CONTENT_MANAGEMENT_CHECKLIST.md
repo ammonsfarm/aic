@@ -320,7 +320,7 @@ Goal: allow content managers to edit public pages and posts without code changes
 - [ ] Add structured body content editor
 - [ ] Add CTA/link editor
 - [ ] Add image/media picker
-- [ ] Add save draft action
+- [x] Add save draft action
 - [ ] Add direct publish action
 - [ ] Add schedule action
 - [ ] Add unpublish/archive action
@@ -369,6 +369,8 @@ Phase 4 notes:
 - 2026-07-01: Added reusable table/status/card styles for CMS inventory screens.
 - 2026-07-01: Added initial `/content/pages/[pageId]` editor shell and `getContentPageById()` data helper.
 - 2026-07-01: Editor scaffold is visible and security-tested, but save/publish actions are not wired yet.
+- 2026-07-01: Added visible edit fields to `/content/pages/[pageId]` for title, hero title/body, SEO title/description, and change note.
+- 2026-07-01: Added `Save Draft` server action that creates a new `content_page_revisions` Draft row. Published pages continue to use the current published revision until a publish action is added.
 
 ## Phase 5: Media library
 

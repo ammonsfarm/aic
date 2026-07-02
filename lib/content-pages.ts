@@ -37,6 +37,17 @@ export type ContentPageDetail = ContentPageSummary & {
   revision: ContentPageRevision | null;
 };
 
+export type ContentPageDraftInput = {
+  pageId: number;
+  title: string;
+  seoTitle: string;
+  seoDescription: string;
+  heroTitle: string;
+  heroBody: string;
+  changeNote: string;
+  createdBy: string;
+};
+
 type ContentPageRow = {
   id: string | number;
   slug: string;
@@ -166,6 +177,89 @@ export async function getContentPageBySlug(slug: string): Promise<ContentPageDet
   const revisionId = toNumber(page.published_revision_id);
   const revision = revisionId ? await getContentPageRevision(revisionId) : null;
   return mapPageDetail(page, revision);
+}
+
+export async function getLatestContentPageRevision(pageId: number): Promise<ContentPageRevision | null> {
+  const rows = await queryRows<ContentPageRevisionRow>(
+    `
+      select id, page_id, revision_number, title, seo_title, seo_description, hero_title, hero_body, body_json, body_html, status, created_by, created_at::text, change_note
+      from content_page_revisions
+      where page_id = $1
+      order by revision_number desc
+      limit 1
+    `,
+    [pageId],
+  );
+
+  return rows[0] ? mapRevision(rows[0]) : null;
+}
+
+export async function createContentPageDraftRevision(input: ContentPageDraftInput): Promise<ContentPageRevision> {
+  const title = input.title.trim();
+  const heroTitle = input.heroTitle.trim();
+
+  if (!title) {
+    throw new Error("Title is required.");
+  }
+
+  if (!heroTitle) {
+    throw new Error("Hero title is required.");
+  }
+
+  const rows = await queryRows<ContentPageRevisionRow>(
+    `
+      with next_revision as (
+        select coalesce(max(revision_number), 0) + 1 as revision_number
+        from content_page_revisions
+        where page_id = $1
+      )
+      insert into content_page_revisions(
+        page_id,
+        revision_number,
+        title,
+        seo_title,
+        seo_description,
+        hero_title,
+        hero_body,
+        body_json,
+        body_html,
+        status,
+        created_by,
+        change_note
+      )
+      select
+        $1,
+        next_revision.revision_number,
+        $2,
+        $3,
+        $4,
+        $5,
+        $6,
+        '{}'::jsonb,
+        '',
+        'Draft',
+        $7,
+        $8
+      from next_revision
+      returning id, page_id, revision_number, title, seo_title, seo_description, hero_title, hero_body, body_json, body_html, status, created_by, created_at::text, change_note
+    `,
+    [
+      input.pageId,
+      title,
+      input.seoTitle.trim(),
+      input.seoDescription.trim(),
+      heroTitle,
+      input.heroBody.trim(),
+      input.createdBy,
+      input.changeNote.trim(),
+    ],
+  );
+
+  if (!rows[0]) {
+    throw new Error("Draft revision could not be created.");
+  }
+
+  return mapRevision(rows[0]);
 }
 
 export async function getPublishedContentPage(slug: string): Promise<ContentPageDetail | null> {

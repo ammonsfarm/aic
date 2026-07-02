@@ -1110,6 +1110,68 @@ input:disabled {
   font-size: 0.86rem;
 }
 
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.notice-card--success {
+  border-color: oklch(52% 0.08 156 / 45%);
+  background: oklch(95% 0.028 150 / 58%);
+}
+
+.editor-form {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+}
+
+.editor-form label {
+  display: grid;
+  gap: 7px;
+}
+
+.editor-form label > span {
+  color: var(--cypress);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.editor-form input,
+.editor-form textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: oklch(99% 0.014 88);
+  color: var(--ink);
+  font: inherit;
+  padding: 11px 12px;
+}
+
+.editor-form input:disabled {
+  background: var(--parchment-warm);
+  color: var(--soft-ink);
+}
+
+.editor-form textarea {
+  resize: vertical;
+}
+
+.editor-form small {
+  color: var(--soft-ink);
+  font-size: 0.78rem;
+}
+
+.editor-form__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-top: 4px;
+}
+
 .episode-snippet {
   margin-top: 8px;
   color: var(--soft-ink);
