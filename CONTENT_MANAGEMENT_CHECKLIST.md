@@ -283,6 +283,9 @@ Phase 3 notes:
 - 2026-07-01: Updated `scripts/seed_content_pages.sql` to publish the seeded About page revision while leaving other seeded pages as Draft inventory.
 - 2026-07-01: Local `npm exec eslint .` passed with existing `<img>` warnings in `components/pastor-wood-site.tsx`.
 - 2026-07-01: Local `npm run build` passed after making `/about-pastor-wood` dynamic.
+- 2026-07-01: Committed, pushed, and deployed as `39e97d4 Render About page hero from CMS`.
+- 2026-07-01: Reran `scripts/seed_content_pages.sql` on farm so `about-pastor-wood` and its first revision are `Published`.
+- 2026-07-01: Verified the Pastor Wood host `/about-pastor-wood` route returns 200 and contains the expected hero text.
 
 ## Phase 4: Page and post editors
 
@@ -621,6 +624,7 @@ Deployment notes:
 - Verified migration `012_content_management_core.sql` was applied on farm and service remained active.
 - Expanded and ran the page inventory seed on farm; verified 12 pages and 12 first revisions.
 - Started Phase 3 by converting `/about-pastor-wood` to use the published CMS hero title/body with static fallback content.
+- Deployed Phase 3 About conversion as `39e97d4`; verified the Pastor Wood host route renders the CMS-backed hero.
 - Committed CMS foundation locally as `0b0ea95 Add content management portal foundation`.
 - Pushed `0b0ea95` to `origin/main`.
 - Deployed to `farm:/mnt/storage/aic`; `aic-web.service` restarted and reported active.
