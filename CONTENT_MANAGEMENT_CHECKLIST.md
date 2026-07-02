@@ -200,14 +200,14 @@ Goal: create database-backed content models before replacing hardcoded public co
 ### Seed/import foundation
 
 - [x] Create seed script for current public page content
-- [~] Seed Home page
-- [~] Seed About Pastor Wood page
-- [~] Seed Radio landing page
-- [~] Seed Contact page
-- [~] Seed Donate page
-- [~] Seed Endorsements page
-- [~] Seed Board Members page
-- [~] Seed Privacy / Terms page
+- [x] Seed Home page
+- [x] Seed About Pastor Wood page
+- [x] Seed Radio landing page
+- [x] Seed Contact page
+- [x] Seed Donate page
+- [x] Seed Endorsements page
+- [x] Seed Board Members page
+- [x] Seed Privacy / Terms page
 - [x] Preserve current hardcoded content during seed validation
 
 Validation commands:
@@ -223,12 +223,13 @@ Phase 2 notes:
 
 - 2026-07-01: Added migration `postgres/migrations/012_content_management_core.sql` for core CMS tables and indexes.
 - 2026-07-01: Added read modules for pages, posts, podcast uploads, newsletters, media, workflow, and audit history.
-- 2026-07-01: Added `scripts/seed_content_pages.sql` as a page inventory seed. It creates Draft inventory rows and does not affect current route rendering.
+- 2026-07-01: Added `scripts/seed_content_pages.sql` as a page inventory seed. It creates Draft inventory rows and initial Draft revisions and does not affect current route rendering.
 - 2026-07-01: `npm exec eslint .` passed with existing `<img>` warnings in `components/pastor-wood-site.tsx`.
 - 2026-07-01: `npm run build` passed.
 - 2026-07-01: Committed and pushed as `948fdaa Add CMS schema and read layer`.
 - 2026-07-01: Deployed to `farm:/mnt/storage/aic`; migration `012_content_management_core.sql` applied and then verified as skipped on rerun.
 - 2026-07-01: Verified `aic-web.service` active and unauthenticated `/content` still redirects to `/login?redirect_url=%2Fcontent`.
+- 2026-07-01: Expanded and ran `scripts/seed_content_pages.sql` on farm. Verification returned 12 `content_pages` rows and 12 `content_page_revisions` rows.
 
 ## Phase 3: Public rendering from CMS
 
@@ -614,6 +615,7 @@ Deployment notes:
 - Started Phase 2 and added the schema/read-layer foundation.
 - Committed, pushed, and deployed Phase 2 as `948fdaa Add CMS schema and read layer`.
 - Verified migration `012_content_management_core.sql` was applied on farm and service remained active.
+- Expanded and ran the page inventory seed on farm; verified 12 pages and 12 first revisions.
 - Committed CMS foundation locally as `0b0ea95 Add content management portal foundation`.
 - Pushed `0b0ea95` to `origin/main`.
 - Deployed to `farm:/mnt/storage/aic`; `aic-web.service` restarted and reported active.
