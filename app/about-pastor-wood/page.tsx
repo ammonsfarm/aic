@@ -1,7 +1,23 @@
 import { PastorWoodContentPage, type PastorWoodCmsPage } from "@/components/pastor-wood-site";
 import { getPublishedContentPage } from "@/lib/content-pages";
+import { getStrapiPageByPageKey } from "@/lib/strapi";
 
 export const dynamic = "force-dynamic";
+
+async function getAboutStrapiPage(): Promise<PastorWoodCmsPage | null> {
+  try {
+    const page = await getStrapiPageByPageKey("about");
+    return page
+      ? {
+          heroTitle: page.heroTitle,
+          heroBody: page.heroBody,
+        }
+      : null;
+  } catch (error) {
+    console.error("Strapi lookup failed for about", error);
+    return null;
+  }
+}
 
 async function getAboutCmsPage() {
   try {
@@ -13,6 +29,11 @@ async function getAboutCmsPage() {
 }
 
 export default async function Page() {
+  const strapiPage = await getAboutStrapiPage();
+  if (strapiPage) {
+    return <PastorWoodContentPage page="about" cmsPage={strapiPage} />;
+  }
+
   const contentPage = await getAboutCmsPage();
   const cmsPage: PastorWoodCmsPage | null = contentPage?.revision
     ? {
