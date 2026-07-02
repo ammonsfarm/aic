@@ -532,38 +532,46 @@ function AboutPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
   );
 }
 
-function EndorsementsPage() {
+function EndorsementsPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
+  const heroTitle = cmsPage?.heroTitle || "Additional Endorsements for Pastor Wood";
+  const heroBody = cmsPage?.heroBody || "Public endorsements from ministry leaders and friends of the work.";
   return (
     <>
-      <PageHero eyebrow="Endorsements" title="Additional Endorsements for Pastor Wood" body="Public endorsements from ministry leaders and friends of the work." />
+      <PageHero eyebrow="Endorsements" title={heroTitle} body={heroBody} />
       <section className="pw-section"><div className="pw-endorsement-grid">{[...homeEndorsements, ...additionalEndorsements].map((item) => <EndorsementFigure key={item.name} item={item} />)}</div></section>
     </>
   );
 }
 
-function BoardPage() {
+function BoardPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
+  const heroTitle = cmsPage?.heroTitle || "Abiding in Christ Board Members";
+  const heroBody = cmsPage?.heroBody || "We are fortunate to have the following people serving on our board.";
   return (
     <>
-      <PageHero eyebrow="Board" title="Abiding in Christ Board Members" body="We are fortunate to have the following people serving on our board." />
+      <PageHero eyebrow="Board" title={heroTitle} body={heroBody} />
       <section className="pw-section"><div className="pw-board-grid">{boardMembers.map((member) => <article className="pw-board-member" key={member.name}><PersonPhoto name={member.name} image={member.image} compact /><div><h2>{member.name}</h2><p className="pw-board-role">{member.role}</p><p>{member.detail}</p></div></article>)}</div></section>
     </>
   );
 }
 
-function DevotionalPage() {
+function DevotionalPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
+  const heroTitle = cmsPage?.heroTitle || "Weekly Devotional";
+  const heroBody = cmsPage?.heroBody || "Recent devotional posts from Pastor Wood. Full post pages remain on the original Pastor Wood site for now.";
   return (
     <>
-      <PageHero eyebrow="Weekly Devotional" title="Weekly Devotional" body="Recent devotional posts from Pastor Wood. Full post pages remain on the original Pastor Wood site for now." />
+      <PageHero eyebrow="Weekly Devotional" title={heroTitle} body={heroBody} />
       <section className="pw-section"><PostList posts={devotionalPosts} /></section>
       <DevotionalSignup />
     </>
   );
 }
 
-function WrittenResourcesPage() {
+function WrittenResourcesPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
+  const heroTitle = cmsPage?.heroTitle || "Written Resources from Pastor Jim Wood";
+  const heroBody = cmsPage?.heroBody || "Here are resources that we hope will bless you.";
   return (
     <>
-      <PageHero eyebrow="Written Resources" title="Written Resources from Pastor Jim Wood" body="Here are resources that we hope will bless you." />
+      <PageHero eyebrow="Written Resources" title={heroTitle} body={heroBody} />
       <section className="pw-section"><PostList posts={writtenResources} /></section>
     </>
   );
@@ -581,10 +589,12 @@ function ContactPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
   );
 }
 
-function DonatePage({ donorDashboard = false }: { donorDashboard?: boolean }) {
+function DonatePage({ cmsPage, donorDashboard = false }: { cmsPage?: PastorWoodCmsPage | null; donorDashboard?: boolean }) {
+  const heroTitle = cmsPage?.heroTitle || (donorDashboard ? "Donor Dashboard" : "Donate Today");
+  const heroBody = cmsPage?.heroBody || "Donation processing and donor account access remain on the original Pastor Wood site for now.";
   return (
     <>
-      <PageHero eyebrow="Donate" title={donorDashboard ? "Donor Dashboard" : "Donate Today"} body="Donation processing and donor account access remain on the original Pastor Wood site for now." />
+      <PageHero eyebrow="Donate" title={heroTitle} body={heroBody} />
       <section className="pw-section pw-donate-panel">
         <div><h2>{donorDashboard ? "Access your donor dashboard" : "Support Abiding in Christ"}</h2><p>{donorDashboard ? "Use the original donor dashboard for account access and giving history." : "Use the original secure giving page to support Pastor Wood and Abiding in Christ."}</p></div>
         <a className="pw-button pw-button--primary" href={donorDashboard ? `${originalSite}/donor-dashboard/` : `${originalSite}/donate/`} target="_blank" rel="noreferrer">Open on pastorwood.org</a>
@@ -593,10 +603,12 @@ function DonatePage({ donorDashboard = false }: { donorDashboard?: boolean }) {
   );
 }
 
-function PrivacyPage() {
+function PrivacyPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
+  const heroTitle = cmsPage?.heroTitle || "Privacy, Terms & Conditions";
+  const heroBody = cmsPage?.heroBody || "The original privacy, terms, and conditions page remains the current policy source.";
   return (
     <>
-      <PageHero eyebrow="Privacy" title="Privacy, Terms & Conditions" body="The original privacy, terms, and conditions page remains the current policy source." />
+      <PageHero eyebrow="Privacy" title={heroTitle} body={heroBody} />
       <section className="pw-section pw-donate-panel"><div><h2>Current policy source</h2><p>Open the original Pastor Wood policy page for the current privacy, terms, and conditions content.</p></div><a className="pw-button pw-button--primary" href={`${originalSite}/privacy-terms-conditions/`} target="_blank" rel="noreferrer">Open Policy</a></section>
     </>
   );
@@ -605,14 +617,14 @@ function PrivacyPage() {
 export function PastorWoodContentPage({ page, cmsPage }: { page: PageKey; cmsPage?: PastorWoodCmsPage | null }) {
   const content = {
     about: <AboutPage cmsPage={cmsPage} />,
-    endorsements: <EndorsementsPage />,
-    board: <BoardPage />,
-    devotional: <DevotionalPage />,
-    written: <WrittenResourcesPage />,
+    endorsements: <EndorsementsPage cmsPage={cmsPage} />,
+    board: <BoardPage cmsPage={cmsPage} />,
+    devotional: <DevotionalPage cmsPage={cmsPage} />,
+    written: <WrittenResourcesPage cmsPage={cmsPage} />,
     contact: <ContactPage cmsPage={cmsPage} />,
-    donate: <DonatePage />,
-    donorDashboard: <DonatePage donorDashboard />,
-    privacy: <PrivacyPage />,
+    donate: <DonatePage cmsPage={cmsPage} />,
+    donorDashboard: <DonatePage cmsPage={cmsPage} donorDashboard />,
+    privacy: <PrivacyPage cmsPage={cmsPage} />,
   }[page];
 
   return <PastorWoodShell>{content}</PastorWoodShell>;
