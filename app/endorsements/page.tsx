@@ -1,8 +1,6 @@
 import { PastorWoodContentPage, type PastorWoodCmsPage } from "@/components/pastor-wood-site";
 import { getStrapiPageByPageKey } from "@/lib/strapi";
 
-export const dynamic = "force-dynamic";
-
 async function getPage(): Promise<PastorWoodCmsPage | null> {
   try {
     const page = await getStrapiPageByPageKey("endorsements");

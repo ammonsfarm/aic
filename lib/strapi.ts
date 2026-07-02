@@ -39,6 +39,18 @@ type StrapiListResponse<T> = {
   data?: Array<StrapiEntity<T>>;
 };
 
+export const STRAPI_PAGES_CACHE_TAG = "strapi:pages";
+export const DEFAULT_STRAPI_PAGE_REVALIDATE_SECONDS = 60 * 60;
+
+export function strapiPageCacheTag(identifier: string) {
+  return `strapi:page:${identifier.trim().toLowerCase()}`;
+}
+
+function strapiPageRevalidateSeconds() {
+  const value = Number(process.env.STRAPI_PAGE_REVALIDATE_SECONDS ?? DEFAULT_STRAPI_PAGE_REVALIDATE_SECONDS);
+  return Number.isFinite(value) && value > 0 ? value : DEFAULT_STRAPI_PAGE_REVALIDATE_SECONDS;
+}
+
 function strapiBaseUrl() {
   return process.env.STRAPI_URL?.replace(/\/+$/, "") || "";
 }
@@ -122,13 +134,16 @@ function normalizePage(entity: StrapiEntity<StrapiPage>): StrapiPage | null {
   };
 }
 
-async function fetchStrapiPages(url: URL): Promise<StrapiPage | null> {
+async function fetchStrapiPages(url: URL, tags: string[]): Promise<StrapiPage | null> {
   const token = strapiApiToken();
   const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
 
   const response = await fetch(url, {
     headers,
-    next: { revalidate: 30 },
+    next: {
+      revalidate: strapiPageRevalidateSeconds(),
+      tags,
+    },
   });
 
   if (!response.ok) {
@@ -154,7 +169,7 @@ export async function getStrapiPageByPageKey(pageKey: string): Promise<StrapiPag
   url.searchParams.set("pagination[pageSize]", "1");
   url.searchParams.set("populate[sections][populate]", "*");
 
-  return fetchStrapiPages(url);
+  return fetchStrapiPages(url, [STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag(pageKey)]);
 }
 
 export async function getStrapiPageBySlug(slug: string): Promise<StrapiPage | null> {
@@ -169,5 +184,5 @@ export async function getStrapiPageBySlug(slug: string): Promise<StrapiPage | nu
   url.searchParams.set("pagination[pageSize]", "1");
   url.searchParams.set("populate[sections][populate]", "*");
 
-  return fetchStrapiPages(url);
+  return fetchStrapiPages(url, [STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag(slug)]);
 }
