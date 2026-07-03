@@ -39,6 +39,8 @@ type ExistingSectionBodyProps = {
   imageSide: "none" | "left" | "right" | "";
   imageDescription: string;
   imageName: string;
+  imageUrl?: string;
+  imageAlt?: string;
 };
 
 const SECTION_OPTIONS = [
@@ -335,29 +337,66 @@ export function RichTextArea({ name, defaultValue = "", rows = 10, helpText }: R
   );
 }
 
-export function ExistingSectionTypeFields({
+function ImageSectionFields({
   prefix,
-  component,
-  body,
-  buttonLabel,
-  buttonUrl,
-  imageSide,
-  imageDescription,
-  imageName,
-}: ExistingSectionBodyProps) {
-  const isImageText = component === "page-sections.image-text-section";
-  const isCta = component === "page-sections.cta-section";
+  imageSide = "right",
+  imageDescription = "",
+  imageName = "",
+  imageUrl = "",
+  imageAlt = "",
+}: {
+  prefix: string;
+  imageSide?: "none" | "left" | "right" | "";
+  imageDescription?: string;
+  imageName?: string;
+  imageUrl?: string;
+  imageAlt?: string;
+}) {
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [previewName, setPreviewName] = useState("");
+  const visibleImageUrl = previewUrl || imageUrl;
+  const visibleImageName = previewName || imageName;
 
   return (
-    <>
-      <RichTextArea name={`${prefix}Body`} defaultValue={body} />
-
-      {isImageText ? (
+    <div className="media-editor-card">
+      <div className="media-editor-card__preview">
+        {visibleImageUrl ? (
+          <img src={visibleImageUrl} alt={imageDescription || imageAlt || visibleImageName || "Section image preview"} />
+        ) : (
+          <div className="media-editor-card__empty">No image selected</div>
+        )}
+      </div>
+      <div className="media-editor-card__body">
+        <div>
+          <p className="eyebrow">Section image</p>
+          <strong>{visibleImageName || "Choose an image"}</strong>
+          <p className="muted-copy">
+            {previewUrl
+              ? "This is the new image selected for upload. Save the page to replace the current image."
+              : imageUrl
+                ? "This is the image currently used for this section. Upload a new image only if you want to replace it."
+                : "Upload an image that should appear with this text section."}
+          </p>
+        </div>
         <div className="editor-grid editor-grid--three">
           <label>
-            <span>Image</span>
-            <input name={`${prefix}ImageFile`} type="file" accept="image/*" />
-            <small>{imageName ? `Current image: ${imageName}. Upload a new image only if you want to replace it.` : "Upload an image for this section."}</small>
+            <span>Replace image</span>
+            <input
+              name={`${prefix}ImageFile`}
+              type="file"
+              accept="image/*"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (!file) {
+                  setPreviewUrl("");
+                  setPreviewName("");
+                  return;
+                }
+                setPreviewUrl(URL.createObjectURL(file));
+                setPreviewName(file.name);
+              }}
+            />
+            <small>{imageUrl ? "Leave blank to keep the current image." : "Choose an image for this section."}</small>
           </label>
           <label>
             <span>Image position</span>
@@ -370,9 +409,42 @@ export function ExistingSectionTypeFields({
           <label>
             <span>Image description</span>
             <input name={`${prefix}ImageDescription`} defaultValue={imageDescription} />
-            <small>Describe the image for screen readers and mouse hover text.</small>
+            <small>For screen readers and mouse hover text.</small>
           </label>
         </div>
+      </div>
+    </div>
+  );
+}
+
+export function ExistingSectionTypeFields({
+  prefix,
+  component,
+  body,
+  buttonLabel,
+  buttonUrl,
+  imageSide,
+  imageDescription,
+  imageName,
+  imageUrl,
+  imageAlt,
+}: ExistingSectionBodyProps) {
+  const isImageText = component === "page-sections.image-text-section";
+  const isCta = component === "page-sections.cta-section";
+
+  return (
+    <>
+      <RichTextArea name={`${prefix}Body`} defaultValue={body} />
+
+      {isImageText ? (
+        <ImageSectionFields
+          prefix={prefix}
+          imageSide={imageSide}
+          imageDescription={imageDescription}
+          imageName={imageName}
+          imageUrl={imageUrl}
+          imageAlt={imageAlt}
+        />
       ) : (
         <>
           <input type="hidden" name={`${prefix}ImageSide`} value={imageSide || "right"} />
@@ -470,27 +542,7 @@ function AddSectionSlot({
 
           <RichTextArea name={`${prefix}Body`} rows={5} />
 
-          {isImageText ? (
-            <div className="editor-grid editor-grid--three">
-              <label>
-                <span>Image</span>
-                <input name={`${prefix}ImageFile`} type="file" accept="image/*" />
-                <small>Upload the image that should appear with this text.</small>
-              </label>
-              <label>
-                <span>Image position</span>
-                <select name={`${prefix}ImageSide`} defaultValue="right">
-                  <option value="left">Image on left</option>
-                  <option value="right">Image on right</option>
-                </select>
-              </label>
-              <label>
-                <span>Image description</span>
-                <input name={`${prefix}ImageDescription`} />
-                <small>Describe the image for screen readers and mouse hover text.</small>
-              </label>
-            </div>
-          ) : null}
+          {isImageText ? <ImageSectionFields prefix={prefix} /> : null}
 
           {isCta ? (
             <div className="editor-grid editor-grid--two">

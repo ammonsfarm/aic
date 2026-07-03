@@ -95,17 +95,9 @@ function SectionFields({ section, index }: { section: StrapiPageSection; index: 
         imageSide={section.imageSide}
         imageDescription={section.imageDescription}
         imageName={section.image?.name || "current image"}
+        imageUrl={section.image?.url}
+        imageAlt={section.image?.alternativeText || section.heading}
       />
-
-      {section.image ? (
-        <div className="media-preview-row">
-          <img src={section.image.url} alt={section.image.alternativeText || section.image.name || section.heading} />
-          <div>
-            <strong>{section.image.name || "Media image"}</strong>
-            <p className="muted-copy">This image is currently used for the section. Upload a new image above to replace it.</p>
-          </div>
-        </div>
-      ) : null}
     </fieldset>
   );
 }
