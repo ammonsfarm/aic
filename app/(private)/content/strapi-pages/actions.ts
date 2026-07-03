@@ -224,9 +224,11 @@ function revalidateManagedPage(input: ManagedStrapiPageInput, documentId?: strin
   revalidateTag(strapiPageCacheTag(input.slug), "max");
   revalidatePath(publicPathFor(input.pageKey, input.slug), "page");
   revalidatePath("/content/strapi-pages");
+  revalidatePath("/content/site-pages");
 
   if (documentId) {
     revalidatePath(`/content/strapi-pages/${documentId}`);
+    revalidatePath(`/content/site-pages/${documentId}`);
   }
 }
 
@@ -235,7 +237,7 @@ export async function saveStrapiPageAction(documentId: string, formData: FormDat
   const input = await parsePageInput(formData);
   await updateManagedStrapiPage(documentId, input);
   revalidateManagedPage(input, documentId);
-  redirect(`/content/strapi-pages/${documentId}?saved=1`);
+  redirect(`/content/site-pages/${documentId}?saved=1`);
 }
 
 export async function createStrapiPageAction(formData: FormData) {
@@ -243,5 +245,5 @@ export async function createStrapiPageAction(formData: FormData) {
   const input = await parsePageInput(formData);
   const page = await createManagedStrapiPage(input);
   revalidateManagedPage(input, page.documentId);
-  redirect(`/content/strapi-pages/${page.documentId}?created=1`);
+  redirect(`/content/site-pages/${page.documentId}?created=1`);
 }

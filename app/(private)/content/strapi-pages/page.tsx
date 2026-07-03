@@ -103,7 +103,7 @@ export default async function StrapiPagesPage() {
             <Link className="button button--ghost" href="/content">
               Back to content portal
             </Link>
-            <Link className="button" href="/content/strapi-pages/new">
+            <Link className="button" href="/content/site-pages/new">
               New page
             </Link>
           </div>
@@ -146,7 +146,7 @@ export default async function StrapiPagesPage() {
                   </td>
                   <td>{formatDate(page.updatedAt)}</td>
                   <td>
-                    <Link className="button button--ghost" href={`/content/strapi-pages/${page.documentId}`}>
+                    <Link className="button button--ghost" href={`/content/site-pages/${page.documentId}`}>
                       Edit
                     </Link>
                   </td>

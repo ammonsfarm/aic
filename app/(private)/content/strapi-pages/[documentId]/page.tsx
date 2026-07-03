@@ -141,7 +141,7 @@ export default async function EditStrapiPage({
         <section className="notice-card">
           <strong>Could not load page</strong>
           <p>{error}</p>
-          <Link className="button button--ghost" href="/content/strapi-pages">Back to pages</Link>
+          <Link className="button button--ghost" href="/content/site-pages">Back to pages</Link>
         </section>
       </div>
     );
@@ -196,7 +196,7 @@ export default async function EditStrapiPage({
             <h2>Page fields</h2>
           </div>
           <div className="button-row">
-            <Link className="button button--ghost" href="/content/strapi-pages">Back to pages</Link>
+            <Link className="button button--ghost" href="/content/site-pages">Back to pages</Link>
             <Link className="button button--ghost" href={publicPath(page)} target="_blank">View public page</Link>
           </div>
         </div>
@@ -284,7 +284,7 @@ export default async function EditStrapiPage({
 
           <div className="editor-form__actions">
             <button className="button" type="submit">Save page</button>
-            <Link className="button button--ghost" href="/content/strapi-pages">Cancel</Link>
+            <Link className="button button--ghost" href="/content/site-pages">Cancel</Link>
             <span className="muted-copy">Last updated {formatDate(page.updatedAt)}</span>
           </div>
         </PageEditorForm>

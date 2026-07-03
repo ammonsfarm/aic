@@ -28,7 +28,7 @@ export default async function NewStrapiPage() {
           <p>Create the page first with the basic page details. After it is created, you can add page sections one at a time.</p>
         </div>
         <div className="button-row">
-          <Link className="button button--ghost" href="/content/strapi-pages">
+          <Link className="button button--ghost" href="/content/site-pages">
             Back to pages
           </Link>
         </div>
@@ -111,7 +111,7 @@ export default async function NewStrapiPage() {
             <button className="button" type="submit">
               Create page
             </button>
-            <Link className="button button--ghost" href="/content/strapi-pages">
+            <Link className="button button--ghost" href="/content/site-pages">
               Cancel
             </Link>
           </div>
