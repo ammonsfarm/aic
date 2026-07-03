@@ -108,7 +108,8 @@ function normalizeNavigation(items: unknown) {
       const normalized = normalizeNavigationItem(item);
       return normalized ? [normalized] : [];
     })
-    .filter((item) => item.active);
+    .filter((item) => item.active)
+    .sort((left, right) => (left.order ?? 9999) - (right.order ?? 9999));
 }
 
 function normalizeSettings(entity: StrapiEntity<StrapiSiteSettings>): StrapiSiteSettings | null {
