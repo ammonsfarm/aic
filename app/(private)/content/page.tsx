@@ -9,7 +9,15 @@ const contentAreas = [
     description:
       "Edit evergreen pages that replace the older pastorwood.org content: home, about, radio, board, endorsements, contact, donate, privacy, and ministry landing pages.",
     href: "/content/strapi-pages",
-    status: "Strapi-backed editor active",
+    status: "Editor active",
+  },
+  {
+    title: "Site settings",
+    eyebrow: "Navigation / footer",
+    description:
+      "Edit the public site name, navigation menus, donate button settings, footer text, and copyright copy from AIC.",
+    href: "/content/site-settings",
+    status: "Editor active",
   },
   {
     title: "Posts and writings",

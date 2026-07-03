@@ -44,6 +44,56 @@ function formBoolean(formData: FormData, key: string) {
   return formData.get(key) === "on";
 }
 
+function strapiBaseUrl() {
+  return process.env.STRAPI_URL?.replace(/\/+$/, "") || "";
+}
+
+function strapiWriteToken() {
+  return process.env.STRAPI_API_TOKEN_TEMP_WRITE?.trim() || process.env.STRAPI_API_TOKEN?.trim() || "";
+}
+
+function slugify(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/['’]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+async function uploadSectionImage(file: File) {
+  if (!file.size) {
+    return null;
+  }
+
+  const baseUrl = strapiBaseUrl();
+  const token = strapiWriteToken();
+  if (!baseUrl || !token) {
+    throw new Error("Image upload is not configured. Set STRAPI_URL and STRAPI_API_TOKEN_TEMP_WRITE or STRAPI_API_TOKEN.");
+  }
+
+  const uploadData = new FormData();
+  uploadData.append("files", file, file.name || "section-image");
+
+  const response = await fetch(new URL("/api/upload", baseUrl), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: uploadData,
+    cache: "no-store",
+  });
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new Error(`Image upload failed with ${response.status}: ${text.slice(0, 500)}`);
+  }
+
+  const uploaded = (text ? JSON.parse(text) : []) as Array<{ id?: number }>;
+  return typeof uploaded[0]?.id === "number" ? uploaded[0].id : null;
+}
+
 function publicPathFor(pageKey: string, slug: string) {
   const key = pageKey.trim().toLowerCase();
   const normalizedSlug = slug.trim().toLowerCase();
@@ -59,7 +109,7 @@ function publicPathFor(pageKey: string, slug: string) {
   return normalizedSlug === "home" ? "/" : `/${normalizedSlug.replace(/^\/+/, "")}`;
 }
 
-function sectionPayload(formData: FormData, keyPrefix: string) {
+async function sectionPayload(formData: FormData, keyPrefix: string) {
   const component = formString(formData, `${keyPrefix}Component`);
   const remove = formBoolean(formData, `${keyPrefix}Remove`);
   const eyebrow = formString(formData, `${keyPrefix}Eyebrow`);
@@ -67,8 +117,12 @@ function sectionPayload(formData: FormData, keyPrefix: string) {
   const body = formString(formData, `${keyPrefix}Body`);
   const buttonLabel = formString(formData, `${keyPrefix}ButtonLabel`);
   const buttonUrl = formString(formData, `${keyPrefix}ButtonUrl`);
-  const imageId = formNumber(formData, `${keyPrefix}ImageId`);
+  const existingImageId = formNumber(formData, `${keyPrefix}ImageId`);
+  const imageFile = formData.get(`${keyPrefix}ImageFile`);
+  const uploadedImageId = imageFile instanceof File ? await uploadSectionImage(imageFile) : null;
+  const imageId = uploadedImageId ?? existingImageId;
   const imageSide = formString(formData, `${keyPrefix}ImageSide`) || "right";
+  const imageDescription = formString(formData, `${keyPrefix}ImageDescription`);
   const id = formNumber(formData, `${keyPrefix}Id`);
   const order = formNumber(formData, `${keyPrefix}Order`) ?? 0;
 
@@ -99,6 +153,7 @@ function sectionPayload(formData: FormData, keyPrefix: string) {
 
   if (component === "page-sections.image-text-section") {
     base.imageSide = imageSide === "left" || imageSide === "right" || imageSide === "none" ? imageSide : "right";
+    base.imageDescription = imageDescription;
     if (imageId) {
       base.image = imageId;
     }
@@ -107,32 +162,43 @@ function sectionPayload(formData: FormData, keyPrefix: string) {
   return { order, section: base };
 }
 
-function parseSections(formData: FormData) {
+async function parseSections(formData: FormData) {
   const count = formNumber(formData, "sectionCount") ?? 0;
   const parsed = [] as Array<{ order: number; section: Record<string, unknown> }>;
 
   for (let index = 0; index < count; index += 1) {
-    const section = sectionPayload(formData, `section${index}`);
+    const section = await sectionPayload(formData, `section${index}`);
     if (section) {
       parsed.push(section);
     }
   }
 
-  const newSection = sectionPayload(formData, "newSection");
-  if (newSection) {
-    parsed.push({ ...newSection, order: parsed.length + 1 });
+  const newSectionCount = formNumber(formData, "newSectionCount") ?? 0;
+  for (let index = 0; index < newSectionCount; index += 1) {
+    const newSection = await sectionPayload(formData, `newSection${index}`);
+    if (newSection) {
+      parsed.push({
+        ...newSection,
+        order: newSection.order > 0 ? newSection.order : parsed.length + 1,
+      });
+    }
+  }
+
+  const legacyNewSection = await sectionPayload(formData, "newSection");
+  if (legacyNewSection) {
+    parsed.push({ ...legacyNewSection, order: parsed.length + 1 });
   }
 
   return parsed.sort((left, right) => left.order - right.order).map((item) => item.section);
 }
 
-function parsePageInput(formData: FormData): ManagedStrapiPageInput {
+async function parsePageInput(formData: FormData): Promise<ManagedStrapiPageInput> {
   const title = formString(formData, "title");
-  const slug = formString(formData, "slug");
-  const pageKey = formString(formData, "pageKey");
+  const slug = slugify(formString(formData, "slug"));
+  const pageKey = slugify(formString(formData, "pageKey") || slug);
 
   if (!title || !slug || !pageKey) {
-    throw new Error("Title, slug, and page key are required.");
+    throw new Error("Title and page URL are required.");
   }
 
   return {
@@ -143,11 +209,12 @@ function parsePageInput(formData: FormData): ManagedStrapiPageInput {
     showInNavigation: formBoolean(formData, "showInNavigation"),
     navigationLabel: formString(formData, "navigationLabel"),
     navigationOrder: formNumber(formData, "navigationOrder"),
+    heroLabel: formString(formData, "heroLabel"),
     heroTitle: formString(formData, "heroTitle"),
     heroBody: formString(formData, "heroBody"),
     seoTitle: formString(formData, "seoTitle"),
     seoDescription: formString(formData, "seoDescription"),
-    sections: parseSections(formData),
+    sections: await parseSections(formData),
   };
 }
 
@@ -165,7 +232,7 @@ function revalidateManagedPage(input: ManagedStrapiPageInput, documentId?: strin
 
 export async function saveStrapiPageAction(documentId: string, formData: FormData) {
   await requireContentManagerApiUser();
-  const input = parsePageInput(formData);
+  const input = await parsePageInput(formData);
   await updateManagedStrapiPage(documentId, input);
   revalidateManagedPage(input, documentId);
   redirect(`/content/strapi-pages/${documentId}?saved=1`);
@@ -173,7 +240,7 @@ export async function saveStrapiPageAction(documentId: string, formData: FormDat
 
 export async function createStrapiPageAction(formData: FormData) {
   await requireContentManagerApiUser();
-  const input = parsePageInput(formData);
+  const input = await parsePageInput(formData);
   const page = await createManagedStrapiPage(input);
   revalidateManagedPage(input, page.documentId);
   redirect(`/content/strapi-pages/${page.documentId}?created=1`);

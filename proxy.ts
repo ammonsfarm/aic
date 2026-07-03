@@ -1,6 +1,8 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
+import { getStrapiPageBySlug } from "@/lib/strapi";
+
 const isApiRoute = createRouteMatcher(["/api(.*)"]);
 const isPublicApiRoute = createRouteMatcher(["/api/revalidate/strapi"]);
 const isPublicPageRoute = createRouteMatcher([
@@ -23,6 +25,7 @@ const isPublicPageRoute = createRouteMatcher([
 
 export default clerkMiddleware(async (auth, request) => {
   const { userId } = await auth();
+  const singleSegmentSlug = request.nextUrl.pathname.match(/^\/([^/]+)\/?$/)?.[1];
 
   if (isApiRoute(request)) {
     if (isPublicApiRoute(request) || userId) {
@@ -34,6 +37,13 @@ export default clerkMiddleware(async (auth, request) => {
 
   if (isPublicPageRoute(request)) {
     return;
+  }
+
+  if (singleSegmentSlug) {
+    const cmsPage = await getStrapiPageBySlug(singleSegmentSlug);
+    if (cmsPage?.active) {
+      return;
+    }
   }
 
   if (userId) {

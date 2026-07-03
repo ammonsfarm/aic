@@ -1,16 +1,17 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { getManagedStrapiPage, type ManagedStrapiPage } from "@/lib/strapi-management";
+import { getManagedStrapiPage, listManagedStrapiPages, type ManagedStrapiPage } from "@/lib/strapi-management";
 import type { StrapiPageSection } from "@/lib/strapi";
 import { saveStrapiPageAction } from "../actions";
+import { AddSectionFields, ExistingSectionTypeFields, PageCoreFields, PageEditorForm } from "../page-editor-client";
 
 export const dynamic = "force-dynamic";
 
 const SECTION_COMPONENTS = [
-  { value: "page-sections.text-section", label: "Text Section" },
-  { value: "page-sections.image-text-section", label: "Image Text Section" },
-  { value: "page-sections.cta-section", label: "CTA Section" },
+  { value: "page-sections.text-section", label: "Text" },
+  { value: "page-sections.image-text-section", label: "Image + Text" },
+  { value: "page-sections.cta-section", label: "Call to Action" },
 ];
 
 function formatDate(value: string) {
@@ -47,76 +48,61 @@ function SectionFields({ section, index }: { section: StrapiPageSection; index: 
   const imageId = section.image?.id ?? "";
 
   return (
-    <fieldset className="section-editor">
-      <legend>
+    <fieldset className="section-editor section-component-card">
+      <legend className="sr-only">
         Section {index + 1}: {componentLabel(section.component)}
       </legend>
       <input type="hidden" name={`${prefix}Id`} value={section.id ?? ""} />
       <input type="hidden" name={`${prefix}ImageId`} value={imageId} />
 
-      <div className="editor-grid editor-grid--three">
-        <label>
-          <span>Order</span>
-          <input name={`${prefix}Order`} type="number" defaultValue={index + 1} />
-        </label>
-        <label>
-          <span>Type</span>
-          <select name={`${prefix}Component`} defaultValue={section.component}>
-            {SECTION_COMPONENTS.map((item) => (
-              <option key={item.value} value={item.value}>{item.label}</option>
-            ))}
-          </select>
-        </label>
-        <label className="checkbox-row checkbox-row--form">
+      <div className="section-component-card__header">
+        <div className="section-component-card__title">
+          <span className="component-icon" aria-hidden="true">▦</span>
+          <span>{componentLabel(section.component)}</span>
+          <span className="muted-copy">Section {index + 1}</span>
+        </div>
+        <label className="section-delete-toggle">
           <input name={`${prefix}Remove`} type="checkbox" />
-          <span>Remove section</span>
+          <span>Delete</span>
         </label>
       </div>
 
+      <input type="hidden" name={`${prefix}Component`} value={section.component} />
+      <label>
+        <span>Display order</span>
+        <input name={`${prefix}Order`} type="number" defaultValue={index + 1} />
+        <small>Lower numbers appear higher on the page.</small>
+      </label>
+
       <div className="editor-grid editor-grid--two">
         <label>
-          <span>Eyebrow</span>
+          <span>Small intro label</span>
           <input name={`${prefix}Eyebrow`} defaultValue={section.eyebrow} />
+          <small>Optional short label above the section title, such as “About” or “Resources.”</small>
         </label>
         <label>
-          <span>Heading</span>
+          <span>Section title</span>
           <input name={`${prefix}Heading`} defaultValue={section.heading} />
         </label>
       </div>
 
-      <label>
-        <span>Body</span>
-        <textarea name={`${prefix}Body`} rows={6} defaultValue={section.body} />
-      </label>
-
-      <div className="editor-grid editor-grid--three">
-        <label>
-          <span>Button label</span>
-          <input name={`${prefix}ButtonLabel`} defaultValue={section.buttonLabel} />
-          <small>Used by CTA sections.</small>
-        </label>
-        <label>
-          <span>Button URL</span>
-          <input name={`${prefix}ButtonUrl`} defaultValue={section.buttonUrl} />
-          <small>Used by CTA sections.</small>
-        </label>
-        <label>
-          <span>Image side</span>
-          <select name={`${prefix}ImageSide`} defaultValue={section.imageSide || "right"}>
-            <option value="none">None</option>
-            <option value="left">Left</option>
-            <option value="right">Right</option>
-          </select>
-          <small>Used by image-text sections.</small>
-        </label>
-      </div>
+      <ExistingSectionTypeFields
+        prefix={prefix}
+        component={section.component}
+        body={section.body}
+        buttonLabel={section.buttonLabel}
+        buttonUrl={section.buttonUrl}
+        imageSide={section.imageSide}
+        imageDescription={section.imageDescription}
+        imageName={section.image?.name || "current image"}
+      />
 
       {section.image ? (
         <div className="media-preview-row">
           <img src={section.image.url} alt={section.image.alternativeText || section.image.name || section.heading} />
           <div>
-            <strong>{section.image.name || "Strapi media image"}</strong>
-            <p className="muted-copy">Media ID {section.image.id ?? "unknown"}. Image replacement/upload will come in the media phase; this editor preserves the current image.</p>
+            <strong>{section.image.name || "Media image"}</strong>
+            <p className="muted-copy">This image is currently used for the section. Upload a new image above to replace it.</p>
           </div>
         </div>
       ) : null}
@@ -124,75 +110,20 @@ function SectionFields({ section, index }: { section: StrapiPageSection; index: 
   );
 }
 
-function NewSectionFields() {
-  return (
-    <fieldset className="section-editor section-editor--new">
-      <legend>Add one new section</legend>
-      <input type="hidden" name="newSectionOrder" value="999" />
-
-      <div className="editor-grid editor-grid--three">
-        <label>
-          <span>Type</span>
-          <select name="newSectionComponent" defaultValue="page-sections.text-section">
-            <option value="">Do not add</option>
-            {SECTION_COMPONENTS.map((item) => (
-              <option key={item.value} value={item.value}>{item.label}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>Image media ID</span>
-          <input name="newSectionImageId" type="number" inputMode="numeric" />
-          <small>Optional. Use an existing Strapi media ID.</small>
-        </label>
-        <label>
-          <span>Image side</span>
-          <select name="newSectionImageSide" defaultValue="right">
-            <option value="none">None</option>
-            <option value="left">Left</option>
-            <option value="right">Right</option>
-          </select>
-        </label>
-      </div>
-
-      <div className="editor-grid editor-grid--two">
-        <label>
-          <span>Eyebrow</span>
-          <input name="newSectionEyebrow" />
-        </label>
-        <label>
-          <span>Heading</span>
-          <input name="newSectionHeading" />
-        </label>
-      </div>
-
-      <label>
-        <span>Body</span>
-        <textarea name="newSectionBody" rows={5} />
-      </label>
-
-      <div className="editor-grid editor-grid--two">
-        <label>
-          <span>Button label</span>
-          <input name="newSectionButtonLabel" />
-        </label>
-        <label>
-          <span>Button URL</span>
-          <input name="newSectionButtonUrl" />
-        </label>
-      </div>
-    </fieldset>
-  );
-}
-
-async function getPage(documentId: string) {
+async function getEditorData(documentId: string) {
   try {
-    return { page: await getManagedStrapiPage(documentId), error: null as string | null };
+    const [page, pages] = await Promise.all([getManagedStrapiPage(documentId), listManagedStrapiPages()]);
+    return {
+      page,
+      existingSlugs: pages.filter((item) => item.documentId !== documentId).map((item) => item.slug).filter(Boolean),
+      error: null as string | null,
+    };
   } catch (error) {
-    console.error("Strapi page detail lookup failed", error);
+    console.error("Page detail lookup failed", error);
     return {
       page: null,
-      error: error instanceof Error ? error.message : "The Strapi page could not be loaded.",
+      existingSlugs: [] as string[],
+      error: error instanceof Error ? error.message : "The page could not be loaded.",
     };
   }
 }
@@ -206,7 +137,7 @@ export default async function EditStrapiPage({
 }) {
   const { documentId } = await params;
   const { saved, created } = await searchParams;
-  const { page, error } = await getPage(documentId);
+  const { page, existingSlugs, error } = await getEditorData(documentId);
 
   if (!page && !error) {
     notFound();
@@ -216,7 +147,7 @@ export default async function EditStrapiPage({
     return (
       <div className="stack">
         <section className="notice-card">
-          <strong>Could not load Strapi page</strong>
+          <strong>Could not load page</strong>
           <p>{error}</p>
           <Link className="button button--ghost" href="/content/strapi-pages">Back to pages</Link>
         </section>
@@ -230,10 +161,10 @@ export default async function EditStrapiPage({
     <div className="stack">
       <section className="signal-board">
         <div>
-          <p className="eyebrow">Content / Strapi Pages</p>
+          <p className="eyebrow">Content / Site Pages</p>
           <h1>{page.title || "Untitled page"}</h1>
           <p>
-            Edit public page content without opening the Strapi admin UI. Changes are saved to Strapi with the server-side write token.
+            Edit public page content from the AIC content workspace. Changes are saved securely and update the public site cache.
           </p>
         </div>
         <div className="status-list" aria-label="Page status">
@@ -243,7 +174,7 @@ export default async function EditStrapiPage({
           </span>
           <span>
             <strong>{page.publishedAt ? "Published" : "Draft"}</strong>
-            Strapi publish state
+            Publish state
           </span>
           <span>
             <strong>{page.sections.length}</strong>
@@ -255,14 +186,14 @@ export default async function EditStrapiPage({
       {saved ? (
         <section className="notice-card notice-card--success" role="status">
           <strong>Saved</strong>
-          <p>Strapi page content was updated and the AIC public page cache was revalidated.</p>
+          <p>Page content was updated and the public page cache was revalidated.</p>
         </section>
       ) : null}
 
       {created ? (
         <section className="notice-card notice-card--success" role="status">
           <strong>Created</strong>
-          <p>The new Strapi page was created. Add sections and connect the public route when ready.</p>
+          <p>The new page was created. Add sections and connect the public route when ready.</p>
         </section>
       ) : null}
 
@@ -278,84 +209,93 @@ export default async function EditStrapiPage({
           </div>
         </div>
 
-        <form className="editor-form" action={saveAction}>
-          <div className="editor-grid editor-grid--three">
-            <label>
-              <span>Title</span>
-              <input name="title" required defaultValue={page.title} />
-            </label>
-            <label>
-              <span>Page key</span>
-              <input name="pageKey" required defaultValue={page.pageKey} />
-            </label>
-            <label>
-              <span>Slug</span>
-              <input name="slug" required defaultValue={page.slug} />
-            </label>
-          </div>
+        <PageEditorForm action={saveAction}>
+          <PageCoreFields initialTitle={page.title} initialSlug={page.slug} existingSlugs={existingSlugs} />
 
           <div className="checkbox-grid">
             <label className="checkbox-row">
               <input name="active" type="checkbox" defaultChecked={page.active} />
-              <span>Active</span>
+              <span>Page is active</span>
             </label>
             <label className="checkbox-row">
               <input name="showInNavigation" type="checkbox" defaultChecked={page.showInNavigation} />
-              <span>Show in navigation</span>
+              <span>Show this page in menus</span>
             </label>
           </div>
 
           <div className="editor-grid editor-grid--two">
             <label>
-              <span>Navigation label</span>
+              <span>Menu label</span>
               <input name="navigationLabel" defaultValue={page.navigationLabel} />
+              <small>Optional. Use this if the menu should say something shorter than the page title.</small>
             </label>
             <label>
-              <span>Navigation order</span>
+              <span>Menu order</span>
               <input name="navigationOrder" type="number" inputMode="numeric" defaultValue={page.navigationOrder ?? ""} />
+              <small>Optional. Lower numbers appear first in menus.</small>
+            </label>
+          </div>
+
+          <div className="editor-grid editor-grid--two">
+            <label>
+              <span>Main Section Label</span>
+              <input name="heroLabel" defaultValue={page.heroLabel} />
+              <small>Optional small label above the main title, such as Biography or Wears Valley Ranch.</small>
+            </label>
+            <label>
+              <span>Main Section Title</span>
+              <input name="heroTitle" defaultValue={page.heroTitle} />
+              <small>The large heading at the top of the public page.</small>
             </label>
           </div>
 
           <label>
-            <span>Hero title</span>
-            <input name="heroTitle" defaultValue={page.heroTitle} />
-          </label>
-
-          <label>
-            <span>Hero body</span>
+            <span>Main Section Body</span>
             <textarea name="heroBody" rows={3} defaultValue={page.heroBody} />
+            <small>Optional short introduction shown near the page headline.</small>
           </label>
 
           <div className="editor-grid editor-grid--two">
             <label>
-              <span>SEO title</span>
+              <span>Search result title</span>
               <input name="seoTitle" defaultValue={page.seoTitle} />
+              <small>Optional. This can appear as the page title in browser tabs, Google results, and shared links.</small>
             </label>
             <label>
-              <span>SEO description</span>
+              <span>Search result description</span>
               <input name="seoDescription" defaultValue={page.seoDescription} />
+              <small>Optional. A short summary for search engines and link previews.</small>
             </label>
           </div>
 
           <input type="hidden" name="sectionCount" value={page.sections.length} />
-          <div className="section-editor-list">
+          <div className="section-editor-list section-builder">
             <div>
               <p className="eyebrow">Sections</p>
               <h2>Page sections</h2>
-              <p className="muted-copy">Edit text, CTA, and image-text sections. Image upload/replacement will come in the media-library phase.</p>
+              <p className="muted-copy">Edit, delete, reorder, or add sections. Use Text, Image + Text, or Call to Action based on what the page needs.</p>
             </div>
             {page.sections.map((section, index) => (
               <SectionFields key={`${section.component}-${section.id ?? index}`} section={section} index={index} />
             ))}
-            <NewSectionFields />
+            <details className="section-add-panel">
+              <summary>
+                <span className="section-add-panel__icon" aria-hidden="true">+</span>
+                <span>Add section</span>
+              </summary>
+              <div className="section-add-panel__body">
+                <p className="muted-copy">Choose a section type, fill in the fields that apply, then use “+ Add Section” below to add another section before saving.</p>
+                <AddSectionFields existingSectionCount={page.sections.length} />
+              </div>
+            </details>
           </div>
 
           <div className="editor-form__actions">
-            <button className="button" type="submit">Save Strapi page</button>
+            <button className="button" type="submit">Save page</button>
             <Link className="button button--ghost" href="/content/strapi-pages">Cancel</Link>
             <span className="muted-copy">Last updated {formatDate(page.updatedAt)}</span>
           </div>
-        </form>
+        </PageEditorForm>
       </section>
     </div>
   );

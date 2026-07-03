@@ -37,6 +37,10 @@ type UserRoleRow = {
   role: string | null;
 };
 
+type AicUserIdentityRow = {
+  clerk_user_id: string;
+};
+
 type UserListRow = {
   clerk_user_id: string | null;
   email: string;
@@ -118,18 +122,34 @@ async function getCurrentIdentity() {
 }
 
 async function upsertCurrentRole(identity: { clerkUserId: string; email: string; name: string }) {
-  await queryRows(
+  const existingUsers = await queryRows<AicUserIdentityRow>(
     `
-      insert into aic_users(clerk_user_id, email, name, last_seen_at, updated_at)
-      values ($1, $2, $3, now(), now())
-      on conflict (clerk_user_id) do update
-      set email = excluded.email,
-          name = excluded.name,
+      update aic_users
+      set name = $2,
           last_seen_at = now(),
           updated_at = now()
+      where email = $1
+      returning clerk_user_id
     `,
-    [identity.clerkUserId, identity.email, identity.name],
+    [identity.email, identity.name],
   );
+
+  const canonicalClerkUserId = existingUsers[0]?.clerk_user_id ?? identity.clerkUserId;
+
+  if (!existingUsers[0]) {
+    await queryRows(
+      `
+        insert into aic_users(clerk_user_id, email, name, last_seen_at, updated_at)
+        values ($1, $2, $3, now(), now())
+        on conflict (clerk_user_id) do update
+        set email = excluded.email,
+            name = excluded.name,
+            last_seen_at = now(),
+            updated_at = now()
+      `,
+      [identity.clerkUserId, identity.email, identity.name],
+    );
+  }
 
   if (isBootstrapAdminEmail(identity.email)) {
     await queryRows(
@@ -159,7 +179,10 @@ async function upsertCurrentRole(identity: { clerkUserId: string; email: string;
     [identity.email],
   );
   const dbRole = normalizeAicRole(rows[0]?.role) ?? "User";
-  return isBootstrapAdminEmail(identity.email) ? "Admin" : dbRole;
+  return {
+    clerkUserId: canonicalClerkUserId,
+    role: isBootstrapAdminEmail(identity.email) ? "Admin" : dbRole,
+  };
 }
 
 export async function ensureCurrentAppUser(): Promise<CurrentAppUser | null> {
@@ -176,8 +199,8 @@ export async function ensureCurrentAppUser(): Promise<CurrentAppUser | null> {
   }
 
   try {
-    const role = await upsertCurrentRole(identity);
-    return { ...identity, role };
+    const { clerkUserId, role } = await upsertCurrentRole(identity);
+    return { ...identity, clerkUserId, role };
   } catch (error) {
     if (process.env.NODE_ENV !== "production") {
       const localRole = await getLocalUserRole(identity.email);
@@ -220,7 +243,7 @@ export async function getCurrentUserRole(): Promise<AicRole> {
   }
 
   try {
-    const role = await upsertCurrentRole(identity);
+    const { role } = await upsertCurrentRole(identity);
     return isBootstrapAdminEmail(identity.email) ? "Admin" : role;
   } catch (error) {
     if (process.env.NODE_ENV !== "production") {

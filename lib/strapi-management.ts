@@ -12,6 +12,7 @@ export type ManagedStrapiPage = {
   showInNavigation: boolean;
   navigationLabel: string;
   navigationOrder: number | null;
+  heroLabel: string;
   heroTitle: string;
   heroBody: string;
   seoTitle: string;
@@ -30,6 +31,7 @@ export type ManagedStrapiPageInput = {
   showInNavigation: boolean;
   navigationLabel: string;
   navigationOrder: number | null;
+  heroLabel: string;
   heroTitle: string;
   heroBody: string;
   seoTitle: string;
@@ -133,6 +135,7 @@ function normalizeSection(section: unknown): StrapiPageSection | null {
     buttonLabel: getString(source.buttonLabel),
     buttonUrl: getString(source.buttonUrl),
     imageSide: imageSide === "none" || imageSide === "left" || imageSide === "right" ? imageSide : "",
+    imageDescription: getString(source.imageDescription),
     image: normalizeMedia(source.image),
   };
 }
@@ -160,6 +163,7 @@ function normalizePage(entity: StrapiEntity<ManagedStrapiPage>): ManagedStrapiPa
     showInNavigation: getBoolean(source.showInNavigation),
     navigationLabel: getString(source.navigationLabel),
     navigationOrder: getNumber(source.navigationOrder),
+    heroLabel: getString(source.heroLabel),
     heroTitle: getString(source.heroTitle),
     heroBody: getString(source.heroBody),
     seoTitle: getString(source.seoTitle),
@@ -203,6 +207,7 @@ function pagePayload(input: ManagedStrapiPageInput) {
       showInNavigation: input.showInNavigation,
       navigationLabel: input.navigationLabel,
       navigationOrder: input.navigationOrder,
+      heroLabel: input.heroLabel,
       heroTitle: input.heroTitle,
       heroBody: input.heroBody,
       seoTitle: input.seoTitle,

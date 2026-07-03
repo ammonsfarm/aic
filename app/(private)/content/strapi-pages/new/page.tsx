@@ -1,17 +1,31 @@
 import Link from "next/link";
 
+import { listManagedStrapiPages } from "@/lib/strapi-management";
 import { createStrapiPageAction } from "../actions";
+import { PageCoreFields, PageEditorForm } from "../page-editor-client";
 
 export const dynamic = "force-dynamic";
 
-export default function NewStrapiPage() {
+async function getExistingSlugs() {
+  try {
+    const pages = await listManagedStrapiPages();
+    return pages.map((page) => page.slug).filter(Boolean);
+  } catch (error) {
+    console.error("Page URL lookup failed", error);
+    return [];
+  }
+}
+
+export default async function NewStrapiPage() {
+  const existingSlugs = await getExistingSlugs();
+
   return (
     <div className="stack">
       <section className="signal-board">
         <div>
-          <p className="eyebrow">Content / Strapi Pages</p>
+          <p className="eyebrow">Content / Site Pages</p>
           <h1>New public page</h1>
-          <p>Create a Strapi-backed page. The public route still needs to exist in AIC before a new page can be visited directly.</p>
+          <p>Create the page first with the basic page details. After it is created, you can add page sections one at a time.</p>
         </div>
         <div className="button-row">
           <Link className="button button--ghost" href="/content/strapi-pages">
@@ -28,68 +42,69 @@ export default function NewStrapiPage() {
           </div>
         </div>
 
-        <form className="editor-form" action={createStrapiPageAction}>
-          <div className="editor-grid editor-grid--two">
-            <label>
-              <span>Title</span>
-              <input name="title" required />
-            </label>
-            <label>
-              <span>Page key</span>
-              <input name="pageKey" required placeholder="example-page" />
-            </label>
-            <label>
-              <span>Slug</span>
-              <input name="slug" required placeholder="example-page" />
-              <small>Use the public path segment without a leading slash.</small>
-            </label>
-            <label>
-              <span>Navigation order</span>
-              <input name="navigationOrder" type="number" inputMode="numeric" />
-            </label>
-          </div>
+        <PageEditorForm action={createStrapiPageAction}>
+          <PageCoreFields existingSlugs={existingSlugs} />
 
           <div className="checkbox-grid">
             <label className="checkbox-row">
               <input name="active" type="checkbox" defaultChecked />
-              <span>Active</span>
+              <span>Page is active</span>
             </label>
             <label className="checkbox-row">
               <input name="showInNavigation" type="checkbox" />
-              <span>Show in navigation</span>
+              <span>Show this page in menus</span>
             </label>
           </div>
 
           <label>
-            <span>Navigation label</span>
+            <span>Menu label</span>
             <input name="navigationLabel" />
-          </label>
-
-          <label>
-            <span>Hero title</span>
-            <input name="heroTitle" />
-          </label>
-
-          <label>
-            <span>Hero body</span>
-            <textarea name="heroBody" rows={3} />
+            <small>The short text used when this page appears in a menu. Leave blank to use the page title.</small>
           </label>
 
           <div className="editor-grid editor-grid--two">
             <label>
-              <span>SEO title</span>
-              <input name="seoTitle" />
+              <span>Main Section Label</span>
+              <input name="heroLabel" />
+              <small>Optional small label above the main title, such as Biography or Wears Valley Ranch.</small>
             </label>
             <label>
-              <span>SEO description</span>
+              <span>Main Section Title</span>
+              <input name="heroTitle" />
+              <small>The large heading at the top of the public page.</small>
+            </label>
+          </div>
+
+          <label>
+            <span>Main Section Body</span>
+            <textarea name="heroBody" rows={3} />
+            <small>Optional short introduction shown near the page headline.</small>
+          </label>
+
+          <div className="editor-grid editor-grid--three">
+            <label>
+              <span>Menu order</span>
+              <input name="navigationOrder" type="number" inputMode="numeric" />
+              <small>Optional. Lower numbers appear first in menus.</small>
+            </label>
+            <label>
+              <span>Search result title</span>
+              <input name="seoTitle" />
+              <small>Optional. This can appear as the page title in browser tabs, Google results, and shared links.</small>
+            </label>
+            <label>
+              <span>Search result description</span>
               <input name="seoDescription" />
+              <small>Optional. A short summary for search engines and link previews.</small>
             </label>
           </div>
 
           <input type="hidden" name="sectionCount" value="0" />
+          <input type="hidden" name="newSectionCount" value="0" />
+
           <section className="notice-card">
-            <strong>Sections can be added after creation.</strong>
-            <p>Create the page first, then add text, image-text, or CTA sections from the editor screen.</p>
+            <strong>Sections come next.</strong>
+            <p>After you create the page, open it again to add Text, Image + Text, or Call to Action sections one at a time.</p>
           </section>
 
           <div className="editor-form__actions">
@@ -100,7 +115,7 @@ export default function NewStrapiPage() {
               Cancel
             </Link>
           </div>
-        </form>
+        </PageEditorForm>
       </section>
     </div>
   );

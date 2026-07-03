@@ -47,10 +47,10 @@ async function getPages() {
   try {
     return { pages: await listManagedStrapiPages(), error: null as string | null };
   } catch (error) {
-    console.error("Strapi page lookup failed", error);
+    console.error("Page lookup failed", error);
     return {
       pages: [] as ManagedStrapiPage[],
-      error: error instanceof Error ? error.message : "Strapi pages could not be loaded.",
+      error: error instanceof Error ? error.message : "Pages could not be loaded.",
     };
   }
 }
@@ -64,16 +64,16 @@ export default async function StrapiPagesPage() {
     <div className="stack">
       <section className="signal-board">
         <div>
-          <p className="eyebrow">Content / Strapi Pages</p>
+          <p className="eyebrow">Content / Site Pages</p>
           <h1>Public page manager</h1>
           <p>
-            Edit Strapi-backed public pages from AIC using the existing Content Manager role. Strapi remains the content backend; this is the editorial UI.
+            Edit public website pages from AIC using the existing Content Manager role. This is the editorial workspace for page content.
           </p>
         </div>
-        <div className="status-list" aria-label="Strapi page summary">
+        <div className="status-list" aria-label="Page summary">
           <span>
             <strong>{pages.length}</strong>
-            Strapi pages
+            Pages
           </span>
           <span>
             <strong>{activeCount}</strong>
@@ -88,7 +88,7 @@ export default async function StrapiPagesPage() {
 
       {error ? (
         <section className="notice-card" role="status">
-          <strong>Strapi unavailable</strong>
+          <strong>Content service unavailable</strong>
           <p>{error}</p>
         </section>
       ) : null}
@@ -97,7 +97,7 @@ export default async function StrapiPagesPage() {
         <div className="data-card__header">
           <div>
             <p className="eyebrow">Pages</p>
-            <h2>Strapi page inventory</h2>
+            <h2>Page inventory</h2>
           </div>
           <div className="button-row">
             <Link className="button button--ghost" href="/content">
@@ -109,7 +109,7 @@ export default async function StrapiPagesPage() {
           </div>
         </div>
 
-        <div className="responsive-table" role="region" aria-label="Strapi pages">
+        <div className="responsive-table" role="region" aria-label="Site pages">
           <table>
             <thead>
               <tr>
@@ -155,7 +155,7 @@ export default async function StrapiPagesPage() {
               {pages.length === 0 ? (
                 <tr>
                   <td colSpan={7}>
-                    <span className="muted-copy">No Strapi pages found.</span>
+                    <span className="muted-copy">No pages found.</span>
                   </td>
                 </tr>
               ) : null}

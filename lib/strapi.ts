@@ -16,6 +16,7 @@ export type StrapiPageSection = {
   buttonLabel: string;
   buttonUrl: string;
   imageSide: "none" | "left" | "right" | "";
+  imageDescription: string;
   image: StrapiMedia | null;
 };
 
@@ -27,6 +28,7 @@ export type StrapiPage = {
   showInNavigation: boolean;
   navigationLabel: string;
   navigationOrder: number | null;
+  heroLabel: string;
   heroTitle: string;
   heroBody: string;
   seoTitle: string;
@@ -117,6 +119,7 @@ function normalizePageSection(section: unknown): StrapiPageSection | null {
     buttonLabel: getString(source.buttonLabel),
     buttonUrl: getString(source.buttonUrl),
     imageSide: imageSide === "none" || imageSide === "left" || imageSide === "right" ? imageSide : "",
+    imageDescription: getString(source.imageDescription),
     image: normalizeMedia(source.image),
   };
 }
@@ -141,6 +144,7 @@ function normalizePage(entity: StrapiEntity<StrapiPage>): StrapiPage | null {
     showInNavigation: getBoolean(source.showInNavigation),
     navigationLabel: getString(source.navigationLabel),
     navigationOrder: getNumber(source.navigationOrder),
+    heroLabel: getString(source.heroLabel),
     heroTitle: getString(source.heroTitle),
     heroBody: getString(source.heroBody),
     seoTitle: getString(source.seoTitle),

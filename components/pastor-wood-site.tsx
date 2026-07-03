@@ -436,12 +436,12 @@ export async function PastorWoodSite() {
   );
 }
 
-function PageHero({ eyebrow, title, body }: { eyebrow: string; title: string; body: string }) {
+function PageHero({ eyebrow, title, body }: { eyebrow?: string; title: string; body: string }) {
   return (
     <section className="pw-page-hero">
-      <p className="pw-kicker">{eyebrow}</p>
+      {eyebrow ? <p className="pw-kicker">{eyebrow}</p> : null}
       <h1>{title}</h1>
-      <p>{body}</p>
+      {body ? <p>{body}</p> : null}
     </section>
   );
 }
@@ -490,6 +490,7 @@ export type PastorWoodCmsSection = {
   buttonLabel?: string;
   buttonUrl?: string;
   imageSide?: "none" | "left" | "right" | "";
+  imageDescription?: string;
   image?: {
     url: string;
     alternativeText?: string;
@@ -498,16 +499,50 @@ export type PastorWoodCmsSection = {
 };
 
 export type PastorWoodCmsPage = {
+  title?: string;
+  heroLabel?: string;
   heroTitle?: string;
   heroBody?: string;
   sections?: PastorWoodCmsSection[];
 };
 
-function textToParagraphs(value: string) {
+function escapeCmsHtml(value: string) {
   return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function legacyMarkdownToHtml(value: string) {
+  return escapeCmsHtml(value)
+    .replace(/\*\*([\s\S]+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(?!\*)([\s\S]+?)\*/g, "<em>$1</em>")
+    .replace(/\[u\]([\s\S]+?)\[\/u\]/g, "<u>$1</u>")
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
     .split(/\n{2,}/)
-    .map((item) => item.trim())
-    .filter(Boolean);
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean)
+    .map((paragraph) => `<p>${paragraph}</p>`)
+    .join("");
+}
+
+function sanitizeCmsHtml(value: string) {
+  const source = /<[a-z][\s\S]*>/i.test(value) ? value : legacyMarkdownToHtml(value);
+
+  return source
+    .replace(/<\/?(script|style|iframe|object|embed|form|input|button|textarea|select|option|meta|link)[^>]*>/gi, "")
+    .replace(/\son\w+="[^"]*"/gi, "")
+    .replace(/\son\w+='[^']*'/gi, "")
+    .replace(/\son\w+=[^\s>]+/gi, "")
+    .replace(/href="\s*javascript:[^"]*"/gi, 'href="#"')
+    .replace(/href='\s*javascript:[^']*'/gi, "href='#'")
+    .replace(/<(?!\/?(?:p|br|strong|b|em|i|u|ul|ol|li|h1|h2|h3|a)\b)[^>]*>/gi, "")
+    .replace(/<a\s+/gi, '<a rel="noreferrer" ');
+}
+
+function RichTextContent({ value }: { value: string }) {
+  return <div className="pw-rich-text" dangerouslySetInnerHTML={{ __html: sanitizeCmsHtml(value) }} />;
 }
 
 function CmsPageSections({ sections }: { sections?: PastorWoodCmsSection[] }) {
@@ -527,13 +562,12 @@ function CmsPageSections({ sections }: { sections?: PastorWoodCmsSection[] }) {
           <div>
             {section.eyebrow ? <p className="pw-kicker">{section.eyebrow}</p> : null}
             {section.heading ? <h2>{section.heading}</h2> : null}
-            {textToParagraphs(section.body ?? "").map((paragraph) => (
-              <p key={paragraph}>{paragraph}</p>
-            ))}
+            <RichTextContent value={section.body ?? ""} />
           </div>
         );
+        const imageDescription = section.imageDescription || section.image?.alternativeText || section.image?.name || section.heading || "Pastor Wood ministry image";
         const image = isImageText && section.image ? (
-          <img src={section.image.url} alt={section.image.alternativeText || section.image.name || section.heading || "Pastor Wood ministry image"} />
+          <img src={section.image.url} alt={imageDescription} title={imageDescription} />
         ) : null;
 
         return (
@@ -668,6 +702,20 @@ function PrivacyPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
       <PageHero eyebrow="Privacy" title={heroTitle} body={heroBody} />
       {cmsPage?.sections?.length ? <CmsPageSections sections={cmsPage.sections} /> : <section className="pw-section pw-donate-panel"><div><h2>Current policy source</h2><p>Open the original Pastor Wood policy page for the current privacy, terms, and conditions content.</p></div><a className="pw-button pw-button--primary" href={`${originalSite}/privacy-terms-conditions/`} target="_blank" rel="noreferrer">Open Policy</a></section>}
     </>
+  );
+}
+
+export async function PastorWoodGenericCmsPage({ cmsPage }: { cmsPage: PastorWoodCmsPage }) {
+  const siteSettings = await getStrapiSiteSettings();
+  const heroLabel = cmsPage.heroLabel || "";
+  const heroTitle = cmsPage.heroTitle || cmsPage.title || "Page";
+  const heroBody = cmsPage.heroBody || "";
+
+  return (
+    <PastorWoodShell siteSettings={siteSettings}>
+      <PageHero eyebrow={heroLabel} title={heroTitle} body={heroBody} />
+      <CmsPageSections sections={cmsPage.sections} />
+    </PastorWoodShell>
   );
 }
 
