@@ -1,6 +1,8 @@
 import Image from "next/image";
 import Link from "next/link";
 
+import { getStrapiSiteSettings, type StrapiSiteSettings } from "@/lib/strapi-site-settings";
+
 const originalSite = "https://www.pastorwood.org";
 
 const routes = {
@@ -53,6 +55,10 @@ const footerResourceLinks = [
   { label: "Endorsements", href: routes.endorsements },
   { label: "RSS", href: `${originalSite}/feed/` },
 ];
+
+function settingsLinks(items: StrapiSiteSettings["topNavigation"] | undefined, fallback: Array<{ label: string; href: string }>) {
+  return items?.length ? items.map((item) => ({ label: item.label, href: item.href })) : fallback;
+}
 
 const homeEndorsements = [
   {
@@ -297,7 +303,10 @@ function PersonPhoto({ name, image, compact = false }: { name: string; image?: s
   );
 }
 
-function PastorWoodNav() {
+function PastorWoodNav({ siteSettings }: { siteSettings?: StrapiSiteSettings | null }) {
+  const links = settingsLinks(siteSettings?.topNavigation, navLinks);
+  const donateLabel = siteSettings?.donateButtonLabel || "Donate";
+  const donateHref = siteSettings?.donateButtonUrl || routes.donate;
   return (
     <header className="pw-nav" aria-label="Pastor Wood site navigation">
       <Link className="pw-brand pw-brand--wordmark" href={routes.home} aria-label="Pastor Wood home">
@@ -312,43 +321,42 @@ function PastorWoodNav() {
         </span>
       </Link>
       <nav className="pw-nav__links">
-        {navLinks.map((item) => <Link key={item.label} href={item.href}>{item.label}</Link>)}
+        {links.map((item) => <Link key={item.label} href={item.href}>{item.label}</Link>)}
       </nav>
-      <Link className="pw-nav__cta" href={routes.donate}>Donate</Link>
+      {siteSettings?.showDonateButton !== false ? <Link className="pw-nav__cta" href={donateHref}>{donateLabel}</Link> : null}
     </header>
   );
 }
 
-function PastorWoodFooter() {
+function PastorWoodFooter({ siteSettings }: { siteSettings?: StrapiSiteSettings | null }) {
+  const footerLinks = settingsLinks(siteSettings?.footerNavigation, [...footerAffiliateLinks, ...footerResourceLinks]);
+  const footerText = siteSettings?.footerText || "A Ministry of Jim Wood";
   return (
     <footer className="pw-footer">
-      <div className="pw-footer__brand"><strong>Pastor Jim Wood</strong><span>A Ministry of Jim Wood</span></div>
-      <div className="pw-footer__links" aria-label="Affiliated Sites">
-        <strong>Affiliated Sites</strong>
-        {footerAffiliateLinks.map((item) => <SmartLink key={item.label} href={item.href}>{item.label}</SmartLink>)}
-      </div>
-      <div className="pw-footer__links" aria-label="Resources">
-        <strong>Resources</strong>
-        {footerResourceLinks.map((item) => <SmartLink key={item.label} href={item.href}>{item.label}</SmartLink>)}
+      <div className="pw-footer__brand"><strong>{siteSettings?.siteName || "Pastor Jim Wood"}</strong><span>{footerText}</span>{siteSettings?.copyrightText ? <span>{siteSettings.copyrightText}</span> : null}</div>
+      <div className="pw-footer__links" aria-label="Footer navigation">
+        <strong>Links</strong>
+        {footerLinks.map((item) => <SmartLink key={`${item.label}-${item.href}`} href={item.href}>{item.label}</SmartLink>)}
       </div>
     </footer>
   );
 }
 
-function PastorWoodShell({ children }: { children: React.ReactNode }) {
+function PastorWoodShell({ children, siteSettings }: { children: React.ReactNode; siteSettings?: StrapiSiteSettings | null }) {
   return (
     <main className="pw-site">
-      <PastorWoodNav />
+      <PastorWoodNav siteSettings={siteSettings} />
       {children}
-      <PastorWoodFooter />
+      <PastorWoodFooter siteSettings={siteSettings} />
     </main>
   );
 }
 
-function LinkBand() {
+function LinkBand({ siteSettings }: { siteSettings?: StrapiSiteSettings | null }) {
+  const links = settingsLinks(siteSettings?.utilityNavigation, primaryLinks);
   return (
     <section className="pw-link-band" aria-label="Original Pastor Wood links">
-      {primaryLinks.map((item) => <SmartLink key={item.label} href={item.href}>{item.label}</SmartLink>)}
+      {links.map((item) => <SmartLink key={item.label} href={item.href}>{item.label}</SmartLink>)}
     </section>
   );
 }
@@ -363,9 +371,11 @@ function EndorsementFigure({ item }: { item: { name: string; title: string; quot
   );
 }
 
-export function PastorWoodSite() {
+export async function PastorWoodSite() {
+  const siteSettings = await getStrapiSiteSettings();
+
   return (
-    <PastorWoodShell>
+    <PastorWoodShell siteSettings={siteSettings}>
       <section className="pw-hero" id="top">
         <div className="pw-hero__image" aria-hidden="true">
           <Image src="/images/pastorwood/smoky-mountain-church.png" alt="" width={1792} height={1024} priority />
@@ -381,7 +391,7 @@ export function PastorWoodSite() {
         </div>
       </section>
 
-      <LinkBand />
+      <LinkBand siteSettings={siteSettings} />
 
       <section className="pw-section pw-bio" id="bio">
         <div className="pw-bio__portrait"><Image src="/images/pastor-wood.jpg" alt="Pastor Jim Wood" width={768} height={960} priority /></div>
@@ -661,7 +671,8 @@ function PrivacyPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
   );
 }
 
-export function PastorWoodContentPage({ page, cmsPage }: { page: PageKey; cmsPage?: PastorWoodCmsPage | null }) {
+export async function PastorWoodContentPage({ page, cmsPage }: { page: PageKey; cmsPage?: PastorWoodCmsPage | null }) {
+  const siteSettings = await getStrapiSiteSettings();
   const content = {
     about: <AboutPage cmsPage={cmsPage} />,
     endorsements: <EndorsementsPage cmsPage={cmsPage} />,
@@ -674,7 +685,7 @@ export function PastorWoodContentPage({ page, cmsPage }: { page: PageKey; cmsPag
     privacy: <PrivacyPage cmsPage={cmsPage} />,
   }[page];
 
-  return <PastorWoodShell>{content}</PastorWoodShell>;
+  return <PastorWoodShell siteSettings={siteSettings}>{content}</PastorWoodShell>;
 }
 
 function EpisodeCard({ episode }: { episode: (typeof radioEpisodes)[number] }) {
@@ -688,13 +699,14 @@ function EpisodeCard({ episode }: { episode: (typeof radioEpisodes)[number] }) {
   );
 }
 
-export function PastorWoodRadioPage({ slug = [] }: { slug?: string[] }) {
+export async function PastorWoodRadioPage({ slug = [] }: { slug?: string[] }) {
+  const siteSettings = await getStrapiSiteSettings();
   const normalized = slug.length ? `/radio/${slug.join("/")}/` : "/radio/";
   const episode = radioEpisodes.find((item) => item.path === normalized);
 
   if (slug.length && episode) {
     return (
-      <PastorWoodShell>
+      <PastorWoodShell siteSettings={siteSettings}>
         <PageHero eyebrow="Radio Archive" title={episode.title} body="Audio is loaded from the original Pastor Wood media library while the new archive is being built." />
         <section className="pw-section"><EpisodeCard episode={episode} /></section>
       </PastorWoodShell>
@@ -704,7 +716,7 @@ export function PastorWoodRadioPage({ slug = [] }: { slug?: string[] }) {
   if (slug.length) {
     const originalUrl = `${originalSite}/radio/${slug.join("/")}/`;
     return (
-      <PastorWoodShell>
+      <PastorWoodShell siteSettings={siteSettings}>
         <PageHero eyebrow="Radio Archive" title="Original radio archive item" body="This archive item has not been rebuilt on the new site yet. Use the original Pastor Wood page for the media player and full metadata." />
         <section className="pw-section pw-donate-panel"><div><h2>Open original media page</h2><p>The full Pastor Wood archive is still hosted on pastorwood.org.</p></div><a className="pw-button pw-button--primary" href={originalUrl} target="_blank" rel="noreferrer">Open on pastorwood.org</a></section>
       </PastorWoodShell>
@@ -712,7 +724,7 @@ export function PastorWoodRadioPage({ slug = [] }: { slug?: string[] }) {
   }
 
   return (
-    <PastorWoodShell>
+    <PastorWoodShell siteSettings={siteSettings}>
       <PageHero eyebrow="Radio Locations / Times" title="Radio Show Listings" body="Listen to recent Abiding in Christ broadcasts. Media files currently stream from pastorwood.org." />
       <section className="pw-section pw-radio-layout">
         <div className="pw-radio-intro">

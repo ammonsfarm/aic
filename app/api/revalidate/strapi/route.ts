@@ -3,6 +3,7 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { NextRequest, NextResponse } from "next/server";
 
 import { STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag } from "@/lib/strapi";
+import { STRAPI_SITE_SETTINGS_CACHE_TAG } from "@/lib/strapi-site-settings";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -135,7 +136,7 @@ export async function POST(request: NextRequest) {
 
   const payload = await readPayload(request);
   const { pageKeys, slugs } = collectIdentifiers(payload);
-  const tags = new Set([STRAPI_PAGES_CACHE_TAG]);
+  const tags = new Set([STRAPI_PAGES_CACHE_TAG, STRAPI_SITE_SETTINGS_CACHE_TAG]);
   const paths = pathsToRevalidate(pageKeys, slugs);
 
   for (const pageKey of pageKeys) {
