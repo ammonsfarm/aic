@@ -1,7 +1,7 @@
 import "server-only";
 
 import { cmsMediaPublicUrl } from "@/lib/cms-media-url";
-import { fetchStrapiJsonOrNull } from "@/lib/strapi-request";
+import { fetchStrapiJsonResult } from "@/lib/strapi-request";
 
 export type StrapiMedia = {
   id?: number;
@@ -38,6 +38,11 @@ export type StrapiPage = {
   seoDescription: string;
   sections: StrapiPageSection[];
 };
+
+export type StrapiPageLookupResult =
+  | { status: "found"; page: StrapiPage }
+  | { status: "not-found" }
+  | { status: "unavailable" };
 
 type StrapiEntity<T> = {
   id?: number;
@@ -164,10 +169,10 @@ function normalizePage(entity: StrapiEntity<StrapiPage>): StrapiPage | null {
   };
 }
 
-async function fetchStrapiPages(url: URL, tags: string[]): Promise<StrapiPage | null> {
+async function fetchStrapiPagesResult(url: URL, tags: string[]): Promise<StrapiPageLookupResult> {
   const token = strapiApiToken();
   const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
-  const payload = await fetchStrapiJsonOrNull<StrapiListResponse<StrapiPage>>(
+  const result = await fetchStrapiJsonResult<StrapiListResponse<StrapiPage>>(
     url,
     {
       headers,
@@ -179,12 +184,29 @@ async function fetchStrapiPages(url: URL, tags: string[]): Promise<StrapiPage | 
     { label: "Strapi page request" },
   );
 
-  if (!payload) {
-    return null;
+  if (result.status === "unavailable") return result;
+  if (!Array.isArray(result.data.data)) {
+    console.warn("Strapi page request returned an invalid list payload; using the non-Strapi fallback.");
+    return { status: "unavailable" };
   }
 
-  const entity = payload.data?.[0];
-  return entity ? normalizePage(entity) : null;
+  if (result.data.data.length === 0) return { status: "not-found" };
+  const entity = result.data.data[0];
+  if (!entity || typeof entity !== "object") {
+    console.warn("Strapi page request returned an invalid page entity; using the non-Strapi fallback.");
+    return { status: "unavailable" };
+  }
+  const page = normalizePage(entity);
+  if (!page) {
+    console.warn("Strapi page request returned an invalid page entity; using the non-Strapi fallback.");
+    return { status: "unavailable" };
+  }
+  return page.active ? { status: "found", page } : { status: "not-found" };
+}
+
+async function fetchStrapiPages(url: URL, tags: string[]): Promise<StrapiPage | null> {
+  const result = await fetchStrapiPagesResult(url, tags);
+  return result.status === "found" ? result.page : null;
 }
 
 export async function getStrapiPageByPageKey(pageKey: string): Promise<StrapiPage | null> {
@@ -205,12 +227,22 @@ export async function getStrapiPageByPageKey(pageKey: string): Promise<StrapiPag
 }
 
 export async function getStrapiPageBySlug(slug: string): Promise<StrapiPage | null> {
+  const result = await getStrapiPageBySlugResult(slug);
+  return result.status === "found" ? result.page : null;
+}
+
+export async function getStrapiPageBySlugResult(slug: string): Promise<StrapiPageLookupResult> {
   const baseUrl = strapiBaseUrl();
   if (!baseUrl) {
-    return null;
+    return { status: "unavailable" };
   }
 
-  const url = new URL("/api/pages", baseUrl);
+  let url: URL;
+  try {
+    url = new URL("/api/pages", baseUrl);
+  } catch {
+    return { status: "unavailable" };
+  }
   url.searchParams.set("filters[slug][$eq]", slug);
   url.searchParams.set("filters[active][$eq]", "true");
   url.searchParams.set("filters[archivedAt][$null]", "true");
@@ -218,5 +250,5 @@ export async function getStrapiPageBySlug(slug: string): Promise<StrapiPage | nu
   url.searchParams.set("pagination[pageSize]", "1");
   url.searchParams.set("populate[sections][populate]", "*");
 
-  return fetchStrapiPages(url, [STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag(slug)]);
+  return fetchStrapiPagesResult(url, [STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag(slug)]);
 }
