@@ -120,10 +120,10 @@ export const consoleNav: ConsoleNavItem[] = [
 
 export const publicNav: ConsoleNavItem[] = [
   { href: "/", label: "Home" },
-  { href: "/episodes", label: "Episodes" },
-  { href: "/sermons", label: "Sermons" },
-  { href: "/writings", label: "Writings" },
-  { href: "/research", label: "Research" },
-  { href: "/reading-plan", label: "Reading Plan" },
-  { href: "/podcast", label: "Podcast" },
+  { href: "/about-pastor-wood", label: "About" },
+  { href: "/radio", label: "Radio" },
+  { href: "/bible-study", label: "Devotionals" },
+  { href: "/written-resources", label: "Writings" },
+  { href: "/endorsements", label: "Endorsements" },
+  { href: "/contact", label: "Contact" },
 ];

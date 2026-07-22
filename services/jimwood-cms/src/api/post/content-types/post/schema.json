@@ -28,7 +28,9 @@
     "publishDate": { "type": "datetime" },
     "scheduledFor": { "type": "datetime" },
     "legacyUrl": { "type": "string" },
-    "legacyId": { "type": "string" },
+    "legacyId": { "type": "string", "unique": true },
+    "canonicalUrl": { "type": "string" },
+    "sourceFingerprint": { "type": "string" },
     "archiveReason": { "type": "text" },
     "archivedAt": { "type": "datetime" },
     "seo": { "type": "component", "repeatable": false, "component": "seo.metadata" }

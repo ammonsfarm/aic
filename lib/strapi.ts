@@ -1,5 +1,6 @@
 import "server-only";
 
+import { cmsMediaPublicUrl } from "@/lib/cms-media-url";
 import { fetchStrapiJsonOrNull } from "@/lib/strapi-request";
 
 export type StrapiMedia = {
@@ -86,15 +87,20 @@ function normalizeMedia(media: unknown): StrapiMedia | null {
   }
 
   const entity = media as Record<string, unknown>;
-  const source = entity.attributes && typeof entity.attributes === "object" ? entity.attributes as Record<string, unknown> : entity;
+  const source = entity.attributes && typeof entity.attributes === "object"
+    ? { ...(entity.attributes as Record<string, unknown>), ...entity }
+    : entity;
   const rawUrl = getString(source.url);
 
   if (!rawUrl) {
     return null;
   }
 
-  const baseUrl = strapiBaseUrl();
-  const url = rawUrl.startsWith("http") || !baseUrl ? rawUrl : new URL(rawUrl, baseUrl).toString();
+  const url = cmsMediaPublicUrl(source);
+
+  if (!url) {
+    return null;
+  }
 
   return {
     id: typeof entity.id === "number" ? entity.id : undefined,

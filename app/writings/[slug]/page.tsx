@@ -1,119 +1,46 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { RagChatWidget } from "@/components/rag-chat-widget";
-import { RoutePanel } from "@/components/route-panel";
-import { TopRail } from "@/components/top-rail";
-import { getPastorWoodWritingBySlug } from "@/lib/pastorwood-writings";
+import { PageHero, PastorWoodShell } from "@/components/pastor-wood-site";
+import { sanitizeCmsHtml } from "@/lib/cms-html";
+import { publicMetadata } from "@/lib/public-seo";
+import { getPublishedPostBySlug } from "@/lib/strapi-structured-public";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 300;
 
-function formatDate(value: string) {
-  if (!value) {
-    return "No date";
-  }
-
-  const parsed = new Date(`${value}T00:00:00Z`);
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(parsed);
+function formatDate(value: string | null) {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" }).format(parsed);
 }
 
-export default async function WritingDetailPage({
-  params,
-}: {
-  params: Promise<{ slug: string }>;
-}) {
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
-  const detail = await getPastorWoodWritingBySlug(decodeURIComponent(slug));
+  const post = await getPublishedPostBySlug(decodeURIComponent(slug));
+  if (!post) return { robots: { index: false } };
+  return publicMetadata({
+    title: post.title,
+    description: post.summary || "A writing from Pastor Jim Wood.",
+    path: `/writings/${post.slug}/`,
+    type: "article",
+  });
+}
 
-  if (!detail) {
-    notFound();
-  }
+export default async function WritingDetailPage({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  const post = await getPublishedPostBySlug(decodeURIComponent(slug));
+  if (!post) notFound();
 
   return (
-    <>
-      <TopRail variant="public" />
-      <main className="public-shell">
-        <RoutePanel
-          eyebrow={detail.sourceLabel}
-          title={detail.title}
-          actions={
-            <div className="compact-actions">
-              <Link className="button button--ghost" href="/writings">
-                Back to writings
-              </Link>
-              <a className="button button--primary" href={detail.sourceUrl} target="_blank" rel="noopener noreferrer">
-                Original source
-              </a>
-            </div>
-          }
-        >
-          <section className="writing-detail-grid">
-            <div>
-              <h3>Writing metadata</h3>
-              <div className="meta-list">
-                <p>
-                  <strong>Date</strong> {formatDate(detail.publishDate)}
-                </p>
-                <p>
-                  <strong>Type</strong> {detail.sourceLabel}
-                </p>
-                <p>
-                  <strong>Post</strong> {detail.postId}
-                </p>
-              </div>
-              <div className="status-pills status-pills--compact">
-                <span>{detail.chunkCount.toLocaleString()} local excerpt{detail.chunkCount === 1 ? "" : "s"}</span>
-                <span>{detail.embeddedChunkCount.toLocaleString()} embedded</span>
-              </div>
-            </div>
-
-            <div>
-              <RagChatWidget
-                action={`/api/writings/${detail.postId}/chat`}
-                heading="Research"
-                description="Ask questions that should be answered from this writing only."
-                submitLabel="Ask writing"
-                sourceLabel="Writing sources"
-                compactMode
-                historyScope="writing"
-                historyTrackId={`pastorwood:${detail.postId}`}
-                starterQuestions={[
-                  "What is the main spiritual emphasis?",
-                  "What Scripture passages are central here?",
-                  "Summarize this writing in a few sentences.",
-                ]}
-              />
-            </div>
-          </section>
-
-          <section className="detail-section">
-            <h3>Generated summary</h3>
-            <div className="summary-block">
-              <p>{detail.summary || "A generated summary has not been created for this writing yet."}</p>
-            </div>
-          </section>
-
-          <section className="detail-section writing-article-section">
-            <h3>Full text</h3>
-            <article className="writing-article">
-              {detail.paragraphs.length > 0 ? (
-                detail.paragraphs.map((paragraph, index) => <p key={`${detail.postId}-${index}`}>{paragraph}</p>)
-              ) : (
-                <p className="empty-state">No local text is available for this writing.</p>
-              )}
-            </article>
-          </section>
-        </RoutePanel>
-      </main>
-    </>
+    <PastorWoodShell>
+      <PageHero eyebrow={post.contentType.replace(/-/g, " ")} title={post.title} body={post.summary} />
+      <article className="pw-section pw-writing-detail">
+        <p className="pw-kicker">{formatDate(post.publishDate)}</p>
+        <div className="pw-rich-text" dangerouslySetInnerHTML={{ __html: sanitizeCmsHtml(post.body) }} />
+        <div className="pw-inline-links"><Link href="/written-resources/">Back to writings</Link></div>
+      </article>
+    </PastorWoodShell>
   );
 }

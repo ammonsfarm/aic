@@ -9,6 +9,7 @@
   "options": { "draftAndPublish": true },
   "pluginOptions": {},
   "attributes": {
+    "legacyId": { "type": "string", "unique": true },
     "quote": { "type": "text", "required": true },
     "attribution": { "type": "string", "required": true },
     "title": { "type": "string" },

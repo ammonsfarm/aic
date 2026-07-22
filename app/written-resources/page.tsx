@@ -12,6 +12,8 @@ async function getPage(): Promise<PastorWoodCmsPage | null> {
   }
 }
 
-export default async function Page() {
-  return <PastorWoodStructuredPostsPage mode="written" cmsPage={await getPage()} />;
+export default async function Page({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
+  const requestedPage = Number((await searchParams).page || 1);
+  const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+  return <PastorWoodStructuredPostsPage mode="written" cmsPage={await getPage()} page={page} />;
 }

@@ -55,6 +55,10 @@
     "donateButtonUrl": {
       "type": "string",
       "default": "/donate"
+    },
+    "subscriptionEnabled": {
+      "type": "boolean",
+      "default": true
     }
   }
 }

@@ -1,6 +1,9 @@
 import Image from "next/image";
 import Link from "next/link";
 
+import { DevotionalSignupForm } from "@/components/devotional-signup-form";
+import { getPublicDonationUrl } from "@/lib/public-donation";
+import { listPublishedEndorsements, type PublishedEndorsement } from "@/lib/strapi-structured-public";
 import { getStrapiSiteSettings, type StrapiSiteSettings } from "@/lib/strapi-site-settings";
 import { safeCmsHref, sanitizeCmsHtml } from "@/lib/cms-html";
 
@@ -32,7 +35,7 @@ const primaryLinks = [
   { label: "Pastor Jim Wood's Bio", href: routes.about },
   { label: "Books", href: "https://wvr.org/bookstore/" },
   { label: "Radio Broadcasts", href: routes.radio },
-  { label: "Podcasts", href: "https://itunes.apple.com/us/podcast/abiding-in-christ-w-jim-wood/id375149712?mt=2" },
+  { label: "Podcasts", href: "https://podcasts.apple.com/us/podcast/abiding-in-christ-w-jim-wood/id375149712" },
   { label: "Weekly Devotional", href: routes.devotional },
   { label: "Written Resources", href: routes.written },
   { label: "Speaking / Contact Us", href: routes.contact },
@@ -54,225 +57,11 @@ const footerResourceLinks = [
   { label: "Speaking Request", href: routes.contact },
   { label: "Contact", href: routes.contact },
   { label: "Endorsements", href: routes.endorsements },
-  { label: "RSS", href: `${originalSite}/feed/` },
 ];
 
 function settingsLinks(items: StrapiSiteSettings["topNavigation"] | undefined, fallback: Array<{ label: string; href: string }>) {
   return items?.length ? items.map((item) => ({ label: item.label, href: item.href })) : fallback;
 }
-
-const homeEndorsements = [
-  {
-    name: "Franklin Graham",
-    title: "President & CEO, Samaritan's Purse / Billy Graham Evangelistic Association",
-    quote:
-      "Christ in us is what gives us power to live in the world without compromise. I hope you'll read Three Questions. You'll be glad you did.",
-  },
-  {
-    name: "Dr. Voddie Baucham, Jr.",
-    title: "Voddie Baucham Ministries",
-    quote:
-      "If you are a fan of Jim Wood's radio program, you'll love Three Questions. With his usual insightful, biblical, accessible style, Jim takes the reader on a journey through three age-old questions that have eternal significance.",
-  },
-  {
-    name: "Bryant Wright",
-    title: "President, Send Relief / Right From the Heart Ministries",
-    image: `${originalSite}/wp-content/uploads/2015/02/Bryant-Wright_hrzc.jpg`,
-    quote:
-      "When I'm reading a book on the Christian life, I'm often wondering, 'Does this guy really live what he says?' I assure you, when it comes to prayer, Jim Wood practices what he preaches.",
-  },
-  {
-    name: "Randy Davis",
-    title: "President & Executive Director, Tennessee Baptist Mission Board",
-    quote:
-      "Jim Wood is one of the most effective communicators I have heard in the last 25 years. He is solidly anchored to the word of God in the principles and precepts he teaches.",
-  },
-];
-
-const additionalEndorsements = [
-  {
-    name: "Scott Sauls",
-    title: "Senior Pastor, Christ Presbyterian Church: Nashville, TN",
-    quote:
-      "Jim Wood is a dynamic communicator that loves deeply the call of James 1:27, to care for widows and orphans in their distress.",
-  },
-  {
-    name: "Mary Beth Chapman",
-    title: "President, Show Hope",
-    image: `${originalSite}/wp-content/uploads/2015/02/Chapmanbio.png`,
-    quote:
-      "When I heard Jim speak and spent time with him listening to his story, I was reminded again that God is woven into every fabric of our story, be it one of joy or pain.",
-  },
-  {
-    name: "Dr. Billy and Ruth Graham",
-    title: "Billy Graham Evangelistic Association",
-    image: `${originalSite}/wp-content/uploads/2015/02/Dr_Billy_Ruth_Graham.jpg`,
-    quote:
-      "Wears Valley Ranch has helped to meet a desperate situation, and the caring couple, Jim and Susan Wood, bring normalcy, love and joy into many devastated young lives.",
-  },
-  {
-    name: "Dr. Charles Swindoll",
-    title: "Pastor, Living Ministries, Dallas Theological Seminary, and Stonebriar Community Church",
-    quote:
-      "Wears Valley Ranch is a noble ministry, nestled in one of the most beautiful and serene settings in the State of Tennessee.",
-  },
-  {
-    name: "Joe Johnson",
-    title: "President Emeritus, The University of Tennessee",
-    quote: "Joe Johnson served among the additional endorsers for Pastor Wood and Abiding in Christ.",
-  },
-];
-
-const boardMembers = [
-  {
-    name: "Bryant Wright",
-    role: "Chairman",
-    detail: "Founder, Right From the Heart Ministries; President, Send Relief; Past President, Southern Baptist Convention. Marietta, GA.",
-    image: `${originalSite}/wp-content/uploads/2015/02/Bryant-Wright_hrzc.jpg`,
-  },
-  {
-    name: "David Pattillo",
-    role: "Treasurer",
-    detail: "Director, Endava. Atlanta, GA.",
-    image: `${originalSite}/wp-content/uploads/2015/02/David-Pattillo.png`,
-  },
-  {
-    name: "Jan Donaldson",
-    role: "Boardmember",
-    detail: "Atlanta, GA.",
-    image: `${originalSite}/wp-content/uploads/2024/03/Jan-1.jpeg`,
-  },
-  {
-    name: "David White",
-    role: "Boardmember",
-    detail: "Douglasville, GA.",
-    image: `${originalSite}/wp-content/uploads/2023/12/DavidWhite.png`,
-  },
-  {
-    name: "Andrew Wood",
-    role: "Head of School",
-    detail: "St. Andrews School at Wears Valley Ranch. Maryville, TN.",
-    image: `${originalSite}/wp-content/uploads/2023/12/AndrewWood.png`,
-  },
-  {
-    name: "Jim Wood",
-    role: "Founder, Wears Valley Ranch",
-    detail: "Wears Valley, TN.",
-    image: `${originalSite}/wp-content/uploads/2023/12/PsWood.png`,
-  },
-  {
-    name: "James Wellman",
-    role: "Emeritus",
-    detail: "Atlanta, GA.",
-    image: `${originalSite}/wp-content/uploads/2015/02/Wellman_org.jpg`,
-  },
-];
-
-const radioEpisodes = [
-  {
-    title: "Covenant Community Church: Mark 16",
-    path: "/radio/covenant-community-church-mark-16-2/",
-    series: "CCC: Mark",
-    passage: "Mark 16",
-    date: "Program for 06/25/26",
-    audio: `${originalSite}/wp-content/uploads/sermons/2026/06/aic_260625_bestof_ccc_Mark16.mp3`,
-  },
-  {
-    title: "Covenant Community Church: Mark 15:1-39",
-    path: "/radio/covenant-community-church-mark-151-39-2/",
-    series: "CCC: Mark",
-    passage: "Mark 15:1-39",
-    date: "Program for 06/24/26",
-    audio: `${originalSite}/wp-content/uploads/sermons/2026/06/06-24-26_bestof_ccc_Mark15_1-39.mp3`,
-  },
-  {
-    title: "Covenant Community Church: Mark 14:27-72",
-    path: "/radio/covenant-community-church-mark-1427-72-2/",
-    series: "CCC: Mark",
-    passage: "Mark 14:27-72",
-    date: "Program for 06/23/26",
-    audio: `${originalSite}/wp-content/uploads/sermons/2026/06/06-23-26_bestof_ccc_Mark14_vs_27-72.mp3`,
-  },
-  {
-    title: "Covenant Community Church: Mark 14:12-26",
-    path: "/radio/covenant-community-church-mark-1412-26-2/",
-    series: "CCC: Mark",
-    passage: "Mark 14:12-26",
-    date: "Recent radio archive",
-    audio: `${originalSite}/wp-content/uploads/sermons/2026/06/06-22-26_bestof_ccc_Mark14_vs_12-26.mp3`,
-  },
-  {
-    title: "Covenant Community Church: Mark 14:1-11",
-    path: "/radio/covenant-community-church-mark-141-11-2/",
-    series: "CCC: Mark",
-    passage: "Mark 14:1-11",
-    date: "Recent radio archive",
-    audio: `${originalSite}/wp-content/uploads/sermons/2026/06/06-19-26_bestof_ccc_Mark14_vs_1-11.mp3`,
-  },
-  {
-    title: "Jim Wood: Interview with Dr. Seth Troutt, Authentic Masculinity",
-    path: "/radio/jim-wood-interview-with-dr-seth-troutt-authentic-masculinity/",
-    series: "Interview",
-    passage: "",
-    date: "Recent radio archive",
-    audio: `${originalSite}/wp-content/uploads/sermons/2026/06/06-16-26_jimwood_sethtroutt.mp3`,
-  },
-];
-
-const devotionalPosts = [
-  {
-    title: "Giving Thanks",
-    date: "May 20, 2026",
-    excerpt:
-      "This coming Monday, our country will observe Memorial Day. For many people it is a time to cook and eat a lot of food. For some it merely provides a day off from work.",
-    href: `${originalSite}/2026/05/giving-thanks/`,
-  },
-  {
-    title: "Dining with Pharisees on the Sabbath - Luke 14 - Part 7, Conclusion",
-    date: "May 13, 2026",
-    excerpt:
-      "From Dining with Jesus: Jesus also said to the one who had invited him, when you give a lunch or a dinner, do not invite only those who can repay you.",
-    href: `${originalSite}/2026/05/dining-with-pharisees-on-the-sabbath-luke-14-part-7-conclusion/`,
-  },
-  {
-    title: "Dining with Pharisees on the Sabbath - Luke 14 - Part 6",
-    date: "May 6, 2026",
-    excerpt:
-      "From Dining with Jesus: Luke 14 continues with Christ's instruction about humility, generosity, and the kingdom of God.",
-    href: `${originalSite}/2026/05/dining-with-pharisees-on-the-sabbath-luke-14-part-6/`,
-  },
-  {
-    title: "Dining with Pharisees on the Sabbath - Luke 14 - Part 5",
-    date: "April 29, 2026",
-    excerpt:
-      "One Sabbath, Jesus went to eat at the house of one of the leading Pharisees, and they were watching him closely.",
-    href: `${originalSite}/2026/04/dining-with-pharisees-on-the-sabbath-luke-14-part-5/`,
-  },
-];
-
-const writtenResources = [
-  {
-    title: "God's Gift",
-    date: "December 20, 2023",
-    excerpt:
-      "For God so loved the world that he gave his one and only Son, that whoever believes in him shall not perish but have eternal life.",
-    href: `${originalSite}/2023/12/gods-gift/`,
-  },
-  {
-    title: "Abortion Bible Study",
-    date: "December 11, 2023",
-    excerpt:
-      "A short personal Bible study on God as the giver of human life, beginning with the testimony of Scripture from conception onward.",
-    href: `${originalSite}/2023/12/abortion-bible-study/`,
-  },
-  {
-    title: "What Are You Afraid Of?",
-    date: "December 9, 2023",
-    excerpt:
-      "If you know Jesus Christ as your Lord and Savior, you do not have to be afraid. Jesus taught whom we should truly fear.",
-    href: `${originalSite}/2023/12/what-are-you-afraid-of/`,
-  },
-];
 
 type PageKey = "about" | "endorsements" | "board" | "devotional" | "written" | "contact" | "donate" | "privacy" | "donorDashboard";
 
@@ -309,7 +98,7 @@ function PastorWoodNav({ siteSettings }: { siteSettings?: StrapiSiteSettings | n
   const donateLabel = siteSettings?.donateButtonLabel || "Donate";
   const donateHref = siteSettings?.donateButtonUrl || routes.donate;
   return (
-    <header className="pw-nav" aria-label="Pastor Wood site navigation">
+    <header className="pw-nav">
       <Link className="pw-brand pw-brand--wordmark" href={routes.home} aria-label="Pastor Wood home">
         <span className="pw-brand-wordmark" aria-hidden="true">
           <Image
@@ -321,9 +110,15 @@ function PastorWoodNav({ siteSettings }: { siteSettings?: StrapiSiteSettings | n
           />
         </span>
       </Link>
-      <nav className="pw-nav__links">
+      <nav className="pw-nav__links" aria-label="Primary navigation">
         {links.map((item) => <Link key={item.label} href={item.href}>{item.label}</Link>)}
       </nav>
+      <details className="pw-mobile-nav">
+        <summary>Menu</summary>
+        <nav aria-label="Mobile navigation">
+          {links.map((item) => <Link key={item.label} href={item.href}>{item.label}</Link>)}
+        </nav>
+      </details>
       {siteSettings?.showDonateButton !== false ? <Link className="pw-nav__cta" href={donateHref}>{donateLabel}</Link> : null}
     </header>
   );
@@ -345,11 +140,12 @@ function PastorWoodFooter({ siteSettings }: { siteSettings?: StrapiSiteSettings 
 
 export function PastorWoodShell({ children, siteSettings }: { children: React.ReactNode; siteSettings?: StrapiSiteSettings | null }) {
   return (
-    <main className="pw-site">
+    <div className="pw-site">
+      <a className="pw-skip-link" href="#main-content">Skip to main content</a>
       <PastorWoodNav siteSettings={siteSettings} />
-      {children}
+      <main id="main-content" tabIndex={-1}>{children}</main>
       <PastorWoodFooter siteSettings={siteSettings} />
-    </main>
+    </div>
   );
 }
 
@@ -372,7 +168,13 @@ function EndorsementFigure({ item }: { item: { name: string; title: string; quot
   );
 }
 
-function PastorWoodHome({ siteSettings }: { siteSettings?: StrapiSiteSettings | null }) {
+function PastorWoodHome({
+  siteSettings,
+  endorsements = [],
+}: {
+  siteSettings?: StrapiSiteSettings | null;
+  endorsements?: PublishedEndorsement[];
+}) {
   return (
     <PastorWoodShell siteSettings={siteSettings}>
       <section className="pw-hero" id="top">
@@ -411,7 +213,7 @@ function PastorWoodHome({ siteSettings }: { siteSettings?: StrapiSiteSettings | 
           <p>Whether interviewing guests about current events or preaching directly from the Bible, Pastor Wood encourages his listeners to follow Jesus Christ in whole-hearted obedience.</p>
         </div>
         <div className="pw-listen__grid">
-          <a className="pw-listen-card" href="https://itunes.apple.com/us/podcast/abiding-in-christ-w-jim-wood/id375149712?mt=2" target="_blank" rel="noreferrer"><strong>Podcast on iTunes</strong><span>Listen to Abiding in Christ Radio via iTunes.</span></a>
+          <a className="pw-listen-card" href="https://podcasts.apple.com/us/podcast/abiding-in-christ-w-jim-wood/id375149712" target="_blank" rel="noreferrer"><strong>Apple Podcasts</strong><span>Listen to Abiding in Christ Radio on Apple Podcasts.</span></a>
           <Link className="pw-listen-card" href={routes.radio}><strong>Radio Show Listings</strong><span>Find current Abiding in Christ radio broadcast information and listings.</span></Link>
           <a className="pw-listen-card" href="https://familytalktoday.com/programguidedaily/" target="_blank" rel="noreferrer"><strong>SiriusXM Family Talk 131</strong><span>M-F 8:30 PM ET / 5:30 PM PT.</span></a>
           <a className="pw-listen-card" href="https://www.facebook.com/PastorJimWood/" target="_blank" rel="noreferrer"><strong>Stay Connected</strong><span>Follow Pastor Jim Wood on Facebook.</span></a>
@@ -425,7 +227,13 @@ function PastorWoodHome({ siteSettings }: { siteSettings?: StrapiSiteSettings | 
 
       <section className="pw-section" id="endorsements">
         <div className="pw-section__intro"><p className="pw-kicker">Endorsements</p><h2>Endorsements for Pastor Wood and Abiding in Christ</h2></div>
-        <div className="pw-endorsement-grid">{homeEndorsements.map((item) => <EndorsementFigure key={item.name} item={item} />)}</div>
+        {endorsements.length ? (
+          <div className="pw-endorsement-grid">
+            {endorsements.slice(0, 4).map((item) => (
+              <EndorsementFigure key={item.documentId} item={{ name: item.attribution, title: [item.title, item.organization].filter(Boolean).join(", "), quote: item.quote, image: item.photoUrl }} />
+            ))}
+          </div>
+        ) : <p className="pw-content-unavailable" role="status">Endorsements are temporarily unavailable while the content service reconnects.</p>}
         <Link className="pw-text-link" href={routes.endorsements}>More Endorsements</Link>
       </section>
 
@@ -436,8 +244,11 @@ function PastorWoodHome({ siteSettings }: { siteSettings?: StrapiSiteSettings | 
 }
 
 export async function PastorWoodSite() {
-  const siteSettings = await getStrapiSiteSettings();
-  return <PastorWoodHome siteSettings={siteSettings} />;
+  const [siteSettings, endorsements] = await Promise.all([
+    getStrapiSiteSettings(),
+    listPublishedEndorsements(),
+  ]);
+  return <PastorWoodHome siteSettings={siteSettings} endorsements={endorsements.filter((item) => item.featured)} />;
 }
 
 export function PastorWoodSitePreview({ siteSettings }: { siteSettings: StrapiSiteSettings }) {
@@ -472,21 +283,8 @@ function DevotionalSignup() {
   return (
     <section className="pw-section pw-devotional">
       <div><p className="pw-kicker">Subscribe To Our Weekly Devotional</p><h2>Join our mailing list to receive encouragement as you walk with Christ.</h2></div>
-      <Link className="pw-button pw-button--light" href={routes.devotional}>Subscribe</Link>
+      <DevotionalSignupForm sourcePath="/" />
     </section>
-  );
-}
-
-function PostList({ posts }: { posts: Array<{ title: string; date: string; excerpt: string; href: string }> }) {
-  return (
-    <div className="pw-post-list">
-      {posts.map((post) => (
-        <article className="pw-post-row" key={post.href}>
-          <time>{post.date}</time>
-          <div><h2>{post.title}</h2><p>{post.excerpt}</p><a href={post.href} target="_blank" rel="noreferrer">Read More</a></div>
-        </article>
-      ))}
-    </div>
   );
 }
 
@@ -584,8 +382,7 @@ function AboutPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
         </div>
         {textSections.length > 0 ? null : (
           <div className="pw-story__images">
-            <img src={`${originalSite}/wp-content/uploads/2019/02/Jim-and-Susan-2018-10_5-300x240.jpg`} alt="Pastor Jim and Mrs. Susan Wood" />
-            <img src={`${originalSite}/wp-content/uploads/2015/02/jimwoodfamily2013Christmas.jpg`} alt="Pastor Wood and Family" />
+            <Image src="/images/pastor-wood.jpg" alt="Pastor Jim Wood" width={768} height={960} />
           </div>
         )}
       </section>
@@ -599,7 +396,7 @@ function EndorsementsPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
   return (
     <>
       <PageHero eyebrow="Endorsements" title={heroTitle} body={heroBody} />
-      <section className="pw-section"><div className="pw-endorsement-grid">{[...homeEndorsements, ...additionalEndorsements].map((item) => <EndorsementFigure key={item.name} item={item} />)}</div></section>
+      <section className="pw-section pw-content-unavailable" role="status"><h2>Content temporarily unavailable</h2><p>The public content service could not return endorsements. Please try again shortly.</p></section>
     </>
   );
 }
@@ -610,18 +407,18 @@ function BoardPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
   return (
     <>
       <PageHero eyebrow="Board" title={heroTitle} body={heroBody} />
-      <section className="pw-section"><div className="pw-board-grid">{boardMembers.map((member) => <article className="pw-board-member" key={member.name}><PersonPhoto name={member.name} image={member.image} compact /><div><h2>{member.name}</h2><p className="pw-board-role">{member.role}</p><p>{member.detail}</p></div></article>)}</div></section>
+      <section className="pw-section pw-content-unavailable" role="status"><h2>Content temporarily unavailable</h2><p>The public content service could not return board members. Please try again shortly.</p></section>
     </>
   );
 }
 
 function DevotionalPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
   const heroTitle = cmsPage?.heroTitle || "Weekly Devotional";
-  const heroBody = cmsPage?.heroBody || "Recent devotional posts from Pastor Wood. Full post pages remain on the original Pastor Wood site for now.";
+  const heroBody = cmsPage?.heroBody || "Recent devotional posts from Pastor Wood.";
   return (
     <>
       <PageHero eyebrow="Weekly Devotional" title={heroTitle} body={heroBody} />
-      <section className="pw-section"><PostList posts={devotionalPosts} /></section>
+      <section className="pw-section pw-content-unavailable" role="status"><h2>Content temporarily unavailable</h2><p>The public content service could not return devotionals. Please try again shortly.</p></section>
       <DevotionalSignup />
     </>
   );
@@ -633,7 +430,7 @@ function WrittenResourcesPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null 
   return (
     <>
       <PageHero eyebrow="Written Resources" title={heroTitle} body={heroBody} />
-      <section className="pw-section"><PostList posts={writtenResources} /></section>
+      <section className="pw-section pw-content-unavailable" role="status"><h2>Content temporarily unavailable</h2><p>The public content service could not return writings. Please try again shortly.</p></section>
     </>
   );
 }
@@ -650,7 +447,7 @@ function ContactPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
   );
 }
 
-function DonatePage({ cmsPage, donorDashboard = false }: { cmsPage?: PastorWoodCmsPage | null; donorDashboard?: boolean }) {
+function DonatePage({ cmsPage, donorDashboard = false, siteSettings }: { cmsPage?: PastorWoodCmsPage | null; donorDashboard?: boolean; siteSettings?: StrapiSiteSettings | null }) {
   const heroTitle = cmsPage?.heroTitle || (donorDashboard ? "Donor Dashboard" : "Donate Today");
   const heroBody = cmsPage?.heroBody || "Donation processing and donor account access remain on the original Pastor Wood site for now.";
   return (
@@ -661,7 +458,7 @@ function DonatePage({ cmsPage, donorDashboard = false }: { cmsPage?: PastorWoodC
       ) : (
         <section className="pw-section pw-donate-panel">
           <div><h2>{donorDashboard ? "Access your donor dashboard" : "Support Abiding in Christ"}</h2><p>{donorDashboard ? "Use the original donor dashboard for account access and giving history." : "Use the original secure giving page to support Pastor Wood and Abiding in Christ."}</p></div>
-          <a className="pw-button pw-button--primary" href={donorDashboard ? `${originalSite}/donor-dashboard/` : `${originalSite}/donate/`} target="_blank" rel="noreferrer">Open on pastorwood.org</a>
+          <a className="pw-button pw-button--primary" href={donorDashboard ? `${originalSite}/donor-dashboard/` : getPublicDonationUrl(siteSettings?.donateButtonUrl)} target="_blank" rel="noreferrer noopener">{donorDashboard ? "Open donor dashboard" : "Open secure giving form"}</a>
         </section>
       )}
     </>
@@ -670,11 +467,22 @@ function DonatePage({ cmsPage, donorDashboard = false }: { cmsPage?: PastorWoodC
 
 function PrivacyPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
   const heroTitle = cmsPage?.heroTitle || "Privacy, Terms & Conditions";
-  const heroBody = cmsPage?.heroBody || "The original privacy, terms, and conditions page remains the current policy source.";
+  const heroBody = cmsPage?.heroBody || "How Abiding in Christ handles information submitted through this website.";
   return (
     <>
       <PageHero eyebrow="Privacy" title={heroTitle} body={heroBody} />
-      {cmsPage?.sections?.length ? <CmsPageSections sections={cmsPage.sections} /> : <section className="pw-section pw-donate-panel"><div><h2>Current policy source</h2><p>Open the original Pastor Wood policy page for the current privacy, terms, and conditions content.</p></div><a className="pw-button pw-button--primary" href={`${originalSite}/privacy-terms-conditions/`} target="_blank" rel="noreferrer">Open Policy</a></section>}
+      {cmsPage?.sections?.length ? <CmsPageSections sections={cmsPage.sections} /> : (
+        <section className="pw-section pw-policy-copy">
+          <h2>Weekly devotional subscriptions</h2>
+          <p>When you subscribe, we store your email address, the consent wording and version you accepted, the time of consent, and the page where you subscribed. We also store one-way keyed hashes derived from the requesting IP address and browser identifier to limit abuse; the raw values are not stored by the subscription form.</p>
+          <h2>How the information is used</h2>
+          <p>Subscription information is used to manage the Abiding in Christ devotional list. Authorized content managers can export the active list for delivery through the ministry&apos;s approved email provider. Suppressed addresses remain suppressed if a later signup is attempted.</p>
+          <h2>Other websites and giving</h2>
+          <p>Links to giving, Apple Podcasts, Wears Valley Ranch, and other organizations open their websites. Their privacy practices apply once you leave this site. This website does not collect payment-card information.</p>
+          <h2>Questions or removal requests</h2>
+          <p>Contact <a href="mailto:Radio@pastorwood.org">Radio@pastorwood.org</a> or call <a href="tel:18664122433">(866) 412-2433</a> to ask about this notice or request removal from the devotional list.</p>
+        </section>
+      )}
     </>
   );
 }
@@ -702,60 +510,20 @@ export async function PastorWoodContentPage({ page, cmsPage }: { page: PageKey; 
     devotional: <DevotionalPage cmsPage={cmsPage} />,
     written: <WrittenResourcesPage cmsPage={cmsPage} />,
     contact: <ContactPage cmsPage={cmsPage} />,
-    donate: <DonatePage cmsPage={cmsPage} />,
-    donorDashboard: <DonatePage cmsPage={cmsPage} donorDashboard />,
+    donate: <DonatePage cmsPage={cmsPage} siteSettings={siteSettings} />,
+    donorDashboard: <DonatePage cmsPage={cmsPage} donorDashboard siteSettings={siteSettings} />,
     privacy: <PrivacyPage cmsPage={cmsPage} />,
   }[page];
 
   return <PastorWoodShell siteSettings={siteSettings}>{content}</PastorWoodShell>;
 }
 
-function EpisodeCard({ episode }: { episode: (typeof radioEpisodes)[number] }) {
-  return (
-    <article className="pw-audio-card">
-      <div className="pw-audio-card__meta"><span>{episode.date}</span><span>{episode.series}</span>{episode.passage ? <span>{episode.passage}</span> : null}</div>
-      <h2><Link href={episode.path}>{episode.title}</Link></h2>
-      <audio controls preload="none" src={episode.audio} />
-      <a href={`${originalSite}${episode.path}`} target="_blank" rel="noreferrer">Open original episode page</a>
-    </article>
-  );
-}
-
-export async function PastorWoodRadioPage({ slug = [] }: { slug?: string[] }) {
+export async function PastorWoodRadioPage({ slug: _slug = [] }: { slug?: string[] }) {
   const siteSettings = await getStrapiSiteSettings();
-  const normalized = slug.length ? `/radio/${slug.join("/")}/` : "/radio/";
-  const episode = radioEpisodes.find((item) => item.path === normalized);
-
-  if (slug.length && episode) {
-    return (
-      <PastorWoodShell siteSettings={siteSettings}>
-        <PageHero eyebrow="Radio Archive" title={episode.title} body="Audio is loaded from the original Pastor Wood media library while the new archive is being built." />
-        <section className="pw-section"><EpisodeCard episode={episode} /></section>
-      </PastorWoodShell>
-    );
-  }
-
-  if (slug.length) {
-    const originalUrl = `${originalSite}/radio/${slug.join("/")}/`;
-    return (
-      <PastorWoodShell siteSettings={siteSettings}>
-        <PageHero eyebrow="Radio Archive" title="Original radio archive item" body="This archive item has not been rebuilt on the new site yet. Use the original Pastor Wood page for the media player and full metadata." />
-        <section className="pw-section pw-donate-panel"><div><h2>Open original media page</h2><p>The full Pastor Wood archive is still hosted on pastorwood.org.</p></div><a className="pw-button pw-button--primary" href={originalUrl} target="_blank" rel="noreferrer">Open on pastorwood.org</a></section>
-      </PastorWoodShell>
-    );
-  }
-
   return (
     <PastorWoodShell siteSettings={siteSettings}>
-      <PageHero eyebrow="Radio Locations / Times" title="Radio Show Listings" body="Listen to recent Abiding in Christ broadcasts. Media files currently stream from pastorwood.org." />
-      <section className="pw-section pw-radio-layout">
-        <div className="pw-radio-intro">
-          <h2>Listen to radio shows</h2>
-          <p>Whether interviewing guests about current events or preaching directly from the Bible, Pastor Wood encourages listeners to follow Jesus Christ in whole-hearted obedience.</p>
-          <a className="pw-button pw-button--light" href="https://itunes.apple.com/us/podcast/abiding-in-christ-w-jim-wood/id375149712?mt=2" target="_blank" rel="noreferrer">Podcast on iTunes</a>
-        </div>
-        <div className="pw-audio-list">{radioEpisodes.map((episode) => <EpisodeCard key={episode.path} episode={episode} />)}</div>
-      </section>
+      <PageHero eyebrow="Radio Archive" title="Radio content temporarily unavailable" body="The public content service could not return the radio archive." />
+      <section className="pw-section pw-content-unavailable" role="status"><h2>Please try again shortly</h2><p>No private episode data or research tools are exposed on this public fallback.</p></section>
     </PastorWoodShell>
   );
 }

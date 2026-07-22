@@ -12,7 +12,7 @@
   "attributes": {
     "title": { "type": "string", "required": true },
     "slug": { "type": "uid", "targetField": "title", "required": true },
-    "asset": { "type": "media", "multiple": false, "required": true, "allowedTypes": ["images", "files", "videos", "audios"] },
+    "asset": { "type": "media", "multiple": false, "allowedTypes": ["images", "files", "videos", "audios"] },
     "assetType": {
       "type": "enumeration",
       "enum": ["image", "audio", "video", "document", "download", "other"],
@@ -34,6 +34,9 @@
     "usageNotes": { "type": "text" },
     "legacyAttachmentId": { "type": "string", "unique": true },
     "legacyRelativePath": { "type": "string" },
+    "publicPath": { "type": "string" },
+    "mimeType": { "type": "string" },
+    "fileSizeBytes": { "type": "biginteger" },
     "checksumSha256": { "type": "string" },
     "archiveReason": { "type": "text" },
     "archivedAt": { "type": "datetime" }

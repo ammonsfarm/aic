@@ -1,19 +1,20 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse, type NextRequest } from "next/server";
 
+import { resolveLegacyRedirect } from "@/lib/legacy-redirects";
 import { getStrapiPageBySlug } from "@/lib/strapi";
 import { isKnownPrivatePath, singleSegmentSlug } from "@/lib/route-access";
 
 const isApiRoute = createRouteMatcher(["/api(.*)"]);
-const isPublicApiRoute = createRouteMatcher(["/api/revalidate/strapi"]);
+const isPublicApiRoute = createRouteMatcher(["/api/revalidate/strapi", "/api/public/subscriptions"]);
 const isPublicPageRoute = createRouteMatcher([
   "/",
   "/about-pastor-wood(.*)",
+  "/abiding-in-christ(.*)",
   "/radio(.*)",
   "/bible-study(.*)",
   "/written-resources(.*)",
   "/writings(.*)",
-  "/episodes(.*)",
   "/contact(.*)",
   "/donate(.*)",
   "/donor-dashboard(.*)",
@@ -21,7 +22,8 @@ const isPublicPageRoute = createRouteMatcher([
   "/board-members(.*)",
   "/privacy(.*)",
   "/privacy-terms-conditions(.*)",
-  "/reading-plan(.*)",
+  "/media(.*)",
+  "/wp-content/uploads(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, request) => {
@@ -34,6 +36,12 @@ export default clerkMiddleware(async (auth, request) => {
     }
 
     return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+  }
+
+  const legacyRedirect = resolveLegacyRedirect(request.nextUrl.pathname);
+  if (legacyRedirect) {
+    const target = new URL(legacyRedirect.toPath, request.url);
+    return NextResponse.redirect(target, legacyRedirect.statusCode);
   }
 
   if (isPublicPageRoute(request)) {

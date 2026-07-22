@@ -12,6 +12,7 @@
   "attributes": {
     "name": { "type": "string", "required": true },
     "slug": { "type": "uid", "targetField": "name", "required": true },
+    "legacyId": { "type": "string", "unique": true },
     "title": { "type": "string" },
     "organization": { "type": "string" },
     "biography": { "type": "richtext" },
@@ -23,6 +24,7 @@
     "sortOrder": { "type": "integer", "default": 0 },
     "active": { "type": "boolean", "default": true },
     "legacyUrl": { "type": "string" },
+    "legacyPhotoUrl": { "type": "string" },
     "archiveReason": { "type": "text" },
     "archivedAt": { "type": "datetime" }
   }

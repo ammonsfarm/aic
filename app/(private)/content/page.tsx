@@ -67,6 +67,13 @@ const contentAreas = [
     href: "/content/workflow",
     status: "Audit workflow active",
   },
+  {
+    title: "Devotional subscribers",
+    eyebrow: "Consent / export",
+    description: "Export consented weekly devotional subscribers without exposing request fingerprints or changing suppression status.",
+    href: "/content/newsletters",
+    status: "Consent capture active",
+  },
 ];
 
 export default async function ContentPortalPage() {

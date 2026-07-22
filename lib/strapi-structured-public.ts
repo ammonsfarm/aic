@@ -1,5 +1,6 @@
 import "server-only";
 
+import { cmsMediaPublicUrl } from "@/lib/cms-media-url";
 import type { StructuredCollectionKey } from "@/lib/structured-content-config";
 import { STRUCTURED_COLLECTIONS } from "@/lib/structured-content-config";
 
@@ -7,6 +8,16 @@ type PublicEntry = {
   documentId: string;
   [key: string]: unknown;
 };
+
+export type PublishedPage<T> = {
+  items: T[];
+  page: number;
+  pageSize: number;
+  pageCount: number;
+  total: number;
+};
+
+type PublicEntryPage = PublishedPage<PublicEntry>;
 
 export type PublishedPost = PublicEntry & {
   title: string;
@@ -96,12 +107,7 @@ function media(value: unknown) {
 }
 
 function absoluteMediaUrl(value: unknown) {
-  const entry = media(value);
-  const url = typeof entry?.url === "string" ? entry.url : "";
-  if (!url) return "";
-  if (/^https?:\/\//i.test(url)) return url;
-  const origin = baseUrl();
-  return origin ? new URL(url, origin).toString() : "";
+  return cmsMediaPublicUrl(media(value));
 }
 
 function text(value: unknown) {
@@ -113,16 +119,20 @@ function number(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-async function publishedCollection(
+async function publishedCollectionPage(
   key: StructuredCollectionKey,
   options: {
     filters?: Record<string, string | boolean>;
     sort?: string;
     pageSize?: number;
+    page?: number;
   } = {},
-): Promise<PublicEntry[]> {
+): Promise<PublicEntryPage> {
+  const requestedPage = Math.max(1, Math.floor(options.page || 1));
+  const requestedPageSize = Math.min(Math.max(options.pageSize || 100, 1), 250);
+  const empty = { items: [], page: requestedPage, pageSize: requestedPageSize, pageCount: 0, total: 0 };
   const origin = baseUrl();
-  if (!origin) return [];
+  if (!origin) return empty;
 
   const definition = STRUCTURED_COLLECTIONS[key];
   const query = new URLSearchParams();
@@ -130,7 +140,8 @@ async function publishedCollection(
     query.set("status", "published");
   }
   query.set("populate", "*");
-  query.set("pagination[pageSize]", String(Math.min(Math.max(options.pageSize || 100, 1), 250)));
+  query.set("pagination[page]", String(requestedPage));
+  query.set("pagination[pageSize]", String(requestedPageSize));
   query.set("sort", options.sort || "updatedAt:desc");
   query.set("filters[archivedAt][$null]", "true");
   for (const [field, value] of Object.entries(options.filters || {})) {
@@ -148,29 +159,56 @@ async function publishedCollection(
         revalidate: 300,
         tags: ["strapi-structured", `strapi-structured-${key}`],
       },
+      signal: AbortSignal.timeout(8_000),
     });
 
     if (!response.ok) {
       console.error(`Published Strapi ${key} lookup failed with ${response.status}.`);
-      return [];
+      return empty;
     }
 
-    const payload = (await response.json()) as { data?: unknown[] };
-    return (payload.data || [])
+    const payload = (await response.json()) as {
+      data?: unknown[];
+      meta?: { pagination?: { page?: number; pageSize?: number; pageCount?: number; total?: number } };
+    };
+    const pagination = payload.meta?.pagination;
+    const items = (payload.data || [])
       .map(normalizeEntry)
       .filter((entry): entry is PublicEntry => Boolean(entry));
+    return {
+      items,
+      page: number(pagination?.page) || requestedPage,
+      pageSize: number(pagination?.pageSize) || requestedPageSize,
+      pageCount: number(pagination?.pageCount) || (items.length ? requestedPage : 0),
+      total: number(pagination?.total) || items.length,
+    };
   } catch (error) {
     console.error(`Published Strapi ${key} lookup failed; using empty fallback.`, error);
-    return [];
+    return empty;
   }
 }
 
-export async function listPublishedPosts(contentType?: string): Promise<PublishedPost[]> {
-  const entries = await publishedCollection("posts", {
-    filters: contentType ? { contentType } : undefined,
-    sort: "publishDate:desc",
-  });
-  return entries.map((entry) => ({
+async function publishedCollection(
+  key: StructuredCollectionKey,
+  options: Parameters<typeof publishedCollectionPage>[1] = {},
+) {
+  return (await publishedCollectionPage(key, options)).items;
+}
+
+async function allPublishedEntries(key: StructuredCollectionKey, options: Parameters<typeof publishedCollectionPage>[1] = {}) {
+  const items: PublicEntry[] = [];
+  let page = 1;
+  do {
+    const result = await publishedCollectionPage(key, { ...options, page, pageSize: 250 });
+    items.push(...result.items);
+    if (!result.pageCount || page >= result.pageCount) break;
+    page += 1;
+  } while (page <= 10_000);
+  return items;
+}
+
+function publishedPost(entry: PublicEntry): PublishedPost {
+  return {
     ...entry,
     title: text(entry.title),
     slug: text(entry.slug),
@@ -178,12 +216,11 @@ export async function listPublishedPosts(contentType?: string): Promise<Publishe
     summary: text(entry.summary),
     body: text(entry.body),
     publishDate: text(entry.publishDate) || null,
-  }));
+  };
 }
 
-export async function listPublishedEpisodes(): Promise<PublishedEpisode[]> {
-  const entries = await publishedCollection("episodes", { sort: "programDate:desc" });
-  return entries.map((entry) => ({
+function publishedEpisode(entry: PublicEntry): PublishedEpisode {
+  return {
     ...entry,
     title: text(entry.title),
     slug: text(entry.slug),
@@ -191,9 +228,55 @@ export async function listPublishedEpisodes(): Promise<PublishedEpisode[]> {
     programDate: text(entry.programDate) || null,
     summary: text(entry.summary),
     description: text(entry.description),
-    audioUrl: absoluteMediaUrl(entry.audio) || text(entry.externalAudioUrl),
+    audioUrl: text(entry.externalAudioUrl) || absoluteMediaUrl(entry.audio),
     durationSeconds: entry.durationSeconds === null || entry.durationSeconds === undefined ? null : number(entry.durationSeconds),
-  }));
+  };
+}
+
+export async function listPublishedPosts(contentType?: string): Promise<PublishedPost[]> {
+  const entries = await publishedCollection("posts", {
+    filters: contentType ? { contentType } : undefined,
+    sort: "publishDate:desc",
+  });
+  return entries.map(publishedPost);
+}
+
+export async function listPublishedPostsPage(contentType: string | undefined, page = 1, pageSize = 24): Promise<PublishedPage<PublishedPost>> {
+  const result = await publishedCollectionPage("posts", { filters: contentType ? { contentType } : undefined, sort: "publishDate:desc", page, pageSize });
+  return { ...result, items: result.items.map(publishedPost) };
+}
+
+export async function getPublishedPostBySlug(slug: string) {
+  const result = await publishedCollectionPage("posts", { filters: { slug }, pageSize: 1 });
+  return result.items[0] ? publishedPost(result.items[0]) : null;
+}
+
+export async function listAllPublishedPosts(): Promise<PublishedPost[]> {
+  return (await allPublishedEntries("posts", { sort: "publishDate:desc" })).map(publishedPost);
+}
+
+export async function listPublishedEpisodes(): Promise<PublishedEpisode[]> {
+  const entries = await publishedCollection("episodes", { sort: "programDate:desc" });
+  return entries.map(publishedEpisode);
+}
+
+export async function listPublishedEpisodesPage(page = 1, pageSize = 24): Promise<PublishedPage<PublishedEpisode>> {
+  const result = await publishedCollectionPage("episodes", { sort: "programDate:desc", page, pageSize });
+  return { ...result, items: result.items.map(publishedEpisode) };
+}
+
+export async function getPublishedEpisodeBySlug(slug: string) {
+  const result = await publishedCollectionPage("episodes", { filters: { slug }, pageSize: 1 });
+  return result.items[0] ? publishedEpisode(result.items[0]) : null;
+}
+
+export async function getPublishedEpisodeByTrackId(trackId: string) {
+  const result = await publishedCollectionPage("episodes", { filters: { trackId }, pageSize: 1 });
+  return result.items[0] ? publishedEpisode(result.items[0]) : null;
+}
+
+export async function listAllPublishedEpisodes(): Promise<PublishedEpisode[]> {
+  return (await allPublishedEntries("episodes", { sort: "programDate:desc" })).map(publishedEpisode);
 }
 
 export async function listPublishedBoardMembers(): Promise<PublishedPerson[]> {

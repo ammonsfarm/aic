@@ -14,6 +14,7 @@
     "toPath": { "type": "string", "required": true },
     "statusCode": { "type": "integer", "default": 301, "required": true, "min": 301, "max": 308 },
     "active": { "type": "boolean", "default": true },
+    "sourceUrl": { "type": "string" },
     "notes": { "type": "text" },
     "lastVerifiedAt": { "type": "datetime" },
     "archivedAt": { "type": "datetime" }

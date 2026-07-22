@@ -24,6 +24,13 @@
       "required": true,
       "unique": true
     },
+    "legacyId": {
+      "type": "string",
+      "unique": true
+    },
+    "canonicalUrl": {
+      "type": "string"
+    },
     "active": {
       "type": "boolean",
       "default": true

@@ -1,12 +1,14 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
 
 import * as PastorWoodModule from "@/components/pastor-wood-site";
 import type { PastorWoodCmsPage } from "@/components/pastor-wood-site";
 import {
   listPublishedBoardMembers,
   listPublishedEndorsements,
-  listPublishedEpisodes,
-  listPublishedPosts,
+  getPublishedEpisodeBySlug,
+  listPublishedEpisodesPage,
+  listPublishedPostsPage,
   type PublishedEpisode,
 } from "@/lib/strapi-structured-public";
 import { getStrapiSiteSettings } from "@/lib/strapi-site-settings";
@@ -44,6 +46,42 @@ async function shellSettings() {
   }
 }
 
+async function StructuredUnavailable({
+  cmsPage,
+  eyebrow,
+  title,
+  body,
+}: {
+  cmsPage?: PastorWoodCmsPage | null;
+  eyebrow: string;
+  title: string;
+  body: string;
+}) {
+  const Shell = hooks.PastorWoodShell;
+  const Hero = hooks.PageHero;
+  if (!Shell || !Hero) return null;
+  return (
+    <Shell siteSettings={await shellSettings()}>
+      <Hero eyebrow={eyebrow} title={cmsPage?.heroTitle || title} body={cmsPage?.heroBody || body} />
+      <section className="pw-section pw-content-unavailable" role="status">
+        <h2>Content temporarily unavailable</h2>
+        <p>The public content service could not return this listing. Please try again shortly.</p>
+      </section>
+    </Shell>
+  );
+}
+
+function PublicPagination({ basePath, page, pageCount }: { basePath: string; page: number; pageCount: number }) {
+  if (pageCount <= 1) return null;
+  return (
+    <nav className="pw-pagination" aria-label="Archive pages">
+      {page > 1 ? <Link href={`${basePath}?page=${page - 1}`} rel="prev">Previous</Link> : <span />}
+      <span>Page {page} of {pageCount}</span>
+      {page < pageCount ? <Link href={`${basePath}?page=${page + 1}`} rel="next">Next</Link> : <span />}
+    </nav>
+  );
+}
+
 export async function PastorWoodStructuredBoardPage({
   cmsPage,
 }: {
@@ -53,7 +91,7 @@ export async function PastorWoodStructuredBoardPage({
   const Shell = hooks.PastorWoodShell;
   const Hero = hooks.PageHero;
   if (!Shell || !Hero || !members.length) {
-    return <PastorWoodModule.PastorWoodContentPage page="board" cmsPage={cmsPage} />;
+    return StructuredUnavailable({ cmsPage, eyebrow: "Board", title: "Abiding in Christ Board Members", body: "People serving Abiding in Christ." });
   }
 
   return (
@@ -90,7 +128,7 @@ export async function PastorWoodStructuredEndorsementsPage({
   const Shell = hooks.PastorWoodShell;
   const Hero = hooks.PageHero;
   if (!Shell || !Hero || !endorsements.length) {
-    return <PastorWoodModule.PastorWoodContentPage page="endorsements" cmsPage={cmsPage} />;
+    return StructuredUnavailable({ cmsPage, eyebrow: "Endorsements", title: "Endorsements for Pastor Wood", body: "Public endorsements from ministry leaders and friends of the work." });
   }
 
   return (
@@ -123,21 +161,24 @@ export async function PastorWoodStructuredEndorsementsPage({
 export async function PastorWoodStructuredPostsPage({
   cmsPage,
   mode,
+  page = 1,
 }: {
   cmsPage?: PastorWoodCmsPage | null;
   mode: "devotional" | "written";
+  page?: number;
 }) {
   const contentType = mode === "devotional" ? "devotional" : "written-resource";
-  const posts = await listPublishedPosts(contentType);
+  const result = await listPublishedPostsPage(contentType, page, 24);
+  const posts = result.items;
   const Shell = hooks.PastorWoodShell;
   const Hero = hooks.PageHero;
   if (!Shell || !Hero || !posts.length) {
-    return (
-      <PastorWoodModule.PastorWoodContentPage
-        page={mode === "devotional" ? "devotional" : "written"}
-        cmsPage={cmsPage}
-      />
-    );
+    return StructuredUnavailable({
+      cmsPage,
+      eyebrow: mode === "devotional" ? "Weekly Devotional" : "Written Resources",
+      title: mode === "devotional" ? "Weekly Devotional" : "Written Resources from Pastor Jim Wood",
+      body: mode === "devotional" ? "Recent devotional posts from Pastor Wood." : "Resources intended to encourage faithful Christian living.",
+    });
   }
 
   return (
@@ -168,6 +209,7 @@ export async function PastorWoodStructuredPostsPage({
             </article>
           ))}
         </div>
+        <PublicPagination basePath={mode === "devotional" ? "/bible-study/" : "/written-resources/"} page={result.page} pageCount={result.pageCount} />
       </section>
     </Shell>
   );
@@ -187,18 +229,20 @@ function EpisodeCard({ episode }: { episode: PublishedEpisode }) {
   );
 }
 
-export async function PastorWoodStructuredRadioPage({ slug = [] }: { slug?: string[] }) {
-  const episodes = await listPublishedEpisodes();
+export async function PastorWoodStructuredRadioPage({ slug = [], page = 1 }: { slug?: string[]; page?: number }) {
+  const requestedSlug = slug.join("/");
+  const episode = requestedSlug ? await getPublishedEpisodeBySlug(requestedSlug) : null;
+  const result = requestedSlug ? null : await listPublishedEpisodesPage(page, 24);
+  const episodes = result?.items || (episode ? [episode] : []);
+
+  if (requestedSlug && !episode) {
+    notFound();
+  }
+
   const Shell = hooks.PastorWoodShell;
   const Hero = hooks.PageHero;
   if (!Shell || !Hero || !episodes.length) {
-    return <PastorWoodModule.PastorWoodRadioPage slug={slug} />;
-  }
-
-  const requestedSlug = slug.join("/");
-  const episode = requestedSlug ? episodes.find((item) => item.slug === requestedSlug) : null;
-  if (requestedSlug && !episode) {
-    return <PastorWoodModule.PastorWoodRadioPage slug={slug} />;
+    return StructuredUnavailable({ cmsPage: null, eyebrow: "Radio Archive", title: "Radio Show Listings", body: "Listen to Abiding in Christ broadcasts." });
   }
 
   return (
@@ -212,6 +256,7 @@ export async function PastorWoodStructuredRadioPage({ slug = [] }: { slug?: stri
         <div className="pw-audio-list">
           {episode ? <EpisodeCard episode={episode} /> : episodes.map((item) => <EpisodeCard key={item.documentId} episode={item} />)}
         </div>
+        {result ? <PublicPagination basePath="/radio/" page={result.page} pageCount={result.pageCount} /> : null}
       </section>
     </Shell>
   );
