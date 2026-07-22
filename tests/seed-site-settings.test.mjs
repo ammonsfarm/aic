@@ -80,3 +80,81 @@ test("legacy site settings are adopted once as an immutable baseline without ove
   });
   assert.match(baselineBodies[0].note, /without changing content/i);
 });
+
+test("a new draft site-settings singleton is initialized and verified through the draft API", async (t) => {
+  const initializationBodies = [];
+  let initialLookupCount = 0;
+  let verificationCount = 0;
+  const server = http.createServer(async (request, response) => {
+    const url = new URL(request.url || "/", "http://127.0.0.1");
+    assert.equal(request.headers.authorization, "Bearer test-write-token");
+
+    if (request.method === "GET" && url.pathname === "/api/site-setting") {
+      assert.equal(url.searchParams.get("status"), "draft");
+      if (!url.searchParams.has("populate[topNavigation][populate]")) {
+        initialLookupCount += 1;
+        response.statusCode = 404;
+        response.end(JSON.stringify({ data: null }));
+        return;
+      }
+
+      verificationCount += 1;
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({
+        data: {
+          documentId: "settings-new",
+          siteName: "Abiding in Christ",
+          topNavigation: initializationBodies[0]?.data?.topNavigation ?? [],
+          utilityNavigation: initializationBodies[0]?.data?.utilityNavigation ?? [],
+          footerNavigation: initializationBodies[0]?.data?.footerNavigation ?? [],
+          showDonateButton: true,
+          donateButtonLabel: "Donate",
+          subscriptionEnabled: true,
+        },
+      }));
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/pages") {
+      assert.equal(url.searchParams.get("status"), "draft");
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({ data: [] }));
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/editorial/site-setting") {
+      const chunks = [];
+      request.on("data", (chunk) => chunks.push(chunk));
+      await once(request, "end");
+      initializationBodies.push(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({ data: { documentId: "settings-new" } }));
+      return;
+    }
+
+    response.statusCode = 500;
+    response.end(`unexpected request: ${request.method} ${url.pathname}`);
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  t.after(() => server.close());
+
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const result = await runSeed(`http://127.0.0.1:${address.port}`);
+
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(initialLookupCount, 1);
+  assert.equal(verificationCount, 1);
+  assert.equal(initializationBodies.length, 1);
+  assert.equal(initializationBodies[0].data.siteName, "Abiding in Christ");
+  assert.equal(initializationBodies[0].data.subscriptionEnabled, true);
+  assert.deepEqual(initializationBodies[0].actor, {
+    id: "aic-deployment",
+    email: "deployment@pastorwood.org",
+    name: "AIC deployment",
+  });
+  assert.match(initializationBodies[0].note, /initialized the first site-settings draft/i);
+  assert.match(result.stdout, /"initialized": true/);
+  assert.match(result.stdout, /"siteName": "Abiding in Christ"/);
+});

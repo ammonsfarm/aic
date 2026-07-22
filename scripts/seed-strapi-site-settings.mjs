@@ -155,6 +155,7 @@ await strapiJson(`${baseUrl}/api/editorial/site-setting`, {
 });
 
 const verifyUrl = new URL("/api/site-setting", baseUrl);
+verifyUrl.searchParams.set("status", "draft");
 verifyUrl.searchParams.set("populate[topNavigation][populate]", "page");
 verifyUrl.searchParams.set("populate[footerNavigation][populate]", "page");
 verifyUrl.searchParams.set("populate[utilityNavigation][populate]", "page");
