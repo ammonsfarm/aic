@@ -99,22 +99,98 @@ export async function buildPodcastCsvReport({
 
   if (report === "pipeline") {
     const rows = await queryRows<{
-      run_id: string;
+      event_source: string;
+      event_id: string;
+      run_id: string | null;
       stage: string;
       status: string;
+      requested_by: string;
       started_at: string;
       completed_at: string | null;
       error: string;
+      detail: string;
     }>(
-      `select run_id, stage, status, started_at, completed_at, error
+      `with pipeline_events as (
+         select
+           'ingest_run'::text as event_source,
+           run_id::text as event_id,
+           run_id::text,
+           stage::text,
+           status::text,
+           ''::text as requested_by,
+           started_at::text,
+           completed_at::text,
+           error::text,
+           ''::text as detail,
+           started_at::timestamptz as sort_at
          from ingest_runs
-        where started_at::timestamptz::date between $1::date and $2::date
-        order by started_at::timestamptz desc`,
+         where started_at::timestamptz::date between $1::date and $2::date
+         union all
+         select
+           'ingest_stage_event',
+           id::text,
+           run_id::text,
+           stage::text,
+           status::text,
+           '',
+           started_at::text,
+           completed_at::text,
+           error::text,
+           '',
+           started_at::timestamptz
+         from ingest_stage_events
+         where started_at::timestamptz::date between $1::date and $2::date
+         union all
+         select
+           'podtrac_sync_run',
+           id::text,
+           id::text,
+           'podtrac-import',
+           status::text,
+           '',
+           started_at::text,
+           completed_at::text,
+           error::text,
+           '',
+           started_at
+         from podtrac_sync_runs
+         where started_at::date between $1::date and $2::date
+         union all
+         select
+           'pipeline_retry',
+           id::text,
+           source_run_id::text,
+           stage::text,
+           status::text,
+           requested_by::text,
+           requested_at::text,
+           completed_at::text,
+           error::text,
+           coalesce(nullif(output_summary, ''), reason, '')::text,
+           requested_at
+         from pipeline_retry_requests
+         where requested_at::date between $1::date and $2::date
+       )
+       select event_source, event_id, run_id, stage, status, requested_by,
+              started_at, completed_at, error, detail
+       from pipeline_events
+       order by sort_at desc, event_source, event_id`,
       [range.startDate, range.endDate],
     );
     return rowsToCsv(
-      ["run_id", "stage", "status", "started_at", "completed_at", "error"],
-      rows.map((row) => [row.run_id, row.stage, row.status, row.started_at, row.completed_at, row.error]),
+      ["event_source", "event_id", "run_id", "stage", "status", "requested_by", "started_at", "completed_at", "error", "detail"],
+      rows.map((row) => [
+        row.event_source,
+        row.event_id,
+        row.run_id,
+        row.stage,
+        row.status,
+        row.requested_by,
+        row.started_at,
+        row.completed_at,
+        row.error,
+        row.detail,
+      ]),
     );
   }
 

@@ -9,11 +9,12 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("@/lib/db", () => ({ queryRows: mocks.queryRows, getPool: mocks.getPool }));
 
-import { queuePipelineRetry, reconcilePodtracEpisode } from "@/lib/admin-operations";
+import { listMatchedPodtracEpisodes, queuePipelineRetry, reconcilePodtracEpisode } from "@/lib/admin-operations";
 
 describe("admin operation database workflows", () => {
   beforeEach(() => {
     mocks.clientQuery.mockReset();
+    mocks.queryRows.mockReset();
     mocks.release.mockReset();
     mocks.connect.mockClear();
   });
@@ -110,5 +111,74 @@ describe("admin operation database workflows", () => {
     expect(mocks.clientQuery.mock.calls.some(([sql]) => String(sql).includes("insert into podtrac_reconciliation_audit"))).toBe(true);
     expect(mocks.clientQuery.mock.calls.some(([sql]) => String(sql).includes("insert into admin_operation_audit"))).toBe(true);
     expect(mocks.release).toHaveBeenCalledOnce();
+  });
+
+  it("lists current matches so an administrator can review and remove a bad assignment", async () => {
+    mocks.queryRows.mockResolvedValueOnce([{
+      podtrac_episode_id: "p1",
+      title: "Podtrac title",
+      publish_date: "2026-07-20",
+      match_notes: "manual review",
+      track_id: "t1",
+      episode_title: "Archive title",
+      episode_publish_date: "2026-07-19",
+    }]);
+
+    await expect(listMatchedPodtracEpisodes({ query: "Archive", limit: 20 })).resolves.toEqual([{
+      podtracEpisodeId: "p1",
+      title: "Podtrac title",
+      publishDate: "2026-07-20",
+      matchNotes: "manual review",
+      trackId: "t1",
+      episodeTitle: "Archive title",
+      episodePublishDate: "2026-07-19",
+    }]);
+    const [sql, params] = mocks.queryRows.mock.calls[0];
+    expect(String(sql)).toContain("pe.match_status = 'matched'");
+    expect(String(sql)).toContain("pe.track_id is not null");
+    expect(params).toEqual(["Archive", 20]);
+  });
+
+  it("removes a bad Podtrac match and records the unmatch in both audit trails", async () => {
+    mocks.clientQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes("from podtrac_episodes") && sql.includes("for update")) {
+        return { rows: [{ podtrac_episode_id: "p1", track_id: "wrong-track", match_status: "matched" }] };
+      }
+      if (sql.includes("returning id::text")) return { rows: [{ id: "8" }] };
+      return { rows: [] };
+    });
+
+    const result = await reconcilePodtracEpisode({
+      podtracEpisodeId: "p1",
+      trackId: null,
+      note: "incorrect archive episode",
+      actorEmail: "admin@example.test",
+    });
+
+    expect(result).toMatchObject({ auditId: "8", action: "unmatch", podtracEpisodeId: "p1", trackId: null });
+    expect(mocks.clientQuery.mock.calls.some(([sql]) => String(sql).includes("select track_id from episodes"))).toBe(false);
+    const updateCall = mocks.clientQuery.mock.calls.find(([sql]) => String(sql).includes("update podtrac_episodes"));
+    expect(updateCall?.[1]).toEqual(["p1", null, "incorrect archive episode"]);
+    const reconciliationAudit = mocks.clientQuery.mock.calls.find(([sql]) => String(sql).includes("insert into podtrac_reconciliation_audit"));
+    expect(reconciliationAudit?.[1]).toEqual([
+      "p1",
+      "wrong-track",
+      null,
+      "matched",
+      "unmatch",
+      "incorrect archive episode",
+      "admin@example.test",
+    ]);
+    expect(mocks.clientQuery.mock.calls.some(([sql]) => String(sql).includes("insert into admin_operation_audit"))).toBe(true);
+  });
+
+  it("rejects an unmatch without an audit note before opening a database transaction", async () => {
+    await expect(reconcilePodtracEpisode({
+      podtracEpisodeId: "p1",
+      trackId: null,
+      note: "",
+      actorEmail: "admin@example.test",
+    })).rejects.toThrow(/audit note is required/i);
+    expect(mocks.connect).not.toHaveBeenCalled();
   });
 });

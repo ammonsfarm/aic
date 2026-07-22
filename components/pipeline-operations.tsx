@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from "react";
 
-import type { RetryablePipelineStage, UnmatchedPodtracEpisode } from "@/lib/admin-operations";
+import type { MatchedPodtracEpisode, RetryablePipelineStage, UnmatchedPodtracEpisode } from "@/lib/admin-operations";
 
 const retryOptions: Array<{ stage: RetryablePipelineStage; label: string; help: string }> = [
   { stage: "daily-ingest", label: "Daily ingest", help: "Run the complete RSS, audio, transcript and intelligence lane." },
@@ -13,9 +13,10 @@ const retryOptions: Array<{ stage: RetryablePipelineStage; label: string; help: 
 type PipelineOperationsProps = {
   isAdministrator: boolean;
   unmatched: UnmatchedPodtracEpisode[];
+  matched: MatchedPodtracEpisode[];
 };
 
-export function PipelineOperations({ isAdministrator, unmatched }: PipelineOperationsProps) {
+export function PipelineOperations({ isAdministrator, unmatched, matched }: PipelineOperationsProps) {
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -72,6 +73,30 @@ export function PipelineOperations({ isAdministrator, unmatched }: PipelineOpera
       window.location.reload();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not save the match.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function unmatch(event: FormEvent<HTMLFormElement>, podtracEpisodeId: string) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const note = String(form.get("note") || "").trim();
+    if (!note) {
+      setError("Add an audit note explaining why this match should be removed.");
+      return;
+    }
+    setBusy(`unmatch:${podtracEpisodeId}`);
+    try {
+      await post("/api/admin/pipeline/reconcile", {
+        podtracEpisodeId,
+        trackId: null,
+        note,
+      });
+      setMessage("Podtrac match removed with an audit record. Reloading current data…");
+      window.location.reload();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Could not remove the match.");
     } finally {
       setBusy("");
     }
@@ -150,6 +175,40 @@ export function PipelineOperations({ isAdministrator, unmatched }: PipelineOpera
               </label>
               <button className="button button--primary" type="submit" disabled={!isAdministrator || Boolean(busy)}>
                 {busy === `reconcile:${episode.podtracEpisodeId}` ? "Saving…" : "Save match"}
+              </button>
+            </form>
+          ))}
+        </div>
+      </section>
+
+      <section className="admin-section" id="podtrac-matched-records">
+        <div className="admin-section__header">
+          <div>
+            <p className="eyebrow">Reconciliation review</p>
+            <h2>Current Podtrac matches</h2>
+          </div>
+          <span className="status-item">{matched.length} shown</span>
+        </div>
+        <p className="note">Use the page search to find a Podtrac id, Podtrac title, archive track id, or archive title. Removing a match returns it to the unmatched queue and writes an audit record.</p>
+        {matched.length === 0 ? <p className="empty-state">No matched records match this search.</p> : null}
+        <div className="status-list">
+          {matched.map((episode) => (
+            <form
+              className="admin-form"
+              key={episode.podtracEpisodeId}
+              onSubmit={(event) => unmatch(event, episode.podtracEpisodeId)}
+            >
+              <div>
+                <strong>{episode.title}</strong>
+                <p className="note">Podtrac {episode.podtracEpisodeId} · {episode.publishDate || "No publication date"}</p>
+                <p className="note">Matched to {episode.episodeTitle} · {episode.trackId} · {episode.episodePublishDate || "No archive date"}</p>
+              </div>
+              <label>
+                <span>Required audit note</span>
+                <input name="note" maxLength={1000} required disabled={!isAdministrator} placeholder="Why is this match incorrect?" />
+              </label>
+              <button className="button button--ghost" type="submit" disabled={!isAdministrator || Boolean(busy)}>
+                {busy === `unmatch:${episode.podtracEpisodeId}` ? "Removing…" : "Remove match"}
               </button>
             </form>
           ))}
