@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { PastorWoodStructuredRadioPage } from "@/components/pastor-wood-structured-listings";
+import { publicArchiveCanonicalPath, publicArchivePage } from "@/lib/public-pagination";
 import { publicCmsPageMetadata, publicMetadata } from "@/lib/public-seo";
 import { getStrapiPageByPageKey } from "@/lib/strapi";
 import { getPublishedEpisodeBySlug } from "@/lib/strapi-structured-public";
@@ -24,15 +25,16 @@ function episodeSeo(episode: NonNullable<Awaited<ReturnType<typeof getPublishedE
   return episode.seo && typeof episode.seo === "object" ? episode.seo as Record<string, unknown> : {};
 }
 
-export async function generateMetadata({ params }: Pick<PageProps, "params">): Promise<Metadata> {
+export async function generateMetadata({ params, searchParams }: PageProps): Promise<Metadata> {
   const { slug = [] } = await params;
   const requestedSlug = slug.join("/");
   if (!requestedSlug) {
+    const page = publicArchivePage((await searchParams).page);
     return publicCmsPageMetadata({
       page: await getRadioPage(),
       fallbackTitle: "Radio Show Listings",
       fallbackDescription: "Listen to Abiding in Christ radio broadcasts and Bible teaching from Pastor Jim Wood.",
-      path: "/radio/",
+      path: publicArchiveCanonicalPath("/radio/", page),
     });
   }
 
@@ -51,7 +53,6 @@ export async function generateMetadata({ params }: Pick<PageProps, "params">): P
 
 export default async function Page({ params, searchParams }: PageProps) {
   const { slug = [] } = await params;
-  const requestedPage = Number((await searchParams).page || 1);
-  const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+  const page = publicArchivePage((await searchParams).page);
   return <PastorWoodStructuredRadioPage slug={slug} page={page} cmsPage={slug.length ? null : await getRadioPage()} />;
 }

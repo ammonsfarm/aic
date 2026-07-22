@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 
 import { isPublicIndexingEnabled, publicSiteOrigin } from "@/lib/public-seo";
+import { PRIVATE_TOP_LEVEL_SEGMENTS } from "@/lib/route-access";
 
 export default function robots(): MetadataRoute.Robots {
   if (!isPublicIndexingEnabled()) {
@@ -10,7 +11,11 @@ export default function robots(): MetadataRoute.Robots {
     rules: [{
       userAgent: "*",
       allow: "/",
-      disallow: ["/admin/", "/api/", "/archive/", "/compose/", "/content/", "/login/", "/overview/", "/pipeline/", "/preview/", "/signals/", "/sources/", "/stats/"],
+      disallow: [
+        "/api/",
+        "/login/",
+        ...[...PRIVATE_TOP_LEVEL_SEGMENTS].sort().map((segment) => `/${segment}/`),
+      ],
     }],
     sitemap: `${publicSiteOrigin()}/sitemap.xml`,
   };

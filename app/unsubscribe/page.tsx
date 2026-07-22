@@ -18,12 +18,12 @@ export default async function UnsubscribePage({ searchParams }: { searchParams: 
   const token = (await searchParams).token?.trim() || "";
   return (
     <PastorWoodShell>
-      <main className="pw-section pw-writing-detail">
+      <section className="pw-section pw-writing-detail">
         <p className="pw-eyebrow">Email preferences</p>
         <h1>Unsubscribe from the weekly devotional</h1>
         <p>Confirm below to stop future Abiding in Christ devotional email at the address associated with this secure link.</p>
         {token ? <UnsubscribeForm token={token} /> : <p className="pw-form-error">This unsubscribe link is incomplete.</p>}
-      </main>
+      </section>
     </PastorWoodShell>
   );
 }
