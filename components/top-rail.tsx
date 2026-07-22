@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { SignInButton, SignUpButton, Show, UserButton } from "@clerk/nextjs";
-import { consoleNav, publicNav, type AicNavRole } from "@/lib/navigation";
+import { consoleHomeHref, consoleNavForRole, publicNav, type AicNavRole } from "@/lib/navigation";
 
 type TopRailProps = {
   variant: "private" | "public";
@@ -12,26 +12,15 @@ type TopRailProps = {
   role?: AicNavRole;
 };
 
-function canSeePrivateNavItem(item: (typeof consoleNav)[number], role: AicNavRole) {
-  if (item.adminOnly && role !== "Admin") {
-    return false;
-  }
-
-  if (item.contentOnly && role !== "Admin" && role !== "Content Manager") {
-    return false;
-  }
-
-  return true;
-}
-
 export function TopRail({ variant, isAdmin = false, role }: TopRailProps) {
   const pathname = usePathname();
   const effectiveRole: AicNavRole = role ?? (isAdmin ? "Admin" : "User");
-  const nav = variant === "private" ? consoleNav.filter((item) => canSeePrivateNavItem(item, effectiveRole)) : publicNav;
+  const nav = variant === "private" ? consoleNavForRole(effectiveRole) : publicNav;
+  const brandHref = variant === "private" ? consoleHomeHref(effectiveRole) : "/";
 
   return (
     <header className="top-rail">
-      <Link href={variant === "private" ? "/overview" : "/"} className="brand-mark" aria-label="Pastor Jim Wood — Abiding in Christ">
+      <Link href={brandHref} className="brand-mark" aria-label="Pastor Jim Wood — Abiding in Christ">
         <span className="brand-mark__avatar">
           <Image
             src="/images/pastor-wood.jpg"

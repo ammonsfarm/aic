@@ -4,37 +4,46 @@ export type ConsoleNavItem = {
   href: string;
   label: string;
   description?: string;
-  adminOnly?: boolean;
-  contentOnly?: boolean;
+  roles?: AicNavRole[];
   children?: ConsoleNavItem[];
 };
+
+const allConsoleRoles: AicNavRole[] = ["Admin", "Content Manager", "Research User", "Read Only", "User"];
+const researchConsoleRoles: AicNavRole[] = ["Admin", "Content Manager", "Research User"];
+const internalReadRoles: AicNavRole[] = ["Admin", "Content Manager", "Research User", "Read Only"];
+const contentConsoleRoles: AicNavRole[] = ["Admin", "Content Manager"];
+const administratorRoles: AicNavRole[] = ["Admin"];
 
 export const consoleNav: ConsoleNavItem[] = [
   {
     href: "/overview",
     label: "Overview",
     description: "Corpus state, reporting window, and warnings.",
+    roles: administratorRoles,
   },
   {
     href: "/archive",
     label: "Archive",
     description: "Episodes, transcripts, and linked public records.",
+    roles: internalReadRoles,
   },
   {
     href: "/sources",
     label: "Sources",
     description: "Intelligence, retrieval lanes, and source inspection.",
+    roles: internalReadRoles,
   },
   {
     href: "/compose",
     label: "Compose",
     description: "Source-backed sermon, article, and manuscript drafting.",
+    roles: researchConsoleRoles,
   },
   {
     href: "/content",
     label: "Content",
     description: "Public site pages, posts, podcast uploads, newsletters, and media.",
-    contentOnly: true,
+    roles: contentConsoleRoles,
     children: [
       {
         href: "/content",
@@ -45,6 +54,11 @@ export const consoleNav: ConsoleNavItem[] = [
         href: "/content/site-pages",
         label: "Site pages",
         description: "Edit evergreen public website pages and page sections.",
+      },
+      {
+        href: "/content/site-settings",
+        label: "Site settings",
+        description: "Manage shared branding, navigation, footer, and subscription settings.",
       },
       {
         href: "/content/posts",
@@ -77,6 +91,11 @@ export const consoleNav: ConsoleNavItem[] = [
         description: "Map verified old-site paths to replacement URLs.",
       },
       {
+        href: "/content/newsletters",
+        label: "Newsletters",
+        description: "Review devotional subscribers and export consented recipients.",
+      },
+      {
         href: "/content/workflow",
         label: "Publishing workflow",
         description: "Review drafts, publication state, revisions, and audit attribution.",
@@ -87,17 +106,19 @@ export const consoleNav: ConsoleNavItem[] = [
     href: "/podcast",
     label: "Podcast",
     description: "Podtrac trends, listenership, and audience breakdowns.",
+    roles: allConsoleRoles,
   },
   {
     href: "/pipeline",
     label: "Pipeline",
     description: "Ingestion, vectorization, sync, and retry visibility.",
+    roles: internalReadRoles,
   },
   {
     href: "/admin",
     label: "Admin",
     description: "Agent settings and user roles.",
-    adminOnly: true,
+    roles: administratorRoles,
     children: [
       {
         href: "/admin",
@@ -117,6 +138,22 @@ export const consoleNav: ConsoleNavItem[] = [
     ],
   },
 ];
+
+export function consoleNavForRole(role: AicNavRole) {
+  return consoleNav.filter((item) => item.roles?.includes(role) ?? false);
+}
+
+export function consoleHomeHref(role: AicNavRole) {
+  if (role === "Admin") {
+    return "/overview";
+  }
+
+  if (role === "Content Manager") {
+    return "/content";
+  }
+
+  return "/podcast";
+}
 
 export const publicNav: ConsoleNavItem[] = [
   { href: "/", label: "Home" },

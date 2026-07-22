@@ -1,7 +1,10 @@
 import { RoutePanel } from "@/components/route-panel";
 import { ComposeWorkbench } from "@/components/compose-workbench";
+import { requireResearchConsoleUser } from "@/lib/console-access";
 
-export default function ComposePage() {
+export default async function ComposePage() {
+  await requireResearchConsoleUser();
+
   return (
     <RoutePanel
       eyebrow="Compose"

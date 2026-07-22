@@ -1,10 +1,13 @@
 import { TopRail } from "@/components/top-rail";
 import { RoutePanel } from "@/components/route-panel";
 import { ReadingPlanBuilder } from "@/components/reading-plan-builder";
+import { requireResearchConsoleUser } from "@/lib/console-access";
 
 export const dynamic = "force-dynamic";
 
-export default function ReadingPlanPage() {
+export default async function ReadingPlanPage() {
+  await requireResearchConsoleUser();
+
   return (
     <>
       <TopRail variant="public" />

@@ -1,6 +1,7 @@
 import { TopRail } from "@/components/top-rail";
 import { RoutePanel } from "@/components/route-panel";
 import { RagChatWidget } from "@/components/rag-chat-widget";
+import { requireResearchConsoleUser } from "@/lib/console-access";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +12,9 @@ const starterQuestions = [
   "What sermon illustrations involve Wears Valley Ranch?",
 ];
 
-export default function ResearchPage() {
+export default async function ResearchPage() {
+  await requireResearchConsoleUser();
+
   return (
     <>
       <TopRail variant="public" />
