@@ -2,7 +2,10 @@ import Link from "next/link";
 
 import { RoutePanel } from "@/components/route-panel";
 import { TopRail } from "@/components/top-rail";
+import { DataFreshnessNotice } from "@/components/data-freshness";
+import { getEpisodeOperationalStatus } from "@/lib/admin-operations";
 import { getEpisodeStatisticsDashboard, parsePodtracRange, podtracRangeOptions } from "@/lib/podcast-data";
+import { requireSignedInAppUser } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -39,18 +42,30 @@ function formatCoverage(startDate: string | null, endDate: string | null) {
   return `Imported daily data covers ${formatDate(startDate)} through ${formatDate(endDate)}.`;
 }
 
+type ReportLinkState = {
+  range: string;
+  startDate?: string;
+  endDate?: string;
+  query?: string;
+  page?: number;
+};
+
 function episodeStatsHref({
-  range,
+  state,
   trackId,
   downloadDate,
   hash,
 }: {
-  range: string;
+  state: ReportLinkState;
   trackId?: string;
   downloadDate?: string | null;
   hash?: string;
 }) {
-  const params = new URLSearchParams({ range });
+  const params = new URLSearchParams({ range: state.range });
+  if (state.startDate) params.set("startDate", state.startDate);
+  if (state.endDate) params.set("endDate", state.endDate);
+  if (state.query) params.set("q", state.query);
+  if (state.page && state.page > 1) params.set("page", String(state.page));
   if (trackId) {
     params.set("trackId", trackId);
   }
@@ -61,13 +76,13 @@ function episodeStatsHref({
   return `/podcast/episodes?${params.toString()}${hash ? `#${hash}` : ""}`;
 }
 
-function RangeForm({ value, trackId }: { value: string; trackId?: string }) {
+function RangeForm({ state, trackId }: { state: ReportLinkState; trackId?: string }) {
   return (
     <form className="range-form" method="get">
       {trackId ? <input type="hidden" name="trackId" value={trackId} /> : null}
       <label>
         <span>Drill-down range</span>
-        <select name="range" defaultValue={value}>
+        <select name="range" defaultValue={state.range}>
           {podtracRangeOptions.map((option) => (
             <option key={option.key} value={option.key}>
               {option.label}
@@ -75,6 +90,9 @@ function RangeForm({ value, trackId }: { value: string; trackId?: string }) {
           ))}
         </select>
       </label>
+      <label><span>Start date</span><input type="date" name="startDate" defaultValue={state.startDate} /></label>
+      <label><span>End date</span><input type="date" name="endDate" defaultValue={state.endDate} max={new Date().toISOString().slice(0, 10)} /></label>
+      {state.query ? <input type="hidden" name="q" value={state.query} /> : null}
       <button className="button button--ghost" type="submit">
         Apply
       </button>
@@ -84,12 +102,12 @@ function RangeForm({ value, trackId }: { value: string; trackId?: string }) {
 
 function EpisodeTrend({
   rows,
-  range,
+  state,
   trackId,
   selectedDownloadDate,
 }: {
   rows: Array<{ activityDate: string; downloads: number }>;
-  range: string;
+  state: ReportLinkState;
   trackId?: string;
   selectedDownloadDate: string | null;
 }) {
@@ -103,7 +121,7 @@ function EpisodeTrend({
           <Link
             key={row.activityDate}
             className={selected ? "trend-row trend-row--selected" : "trend-row"}
-            href={episodeStatsHref({ range, trackId, downloadDate: row.activityDate, hash: "date-drilldown" })}
+            href={episodeStatsHref({ state, trackId, downloadDate: row.activityDate, hash: "date-drilldown" })}
             aria-current={selected ? "location" : undefined}
           >
             <span>{formatDate(row.activityDate)}</span>
@@ -120,12 +138,12 @@ function EpisodeTrend({
 
 function DateEpisodeGrid({
   rows,
-  range,
+  state,
   selectedTrackId,
   selectedDownloadDate,
 }: {
   rows: Array<{ downloadDate: string; trackId: string; title: string; publishDate: string; downloads: number }>;
-  range: string;
+  state: ReportLinkState;
   selectedTrackId?: string;
   selectedDownloadDate: string;
 }) {
@@ -136,7 +154,7 @@ function DateEpisodeGrid({
           <p className="eyebrow">Date drill-down</p>
           <h2>Episodes downloaded on {formatDate(selectedDownloadDate)}</h2>
         </div>
-        <Link className="button button--ghost" href={episodeStatsHref({ range, trackId: selectedTrackId })}>
+        <Link className="button button--ghost" href={episodeStatsHref({ state, trackId: selectedTrackId })}>
           Clear Date
         </Link>
       </div>
@@ -151,7 +169,7 @@ function DateEpisodeGrid({
             <Link
               key={`${row.downloadDate}-${row.trackId}`}
               className="episode-date-grid__row"
-              href={episodeStatsHref({ range, trackId: row.trackId, downloadDate: row.downloadDate, hash: "date-drilldown" })}
+              href={episodeStatsHref({ state, trackId: row.trackId, downloadDate: row.downloadDate, hash: "date-drilldown" })}
               role="row"
             >
               <span role="cell">{formatDate(row.downloadDate)}</span>
@@ -175,23 +193,39 @@ function DateEpisodeGrid({
 export default async function EpisodeStatisticsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string; trackId?: string; downloadDate?: string }>;
+  searchParams: Promise<{ range?: string; trackId?: string; downloadDate?: string; startDate?: string; endDate?: string; q?: string; page?: string }>;
 }) {
   const params = await searchParams;
   const range = parsePodtracRange(params.range);
-  const dashboard = await getEpisodeStatisticsDashboard({
-    rangeKey: range,
-    trackId: params.trackId,
-    downloadDate: params.downloadDate,
-  });
+  const [dashboard, appUser, episodeOperational] = await Promise.all([
+    getEpisodeStatisticsDashboard({
+      rangeKey: range,
+      trackId: params.trackId,
+      downloadDate: params.downloadDate,
+      startDate: params.startDate,
+      endDate: params.endDate,
+      query: params.q,
+      page: Number(params.page) || 1,
+    }),
+    requireSignedInAppUser(),
+    params.trackId ? getEpisodeOperationalStatus(params.trackId) : Promise.resolve(null),
+  ]);
+  const isAdministrator = appUser.role === "Admin";
+  const reportState: ReportLinkState = {
+    range: dashboard.range.key,
+    startDate: dashboard.range.key === "custom" ? dashboard.range.startDate ?? undefined : params.startDate,
+    endDate: dashboard.range.key === "custom" ? dashboard.range.endDate ?? undefined : params.endDate,
+    query: dashboard.pagination.query || undefined,
+    page: dashboard.pagination.page,
+  };
   const selected = dashboard.selectedEpisode;
   const activeSummary = selected ?? dashboard.summary;
   const activeTrend = selected ? dashboard.selectedDailyTrend : dashboard.dailyTrend;
-  const maxEpisodeDownloads = Math.max(...dashboard.episodes.map((episode) => episode.importedDownloads), 1);
+  const maxEpisodeDownloads = Math.max(...dashboard.episodes.map((episode) => episode.rangeDownloads), 1);
 
   return (
     <>
-      <TopRail variant="public" />
+      <TopRail variant="private" isAdmin={isAdministrator} role={appUser.role} />
       <main className="public-shell">
         <RoutePanel
           eyebrow="Podcast"
@@ -205,13 +239,43 @@ export default async function EpisodeStatisticsPage({
                 Podcast Statistics
               </Link>
               {selected ? (
-                <Link className="button button--ghost" href={`/podcast/episodes?range=${dashboard.range.key}`}>
+                <Link className="button button--ghost" href={episodeStatsHref({ state: { ...reportState, page: 1 } })}>
                   All Episodes
                 </Link>
               ) : null}
             </div>
           }
         >
+          <DataFreshnessNotice label="Podtrac episode statistics" freshness={dashboard.freshness} />
+          <p className="note">
+            Selected period: {formatCount(dashboard.summary.rangeDownloads)} downloads. Previous comparable period: {formatCount(dashboard.comparison.previousDownloads)}
+            {dashboard.comparison.changePercent === null ? "." : ` (${dashboard.comparison.changePercent >= 0 ? "+" : ""}${dashboard.comparison.changePercent.toFixed(1)}%).`}
+          </p>
+          {isAdministrator && dashboard.range.startDate && dashboard.range.endDate ? (
+            <div className="podcast-subnav">
+              <a className="button button--ghost" href={`/api/admin/podcast/export?report=episodes&startDate=${dashboard.range.startDate}&endDate=${dashboard.range.endDate}`}>Export episodes CSV</a>
+              <a className="button button--ghost" href={`/api/admin/podcast/export?report=daily&startDate=${dashboard.range.startDate}&endDate=${dashboard.range.endDate}`}>Export daily CSV</a>
+            </div>
+          ) : null}
+          {episodeOperational ? (
+            <section className="podcast-chart-section">
+              <p className="eyebrow">Episode operations</p>
+              <h2>Current processing and correction state</h2>
+              <div className="status-list status-list--compact">
+                <span><strong>Transcript chunks</strong>{formatCount(episodeOperational.coverage.transcriptChunks)}</span>
+                <span><strong>Transcript segments</strong>{formatCount(episodeOperational.coverage.transcriptSegments)}</span>
+                <span><strong>Intelligence rows</strong>{formatCount(episodeOperational.coverage.intelligenceRows)}</span>
+                <span><strong>Intelligence vectors</strong>{formatCount(episodeOperational.coverage.intelligenceVectors)}</span>
+                <span><strong>Podtrac rows</strong>{formatCount(episodeOperational.coverage.podtracRows)}</span>
+                {Object.entries(episodeOperational.transcriptEdits).map(([status, count]) => (
+                  <span key={status}><strong>Transcript edits: {status}</strong>{formatCount(count)}</span>
+                ))}
+              </div>
+              {episodeOperational.latestTranscriptError ? (
+                <p className="empty-state empty-state--error" role="alert">Latest transcript worker error: {episodeOperational.latestTranscriptError}</p>
+              ) : null}
+            </section>
+          ) : null}
           <section className="split-board split-board--wide">
             <div>
               <div className="chart-section-head">
@@ -219,9 +283,9 @@ export default async function EpisodeStatisticsPage({
                   <p className="eyebrow">{selected ? "Episode drill-down" : "All matched episodes"}</p>
                   <h2>{selected?.title ?? "Episode downloads by day"}</h2>
                 </div>
-                <RangeForm value={dashboard.range.key} trackId={selected?.trackId} />
+                <RangeForm state={reportState} trackId={selected?.trackId} />
               </div>
-              {dashboard.episodes.length > 0 ? (
+              {selected || dashboard.episodes.length > 0 ? (
                 <>
                   <div className="episode-stat-summary">
                     <span>
@@ -244,7 +308,7 @@ export default async function EpisodeStatisticsPage({
                   </p>
                   <EpisodeTrend
                     rows={activeTrend}
-                    range={dashboard.range.key}
+                    state={reportState}
                     trackId={selected?.trackId}
                     selectedDownloadDate={dashboard.selectedDownloadDate}
                   />
@@ -291,7 +355,7 @@ export default async function EpisodeStatisticsPage({
           {dashboard.selectedDownloadDate ? (
             <DateEpisodeGrid
               rows={dashboard.dateEpisodeDownloads}
-              range={dashboard.range.key}
+              state={reportState}
               selectedTrackId={selected?.trackId}
               selectedDownloadDate={dashboard.selectedDownloadDate}
             />
@@ -303,7 +367,13 @@ export default async function EpisodeStatisticsPage({
                 <p className="eyebrow">All episodes</p>
                 <h2>Downloads by episode</h2>
               </div>
-              <span className="scope-pill">Sorted by imported downloads</span>
+              <form className="range-form" method="get">
+                <input type="hidden" name="range" value={reportState.range} />
+                {reportState.startDate ? <input type="hidden" name="startDate" value={reportState.startDate} /> : null}
+                {reportState.endDate ? <input type="hidden" name="endDate" value={reportState.endDate} /> : null}
+                <label><span>Search episodes</span><input name="q" defaultValue={dashboard.pagination.query} /></label>
+                <button className="button button--ghost" type="submit">Search</button>
+              </form>
             </div>
             <div className="episode-stat-table">
 	              {dashboard.episodes.map((episode) => {
@@ -312,7 +382,7 @@ export default async function EpisodeStatisticsPage({
 	                  <Link
 	                    key={episode.trackId}
 	                    href={episodeStatsHref({
-	                      range: dashboard.range.key,
+	                      state: reportState,
 	                      trackId: episode.trackId,
 	                      downloadDate: dashboard.selectedDownloadDate,
 	                    })}
@@ -324,7 +394,7 @@ export default async function EpisodeStatisticsPage({
                       <small>{formatDate(episode.publishDate)}</small>
                     </span>
                     <span className="episode-stat-row__bar" aria-hidden="true">
-                      <i style={{ width: `${Math.max(2, Math.round((episode.importedDownloads / maxEpisodeDownloads) * 100))}%` }} />
+                      <i style={{ width: `${Math.max(2, Math.round((episode.rangeDownloads / maxEpisodeDownloads) * 100))}%` }} />
                     </span>
                     <span>
                       <strong>{formatCount(episode.importedDownloads)}</strong>
@@ -337,6 +407,15 @@ export default async function EpisodeStatisticsPage({
                   </Link>
                 );
               })}
+            </div>
+            <div className="podcast-subnav" aria-label="Episode result pages">
+              <span>Page {dashboard.pagination.page} of {Math.max(dashboard.pagination.totalPages, 1)} · {formatCount(dashboard.pagination.totalEpisodes)} episodes</span>
+              {dashboard.pagination.page > 1 ? (
+                <Link className="button button--ghost" href={episodeStatsHref({ state: { ...reportState, page: dashboard.pagination.page - 1 } })}>Previous</Link>
+              ) : null}
+              {dashboard.pagination.page < dashboard.pagination.totalPages ? (
+                <Link className="button button--ghost" href={episodeStatsHref({ state: { ...reportState, page: dashboard.pagination.page + 1 } })}>Next</Link>
+              ) : null}
             </div>
           </section>
         </RoutePanel>

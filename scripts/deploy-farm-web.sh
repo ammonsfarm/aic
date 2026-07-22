@@ -8,6 +8,7 @@ REMOTE_BRANCH="${REMOTE_BRANCH:-main}"
 REMOTE_SERVICE="${REMOTE_SERVICE:-aic-web.service}"
 REMOTE_PORT="${REMOTE_PORT:-8087}"
 INSTALL_TRANSCRIPT_EDIT_WORKER="${INSTALL_TRANSCRIPT_EDIT_WORKER:-1}"
+INSTALL_ADMIN_OPERATIONS_WORKER="${INSTALL_ADMIN_OPERATIONS_WORKER:-1}"
 SERVICE_URL="http://127.0.0.1:${REMOTE_PORT}"
 
 ssh_target="${REMOTE_USER}@${REMOTE_HOST}"
@@ -50,6 +51,11 @@ npm run build
 if [ "${INSTALL_TRANSCRIPT_EDIT_WORKER}" = "1" ]; then
   echo "Installing transcript edit worker timer..."
   bash scripts/install-transcript-edit-worker.sh
+fi
+
+if [ "${INSTALL_ADMIN_OPERATIONS_WORKER}" = "1" ]; then
+  echo "Installing allowlisted admin operations worker timer..."
+  bash scripts/install-admin-operations-worker.sh
 fi
 
 echo "Restarting service: ${REMOTE_SERVICE}"
