@@ -8014,7 +8014,7 @@
     "verifiedFiles": 7,
     "verifiedReferences": 14
   },
-  "generatedAt": "2026-07-22T16:11:02.869930+00:00",
+  "generatedAt": "2026-07-22T16:17:02.924399+00:00",
   "matchMethods": {
     "canonical-title": 14,
     "canonical-title-date": 3,
@@ -9824,7 +9824,7 @@
   "unmatchedRedirects": [
     {
       "line": "1",
-      "reason": "no-equivalent-public-target",
+      "reason": "already-canonical-self",
       "source": "https://www.pastorwood.org/1172-2/"
     },
     {

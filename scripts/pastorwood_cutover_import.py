@@ -2076,6 +2076,7 @@ def redirect_target_for(
     sermon_slug_targets: dict[str, str],
     public_media_paths: set[str],
     replacement_media_targets: dict[str, str] | None = None,
+    page_slug_targets: dict[str, str] | None = None,
 ) -> tuple[str | None, str]:
     if "/wp-content/uploads/" in path:
         relative_media = safe_upload_relative_path(path)
@@ -2106,6 +2107,8 @@ def redirect_target_for(
         return post_slug_targets[final_slug], "published-writing"
     if final_slug in sermon_slug_targets:
         return sermon_slug_targets[final_slug], "published-episode"
+    if page_slug_targets and final_slug in page_slug_targets:
+        return page_slug_targets[final_slug], "published-page"
     if path.startswith("/category/weekly-devotional") or path.startswith("/tag/"):
         return "/bible-study/", "taxonomy-fallback"
     if path.startswith("/category/resources"):
@@ -2129,6 +2132,7 @@ def build_redirects(
     sermon_alias_targets: dict[str, str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]], list[dict[str, str]]]:
     post_slug_targets = {text(row.get("slug")): f"/writings/{text(row.get('slug'))}/" for row in posts}
+    page_slug_targets: dict[str, str] = {}
     sermon_slug_targets: dict[str, str] = {}
     episode_by_wp = {text(row.get("wpSermonId")): row for row in episodes if text(row.get("wpSermonId"))}
     for row in wp_content:
@@ -2139,6 +2143,15 @@ def build_redirects(
             sermon_slug_targets[slugify(text(row.get("slug")), "")] = f"/radio/{text(target_episode.get('slug'))}/"
         elif sermon_alias_targets and text(row.get("id")) in sermon_alias_targets:
             sermon_slug_targets[slugify(text(row.get("slug")), "")] = sermon_alias_targets[text(row.get("id"))]
+    for row in wp_content:
+        if text(row.get("type")) != "page":
+            continue
+        slug = slugify(text(row.get("slug")), f"page-{text(row.get('id'))}")
+        if slug in OPERATIONAL_PAGE_SLUGS:
+            continue
+        if not text(row.get("title")) and not strip_markup(text(row.get("content"))) and not strip_markup(text(row.get("excerpt"))):
+            continue
+        page_slug_targets[slug] = FIXED_PAGE_TARGETS.get(slug, f"/{slug}/")
     public_media_paths = {record.relative_path for record in media_records if record.visibility == "public" and record.exists}
 
     redirects: dict[str, dict[str, Any]] = {}
@@ -2149,7 +2162,14 @@ def build_redirects(
             path, source_url = normalize_legacy_url(raw_url)
             if is_reserved_route(path):
                 raise ValueError("legacy source overlaps a current reserved route")
-            target, reason = redirect_target_for(path, post_slug_targets, sermon_slug_targets, public_media_paths, replacement_media_targets)
+            target, reason = redirect_target_for(
+                path,
+                post_slug_targets,
+                sermon_slug_targets,
+                public_media_paths,
+                replacement_media_targets,
+                page_slug_targets,
+            )
             if not target:
                 unmatched.append({"line": str(input_index), "source": source_url, "reason": reason})
                 continue

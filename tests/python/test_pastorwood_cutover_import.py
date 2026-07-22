@@ -493,6 +493,19 @@ class CutoverBoundaryTests(unittest.TestCase):
         self.assertEqual(failures, [])
         self.assertEqual({item["reason"] for item in unmatched}, {"no-equivalent-public-target", "private-or-unpublished-attachment"})
 
+    def test_imported_dynamic_page_is_accounted_for_as_an_existing_canonical_route(self):
+        legacy = ["https://www.pastorwood.org/1172-2/"]
+        wordpress = [{
+            "id": "1172", "type": "page", "slug": "1172-2", "title": "1172 2",
+            "content": "A published legacy page retained through the dynamic CMS route.", "excerpt": "",
+        }]
+
+        redirects, failures, unmatched = MODULE.build_redirects(legacy, wordpress, [], [], [])
+
+        self.assertEqual(redirects, [])
+        self.assertEqual(failures, [])
+        self.assertEqual(unmatched[0]["reason"], "already-canonical-self")
+
     def test_unmatched_radio_item_does_not_fall_back_to_archive(self):
         redirects, failures, unmatched = MODULE.build_redirects(
             ["https://www.pastorwood.org/radio/missing-episode/"], [], [], [], [],
