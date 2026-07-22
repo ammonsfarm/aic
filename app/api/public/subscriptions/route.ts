@@ -42,6 +42,12 @@ export async function POST(request: Request) {
   try {
     const result = await capturePublicSubscription(validation.value, request);
     if (!result.ok) {
+      if (result.reason === "suppressed") {
+        return NextResponse.json(
+          { error: "This subscription request could not be completed. Please contact us if you need help." },
+          { status: 409, headers: { "Cache-Control": "no-store" } },
+        );
+      }
       return NextResponse.json(
         { error: "Too many attempts. Please try again later." },
         { status: 429, headers: { "Cache-Control": "no-store", "Retry-After": "3600" } },

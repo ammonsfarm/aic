@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { DevotionalSignupForm } from "@/components/devotional-signup-form";
 import { getPublicDonationUrl } from "@/lib/public-donation";
+import { SUBSCRIPTION_ATTEMPT_RETENTION_DAYS } from "@/lib/public-subscription-contract";
 import { listPublishedEndorsements, type PublishedEndorsement } from "@/lib/strapi-structured-public";
 import { getStrapiSiteSettings, type StrapiSiteSettings } from "@/lib/strapi-site-settings";
 import { safeCmsHref, sanitizeCmsHtml } from "@/lib/cms-html";
@@ -522,7 +523,7 @@ function SubscriptionPrivacyNotice() {
   return (
     <section className="pw-section pw-policy-copy" aria-labelledby="subscription-privacy-notice">
       <h2 id="subscription-privacy-notice">Weekly devotional subscriptions</h2>
-      <p>When you subscribe, we store your email address, the consent wording and version you accepted, the time of consent, and the page where you subscribed. We also store one-way keyed hashes derived from the requesting IP address and browser identifier to limit abuse; the raw values are not stored by the subscription form.</p>
+      <p>When you subscribe, we store your email address, the consent wording and version you accepted, the time of consent, and the page where you subscribed. We also store one-way keyed hashes derived from the requesting IP address and browser identifier to limit abuse; the raw values are not stored by the subscription form. Abuse-prevention attempt records are retained for {SUBSCRIPTION_ATTEMPT_RETENTION_DAYS} days and then removed in bounded cleanup batches.</p>
       <h2>How the information is used</h2>
       <p>Subscription information is used to manage the Abiding in Christ devotional list. Authorized content managers can export the active list for delivery through the ministry&apos;s approved email provider. Suppressed addresses remain suppressed if a later signup is attempted.</p>
       <h2>Other websites and giving</h2>

@@ -3,7 +3,13 @@ import "server-only";
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { queryRows } from "@/lib/db";
-import { SUBSCRIPTION_CONSENT_TEXT, SUBSCRIPTION_CONSENT_VERSION } from "@/lib/public-subscription-contract";
+import {
+  SUBSCRIPTION_ATTEMPT_RETENTION_DAYS,
+  SUBSCRIPTION_CONSENT_TEXT,
+  SUBSCRIPTION_CONSENT_VERSION,
+} from "@/lib/public-subscription-contract";
+
+const SUBSCRIPTION_ATTEMPT_CLEANUP_BATCH_SIZE = 500;
 
 export type SubscriptionInput = {
   email: string;
@@ -142,20 +148,41 @@ export function subscriptionRequestIdentity(request: Request) {
   };
 }
 
-type RateRow = { ip_count: string; email_count: string };
+type RateRow = { ip_count: string; email_count: string; cleaned_count: string };
+type SubscriptionEventRow = { event_type: "consent-captured" | "resubscribe-blocked-suppressed" };
 
-export async function capturePublicSubscription(input: SubscriptionInput, request: Request) {
+export type CapturePublicSubscriptionResult =
+  | { ok: true }
+  | { ok: false; reason: "rate-limited" | "suppressed" };
+
+export async function capturePublicSubscription(
+  input: SubscriptionInput,
+  request: Request,
+): Promise<CapturePublicSubscriptionResult> {
   const { ipHash, userAgentHash } = subscriptionRequestIdentity(request);
   const emailHash = subscriptionFingerprint(input.email);
   const rates = await queryRows<RateRow>(
     `
+      with expired as (
+        select id
+        from public_subscription_attempts
+        where created_at < now() - make_interval(days => $3::integer)
+        order by created_at asc, id asc
+        limit $4::integer
+      ), cleanup as (
+        delete from public_subscription_attempts attempts
+        using expired
+        where attempts.id = expired.id
+        returning attempts.id
+      )
       select
         count(*) filter (where ip_hash = $1 and created_at >= now() - interval '1 hour')::text as ip_count,
-        count(*) filter (where email_hash = $2 and created_at >= now() - interval '1 day')::text as email_count
+        count(*) filter (where email_hash = $2 and created_at >= now() - interval '1 day')::text as email_count,
+        (select count(*) from cleanup)::text as cleaned_count
       from public_subscription_attempts
       where created_at >= now() - interval '1 day'
     `,
-    [ipHash, emailHash],
+    [ipHash, emailHash, SUBSCRIPTION_ATTEMPT_RETENTION_DAYS, SUBSCRIPTION_ATTEMPT_CLEANUP_BATCH_SIZE],
   );
   const ipCount = Number(rates[0]?.ip_count || 0);
   const emailCount = Number(rates[0]?.email_count || 0);
@@ -165,9 +192,9 @@ export async function capturePublicSubscription(input: SubscriptionInput, reques
     `insert into public_subscription_attempts(ip_hash, email_hash, accepted) values ($1, $2, $3)`,
     [ipHash, emailHash, !rateLimited],
   );
-  if (rateLimited) return { ok: false as const, rateLimited: true as const };
+  if (rateLimited) return { ok: false, reason: "rate-limited" };
 
-  await queryRows(
+  const eventRows = await queryRows<SubscriptionEventRow>(
     `
       with upserted as (
         insert into public_subscriptions(
@@ -191,10 +218,14 @@ export async function capturePublicSubscription(input: SubscriptionInput, reques
       select id, case when status = 'suppressed' then 'resubscribe-blocked-suppressed' else 'consent-captured' end,
              'public-form', jsonb_build_object('consentVersion', $2::text, 'sourcePath', $4::text)
       from upserted
+      returning event_type
     `,
     [input.email, input.consentVersion, SUBSCRIPTION_CONSENT_TEXT, input.sourcePath, ipHash, userAgentHash],
   );
-  return { ok: true as const };
+  const eventType = eventRows[0]?.event_type;
+  if (eventType === "resubscribe-blocked-suppressed") return { ok: false, reason: "suppressed" };
+  if (eventType === "consent-captured") return { ok: true };
+  throw new Error("Subscription capture did not record an outcome event.");
 }
 
 export async function unsubscribePublicSubscription(tokenValue: unknown) {
