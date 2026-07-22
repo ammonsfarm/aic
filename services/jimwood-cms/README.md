@@ -65,10 +65,11 @@ The native service, durable upload, backup, and restore-drill contract lives in
 `../../ops/strapi/README.md`. Those artifacts are intentionally not installed by
 this source tree.
 
-Before launch, operations still must create the separate PostgreSQL database and
-least-privilege role, install generated secrets and a scoped API token, install
-and start the systemd units, verify a real backup/restore drill, and complete an
-authenticated content-manager acceptance pass.
+Before launch, operations must run the checked-in provisioning and service
+installers, verify a real backup/restore drill, run the controlled legacy import,
+and complete an authenticated content-manager acceptance pass. The service
+bootstrap maintains a custom least-privilege AIC token and revokes Strapi's broad
+first-run defaults.
 
 ## Legacy import boundary
 

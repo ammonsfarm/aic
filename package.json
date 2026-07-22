@@ -11,17 +11,17 @@
     "deploy:farm": "bash ./scripts/deploy-farm-web.sh"
   },
   "dependencies": {
-    "@clerk/nextjs": "latest",
+    "@clerk/nextjs": "7.5.22",
     "@tiptap/extension-link": "^3.27.1",
     "@tiptap/extension-text-align": "^3.27.1",
     "@tiptap/extension-underline": "^3.27.1",
     "@tiptap/pm": "^3.27.1",
     "@tiptap/react": "^3.27.1",
     "@tiptap/starter-kit": "^3.27.1",
-    "next": "latest",
+    "next": "16.2.11",
     "pg": "^8.20.0",
-    "react": "latest",
-    "react-dom": "latest",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
     "sanitize-html": "^2.17.6"
   },
   "devDependencies": {
@@ -32,8 +32,12 @@
     "@types/react-dom": "latest",
     "@types/sanitize-html": "^2.16.1",
     "eslint": "latest",
-    "eslint-config-next": "latest",
+    "eslint-config-next": "16.2.11",
     "typescript": "latest",
     "vitest": "^4.1.10"
+  },
+  "overrides": {
+    "postcss": "8.5.10",
+    "sharp": "0.35.0"
   }
 }

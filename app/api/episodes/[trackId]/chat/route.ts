@@ -10,7 +10,7 @@ import {
   validateChatRequestBody,
   validateQuestionLength,
 } from "@/lib/rag-route-guards";
-import { requireSignedInAppUser } from "@/lib/rbac";
+import { getGenerationApiUser } from "@/lib/rbac";
 
 type RouteParams = {
   trackId: string;
@@ -33,7 +33,10 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     return NextResponse.json({ error: bodyError }, { status: 413 });
   }
 
-  const appUser = await requireSignedInAppUser();
+  const appUser = await getGenerationApiUser();
+  if (!appUser) {
+    return NextResponse.json({ error: "This role cannot run generation requests." }, { status: 403 });
+  }
   const rateLimit = checkChatRateLimit(request, appUser.clerkUserId);
   if (!rateLimit.ok) {
     return NextResponse.json(

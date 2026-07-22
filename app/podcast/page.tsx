@@ -2,13 +2,14 @@ import Link from "next/link";
 
 import { RoutePanel } from "@/components/route-panel";
 import { TopRail } from "@/components/top-rail";
+import { DataFreshnessNotice } from "@/components/data-freshness";
 import {
   getPodcastStatsDashboard,
   parsePodtracRange,
   podtracRangeOptions,
   type PodcastStatsDashboard,
 } from "@/lib/podcast-data";
-import { isCurrentUserAdministrator } from "@/lib/rbac";
+import { requireSignedInAppUser } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -104,7 +105,9 @@ function RangeForm({
   return (
     <form className="range-form" method="get">
       {hidden
-        ? Object.entries(hidden).map(([key, hiddenValue]) => <input key={key} type="hidden" name={key} value={hiddenValue} />)
+        ? Object.entries(hidden)
+            .filter(([key]) => key !== "startDate" && key !== "endDate")
+            .map(([key, hiddenValue]) => <input key={key} type="hidden" name={key} value={hiddenValue} />)
         : null}
       <label>
         <span>{label}</span>
@@ -115,6 +118,14 @@ function RangeForm({
             </option>
           ))}
         </select>
+      </label>
+      <label>
+        <span>Start date</span>
+        <input name="startDate" type="date" defaultValue={hidden?.startDate ?? ""} />
+      </label>
+      <label>
+        <span>End date</span>
+        <input name="endDate" type="date" defaultValue={hidden?.endDate ?? ""} max={new Date().toISOString().slice(0, 10)} />
       </label>
       <button className="button button--ghost" type="submit">
         Apply
@@ -239,21 +250,23 @@ function CountryPie({ rows }: { rows: PodcastStatsDashboard["countryDownloads"] 
 export default async function PodcastStatsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string; countryRange?: string }>;
+  searchParams: Promise<{ range?: string; countryRange?: string; startDate?: string; endDate?: string }>;
 }) {
   const params = await searchParams;
   const range = parsePodtracRange(params.range);
   const countryRange = parsePodtracRange(params.countryRange ?? params.range);
+  const appUser = await requireSignedInAppUser();
+  const dateOptions = { startDate: params.startDate, endDate: params.endDate };
   const [dashboard, countryDashboard] = await Promise.all([
-    getPodcastStatsDashboard(range),
-    countryRange === range ? Promise.resolve(null) : getPodcastStatsDashboard(countryRange),
+    getPodcastStatsDashboard(range, dateOptions),
+    countryRange === range ? Promise.resolve(null) : getPodcastStatsDashboard(countryRange, dateOptions),
   ]);
-  const isAdministrator = await isCurrentUserAdministrator();
+  const isAdministrator = appUser.role === "Admin";
   const countryRows = countryDashboard?.countryDownloads ?? dashboard.countryDownloads;
 
   return (
     <>
-      <TopRail variant="public" />
+      <TopRail variant="private" isAdmin={isAdministrator} role={appUser.role} />
       <main className="public-shell">
         <RoutePanel
           eyebrow="Podcast"
@@ -284,6 +297,12 @@ export default async function PodcastStatsPage({
                 Daily Podtrac activity from {formatDate(dashboard.range.startDate)} through {formatDate(dashboard.range.endDate)}.
                 Imported history total is {formatCount(dashboard.counts.allTimeDownloads)} downloads.
               </p>
+              <p className="note">
+                Prior period: {formatCount(dashboard.comparison.previousDownloads)} downloads
+                {dashboard.comparison.changePercent === null
+                  ? " (no percentage available)"
+                  : ` · ${dashboard.comparison.changePercent >= 0 ? "+" : ""}${dashboard.comparison.changePercent.toFixed(1)}%`}.
+              </p>
             </div>
             <div className="status-list status-list--wide">
               <span>
@@ -301,21 +320,30 @@ export default async function PodcastStatsPage({
             </div>
           </section>
 
+          <DataFreshnessNotice label="Podtrac statistics" freshness={dashboard.freshness} />
+
+          {isAdministrator && dashboard.range.startDate && dashboard.range.endDate ? (
+            <div className="podcast-subnav" aria-label="Podcast CSV exports">
+              <a className="button button--ghost" href={`/api/admin/podcast/export?report=daily&startDate=${dashboard.range.startDate}&endDate=${dashboard.range.endDate}`}>Export daily CSV</a>
+              <a className="button button--ghost" href={`/api/admin/podcast/export?report=episodes&startDate=${dashboard.range.startDate}&endDate=${dashboard.range.endDate}`}>Export episodes CSV</a>
+            </div>
+          ) : null}
+
           <section className="podcast-chart-section">
             <div className="chart-section-head">
               <div>
                 <p className="eyebrow">Downloads by day</p>
                 <h2>Daily activity</h2>
               </div>
-              <RangeForm name="range" value={dashboard.range.key} label="Timeframe" hidden={{ countryRange }} />
+              <RangeForm name="range" value={dashboard.range.key} label="Timeframe" hidden={{ countryRange, startDate: params.startDate ?? "", endDate: params.endDate ?? "" }} />
             </div>
             <LineChart rows={dashboard.dailyTrend} />
           </section>
 
           <section className="split-board split-board--wide">
             <div>
-              <p className="eyebrow">Imported history</p>
-              <h2>Top 15 episodes</h2>
+              <p className="eyebrow">{dashboard.range.label}</p>
+              <h2>Top 15 episodes in this range</h2>
               <TopEpisodeBars rows={dashboard.topEpisodes} />
             </div>
             <div>
@@ -324,7 +352,7 @@ export default async function PodcastStatsPage({
                   <p className="eyebrow">{countryDashboard?.range.label ?? dashboard.range.label}</p>
                   <h2>Top countries</h2>
                 </div>
-                <RangeForm name="countryRange" value={countryRange} label="Countries" hidden={{ range }} />
+                <RangeForm name="countryRange" value={countryRange} label="Countries" hidden={{ range, startDate: params.startDate ?? "", endDate: params.endDate ?? "" }} />
               </div>
               <CountryPie rows={countryRows} />
             </div>

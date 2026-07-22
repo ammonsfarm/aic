@@ -1,0 +1,16 @@
+[Unit]
+Description=AIC allowlisted admin operations queue worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ammonsfarm
+Group=ammonsfarm
+WorkingDirectory=/mnt/storage/aic
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/mnt/storage/aic/.venv-pg/bin/python /mnt/storage/aic/scripts/process_admin_operation_requests.py --env-file /mnt/storage/aic/.env --limit 1
+TimeoutStartSec=2h 10m
+Nice=5
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6

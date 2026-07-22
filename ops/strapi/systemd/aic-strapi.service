@@ -13,12 +13,15 @@ Environment=HOST=127.0.0.1
 Environment=PORT=1337
 Environment=STRAPI_CMS_ROOT=/mnt/storage/aic/services/jimwood-cms
 Environment=STRAPI_MEDIA_ROOT=/mnt/storage/pastorwood-media/strapi/uploads
+Environment=AIC_API_TOKEN_OUTPUT_FILE=/run/aic-strapi/aic-api-token
 EnvironmentFile=/etc/aic/strapi.env
 ExecStartPre=/mnt/storage/aic/ops/strapi/prepare-strapi-storage.sh
 ExecStart=/mnt/storage/aic/services/jimwood-cms/node_modules/.bin/strapi start
 Restart=on-failure
 RestartSec=5
 TimeoutStartSec=120
+RuntimeDirectory=aic-strapi
+RuntimeDirectoryMode=0700
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true

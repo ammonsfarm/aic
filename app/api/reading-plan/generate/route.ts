@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
 
 import { generateReadingPlan, resolveReadingPlanBookNames, type ReadingPlanScope } from "@/lib/reading-plan";
 import {
@@ -8,6 +7,7 @@ import {
   resolveRequestedProvider,
   validateChatRequestBody,
 } from "@/lib/rag-route-guards";
+import { getGenerationApiUser } from "@/lib/rbac";
 
 export const runtime = "nodejs";
 export const maxDuration = 90;
@@ -70,8 +70,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: bodyError }, { status: 413 });
   }
 
-  const { userId } = await auth.protect();
-  const rateLimit = checkChatRateLimit(request, userId);
+  const appUser = await getGenerationApiUser();
+  if (!appUser) {
+    return NextResponse.json({ error: "This role cannot run generation requests." }, { status: 403 });
+  }
+  const rateLimit = checkChatRateLimit(request, appUser.clerkUserId);
   if (!rateLimit.ok) {
     return NextResponse.json(
       { error: "Too many reading-plan requests. Try again shortly." },
