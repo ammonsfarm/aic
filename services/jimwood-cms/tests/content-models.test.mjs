@@ -84,6 +84,10 @@ test("editorial workflow exposes create, update, transition, and revision reads"
   assert.match(controller, /Archived content must be restored/);
   assert.match(controller, /expectedTitle !== currentTitle/);
   assert.match(controller, /Deletion confirmation no longer matches/);
+  assert.match(controller, /snapshotForRevision/);
+  const snapshot = await text("src/api/editorial-workflow/controllers/editorial-snapshot.ts");
+  assert.match(snapshot, /writableDynamicZone/);
+  assert.match(snapshot, /mediaReference/);
 });
 
 test("page identity remains a unique immutable-facing key in the content contract", async () => {

@@ -1,3 +1,10 @@
+import {
+  snapshotForRevision,
+  writableSnapshot as buildWritableSnapshot,
+  type AttributeSchema,
+  type SnapshotSchemaResolver,
+} from './editorial-snapshot';
+
 type Actor = {
   id: string;
   email: string;
@@ -34,7 +41,7 @@ type EditorialContext = {
 };
 
 type ContentTypeSchema = {
-  attributes: Record<string, { type?: string }>;
+  attributes: Record<string, AttributeSchema>;
 };
 
 const entityModels = {
@@ -79,6 +86,20 @@ function contentTypeAttributes(uid: string) {
   return (strapi.contentType(uid as never) as unknown as ContentTypeSchema).attributes;
 }
 
+function componentTypeAttributes(uid: string) {
+  const components = strapi.components as unknown as Record<string, ContentTypeSchema>;
+  return components[uid]?.attributes || {};
+}
+
+const snapshotSchemaResolver: SnapshotSchemaResolver = {
+  contentTypeAttributes,
+  componentTypeAttributes,
+};
+
+function writableSnapshot(uid: string, snapshot: Record<string, unknown>) {
+  return buildWritableSnapshot(uid, snapshot, snapshotSchemaResolver);
+}
+
 async function withEditorialTransaction<T>(
   entityType: EntityType,
   documentId: string,
@@ -94,52 +115,6 @@ async function withEditorialTransaction<T>(
     }
     return callback();
   });
-}
-
-function withoutSystemFields(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(withoutSystemFields);
-  }
-  if (!value || typeof value !== 'object') {
-    return value;
-  }
-
-  const result: Record<string, unknown> = {};
-  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-    if (['id', 'documentId', 'createdAt', 'updatedAt', 'publishedAt', 'locale', 'localizations'].includes(key)) {
-      continue;
-    }
-    result[key] = withoutSystemFields(child);
-  }
-  return result;
-}
-
-function writableSnapshot(uid: string, snapshot: Record<string, unknown>) {
-  const attributes = contentTypeAttributes(uid);
-  const data: Record<string, unknown> = {};
-
-  for (const [name, attribute] of Object.entries(attributes)) {
-    if (!(name in snapshot) || ['relation', 'password'].includes(attribute.type || '')) {
-      continue;
-    }
-
-    const value = snapshot[name];
-    if (attribute.type === 'media') {
-      if (Array.isArray(value)) {
-        data[name] = value.map((item) =>
-          item && typeof item === 'object' && 'id' in item ? (item as { id: unknown }).id : item,
-        );
-      } else if (value && typeof value === 'object' && 'id' in value) {
-        data[name] = (value as { id: unknown }).id;
-      } else {
-        data[name] = value;
-      }
-      continue;
-    }
-    data[name] = withoutSystemFields(value);
-  }
-
-  return data;
 }
 
 async function findDraft(uid: string, documentId: string) {
@@ -173,7 +148,7 @@ async function recordAction(
   const titleValue = document[model.titleField];
   const entityTitle = typeof titleValue === 'string' ? titleValue : '';
   const nextRevision = await revisionNumber(entityType, documentId);
-  const snapshot = withoutSystemFields(document);
+  const snapshot = snapshotForRevision(document);
 
   await documents(revisionUid).create({
     data: {

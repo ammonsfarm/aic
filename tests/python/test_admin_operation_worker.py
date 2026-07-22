@@ -101,6 +101,48 @@ class AdminOperationWorkerTests(unittest.TestCase):
         self.assertIn("admin_operation_audit", audit_sql)
         self.assertEqual(audit_params[:3], ("9", "podtrac-import", 1))
 
+    def test_stale_worker_cannot_complete_or_emit_terminal_audit(self) -> None:
+        class Result:
+            def __init__(self, row=None):
+                self._row = row
+
+            def fetchone(self):
+                return self._row
+
+        class Transaction:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+        class Connection:
+            def __init__(self):
+                self.calls = []
+
+            def transaction(self):
+                return Transaction()
+
+            def execute(self, sql, params):
+                self.calls.append((sql, params))
+                return Result(None)
+
+        connection = Connection()
+        completed = MODULE.complete_request(
+            connection,
+            {"id": 9, "stage": "podtrac-import"},
+            worker_id="stale-worker",
+            return_code=0,
+            output="done",
+        )
+
+        self.assertFalse(completed)
+        self.assertEqual(len(connection.calls), 1)
+        update_sql, update_params = connection.calls[0]
+        self.assertIn("worker_id = %s", update_sql)
+        self.assertIn("returning id", update_sql)
+        self.assertEqual(update_params[-1], "stale-worker")
+
 
 if __name__ == "__main__":
     unittest.main()

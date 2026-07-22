@@ -41,6 +41,24 @@ export type ManagedStrapiPageRevision = {
   createdAt: string;
 };
 
+export type ManagedStrapiPagePagination = {
+  page: number;
+  pageSize: number;
+  pageCount: number;
+  total: number;
+};
+
+export type ManagedStrapiPageResult = {
+  pages: ManagedStrapiPage[];
+  pagination: ManagedStrapiPagePagination;
+};
+
+export type ManagedStrapiPageSummary = {
+  total: number;
+  active: number;
+  published: number;
+};
+
 export type ManagedStrapiPageInput = {
   pageKey: string;
   slug: string;
@@ -65,6 +83,9 @@ type StrapiEntity<T> = {
 
 type StrapiListResponse<T> = {
   data?: Array<StrapiEntity<T>>;
+  meta?: {
+    pagination?: Partial<ManagedStrapiPagePagination>;
+  };
 };
 
 type StrapiSingleResponse<T> = {
@@ -240,6 +261,81 @@ function setStatus(url: URL, status: StrapiPublicationStatus) {
   return url;
 }
 
+const MANAGED_PAGE_LIST_SIZE = 50;
+const MANAGED_PAGE_MAX_SIZE = 100;
+
+type ManagedPageVersionOptions = {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  documentIds?: string[];
+  active?: boolean;
+  slug?: string;
+  excludeDocumentId?: string;
+};
+
+function managedPageListUrl(
+  baseUrl: string,
+  status: StrapiPublicationStatus,
+  options: ManagedPageVersionOptions = {},
+) {
+  const page = Math.max(1, Math.trunc(options.page || 1));
+  const pageSize = Math.min(MANAGED_PAGE_MAX_SIZE, Math.max(1, Math.trunc(options.pageSize || MANAGED_PAGE_LIST_SIZE)));
+  const url = setStatus(new URL("/api/pages", baseUrl), status);
+  url.searchParams.set("pagination[page]", String(page));
+  url.searchParams.set("pagination[pageSize]", String(pageSize));
+  url.searchParams.set("sort[0]", "navigationOrder:asc");
+  url.searchParams.set("sort[1]", "title:asc");
+
+  const search = options.search?.trim().slice(0, 160) || "";
+  if (search) {
+    for (const [index, field] of ["title", "slug", "pageKey"].entries()) {
+      url.searchParams.set(`filters[$or][${index}][${field}][$containsi]`, search);
+    }
+  }
+  options.documentIds?.forEach((documentId, index) => {
+    url.searchParams.set(`filters[documentId][$in][${index}]`, documentId);
+  });
+  if (options.active !== undefined) {
+    url.searchParams.set("filters[active][$eq]", String(options.active));
+  }
+  if (options.slug) {
+    url.searchParams.set("filters[slug][$eqi]", options.slug.trim().slice(0, 200));
+  }
+  if (options.excludeDocumentId) {
+    url.searchParams.set("filters[documentId][$ne]", options.excludeDocumentId);
+  }
+  return url;
+}
+
+function managedPagePagination(
+  payload: StrapiListResponse<ManagedStrapiPage>,
+  fallbackPage: number,
+  fallbackPageSize: number,
+): ManagedStrapiPagePagination {
+  const pagination = payload.meta?.pagination;
+  const total = Number(pagination?.total);
+  const pageSize = Number(pagination?.pageSize) || fallbackPageSize;
+  return {
+    page: Number(pagination?.page) || fallbackPage,
+    pageSize,
+    pageCount: Number(pagination?.pageCount) || (Number.isFinite(total) ? Math.ceil(total / pageSize) : 0),
+    total: Number.isFinite(total) ? total : payload.data?.length || 0,
+  };
+}
+
+async function listManagedPageVersion(
+  status: StrapiPublicationStatus,
+  options: ManagedPageVersionOptions = {},
+) {
+  const page = Math.max(1, Math.trunc(options.page || 1));
+  const pageSize = Math.min(MANAGED_PAGE_MAX_SIZE, Math.max(1, Math.trunc(options.pageSize || MANAGED_PAGE_LIST_SIZE)));
+  const payload = await strapiJson<StrapiListResponse<ManagedStrapiPage>>(
+    managedPageListUrl(requireConfig(), status, { ...options, page, pageSize }),
+  );
+  return { payload, pagination: managedPagePagination(payload, page, pageSize) };
+}
+
 function pagePayload(input: ManagedStrapiPageInput) {
   return {
     data: {
@@ -260,29 +356,71 @@ function pagePayload(input: ManagedStrapiPageInput) {
   };
 }
 
-export async function listManagedStrapiPages() {
-  const baseUrl = requireConfig();
-  const createUrl = (status: StrapiPublicationStatus) => {
-    const url = setStatus(new URL("/api/pages", baseUrl), status);
-    url.searchParams.set("pagination[pageSize]", "100");
-    url.searchParams.set("sort[0]", "navigationOrder:asc");
-    url.searchParams.set("sort[1]", "title:asc");
-    url.searchParams.set("populate[sections][populate]", "*");
-    return url;
-  };
-
-  const [draftPayload, publishedPayload] = await Promise.all([
-    strapiJson<StrapiListResponse<ManagedStrapiPage>>(createUrl("draft")),
-    strapiJson<StrapiListResponse<ManagedStrapiPage>>(createUrl("published")),
-  ]);
+export async function listManagedStrapiPagesPage(
+  options: { page?: number; pageSize?: number; search?: string } = {},
+): Promise<ManagedStrapiPageResult> {
+  const page = Math.max(1, Math.trunc(options.page || 1));
+  const pageSize = Math.min(MANAGED_PAGE_MAX_SIZE, Math.max(1, Math.trunc(options.pageSize || MANAGED_PAGE_LIST_SIZE)));
+  const search = options.search?.trim().slice(0, 160) || "";
+  const draft = await listManagedPageVersion("draft", { page, pageSize, search });
+  const documentIds = (draft.payload.data ?? []).map((entity) => getString(entity.documentId)).filter(Boolean);
+  const publishedPayload = documentIds.length
+    ? (await listManagedPageVersion("published", {
+        page: 1,
+        pageSize: documentIds.length,
+        documentIds,
+      })).payload
+    : { data: [] };
   const publishedByDocumentId = new Map(
     (publishedPayload.data ?? []).map((entity) => [getString(entity.documentId), entity]),
   );
 
-  return (draftPayload.data ?? []).flatMap((entity) => {
+  const pages = (draft.payload.data ?? []).flatMap((entity) => {
     const page = mergePublicationState(entity, publishedByDocumentId.get(getString(entity.documentId)));
     return page ? [page] : [];
   });
+  return { pages, pagination: draft.pagination };
+}
+
+export async function listManagedStrapiPages() {
+  const pages: ManagedStrapiPage[] = [];
+  let page = 1;
+  while (true) {
+    const result = await listManagedStrapiPagesPage({ page, pageSize: MANAGED_PAGE_MAX_SIZE });
+    pages.push(...result.pages);
+    if (
+      result.pages.length < result.pagination.pageSize ||
+      (result.pagination.pageCount > 0 && page >= result.pagination.pageCount)
+    ) {
+      return pages;
+    }
+    page += 1;
+  }
+}
+
+export async function getManagedStrapiPageSummary(): Promise<ManagedStrapiPageSummary> {
+  const [all, active, published] = await Promise.all([
+    listManagedPageVersion("draft", { page: 1, pageSize: 1 }),
+    listManagedPageVersion("draft", { page: 1, pageSize: 1, active: true }),
+    listManagedPageVersion("published", { page: 1, pageSize: 1 }),
+  ]);
+  return {
+    total: all.pagination.total,
+    active: active.pagination.total,
+    published: published.pagination.total,
+  };
+}
+
+export async function assertManagedStrapiPageSlugAvailable(slug: string, excludeDocumentId?: string) {
+  const result = await listManagedPageVersion("draft", {
+    page: 1,
+    pageSize: 1,
+    slug,
+    excludeDocumentId,
+  });
+  if ((result.payload.data ?? []).length > 0) {
+    throw new Error(`The page URL “${slug}” is already used by another page.`);
+  }
 }
 
 export async function getManagedStrapiPage(documentId: string) {

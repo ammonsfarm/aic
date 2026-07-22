@@ -194,25 +194,30 @@ def complete_request(
     conn: psycopg.Connection[Any],
     request: dict[str, Any],
     *,
+    worker_id: str,
     return_code: int,
     output: str,
-) -> None:
+) -> bool:
     status = "completed" if return_code == 0 else "failed"
     summary = safe_output(output)
     error = "" if return_code == 0 else summary or f"Allowlisted runner exited with status {return_code}."
     with conn.transaction():
-        conn.execute(
+        completed = conn.execute(
             """
             update pipeline_retry_requests
                set status = %s,
                    completed_at = now(),
                    output_summary = %s,
                    error = %s,
+                   worker_id = '',
                    updated_at = now()
-             where id = %s and status = 'running'
+             where id = %s and status = 'running' and worker_id = %s
+             returning id
             """,
-            (status, summary if return_code == 0 else "", error, request["id"]),
-        )
+            (status, summary if return_code == 0 else "", error, request["id"], worker_id),
+        ).fetchone()
+        if not completed:
+            return False
         conn.execute(
             """
             insert into admin_operation_audit(action, entity_type, entity_id, actor_email, detail_json)
@@ -227,6 +232,7 @@ def complete_request(
                 return_code,
             ),
         )
+        return True
 
 
 def run_request(request: dict[str, Any], env_file: Path) -> tuple[int, str]:
@@ -273,7 +279,13 @@ def main() -> int:
             if not request:
                 break
             return_code, output = run_request(request, args.env_file)
-            complete_request(conn, request, return_code=return_code, output=output)
+            complete_request(
+                conn,
+                request,
+                worker_id=worker_id,
+                return_code=return_code,
+                output=output,
+            )
             processed += 1
     print(f"recovered={len(recovered)} processed={processed}")
     return 0

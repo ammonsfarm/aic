@@ -96,6 +96,18 @@ test("site pages use the same revisioned workflow and enforce immutable identity
   const publicPages = await source("lib/strapi.ts");
   assert.match(publicPages, /filters\[active\]\[\$eq\]/);
   assert.match(publicPages, /filters\[archivedAt\]\[\$null\]/);
+
+  const pageManagement = await source("lib/strapi-management.ts");
+  assert.match(pageManagement, /listManagedStrapiPagesPage/);
+  assert.match(pageManagement, /filters\[slug\]\[\$eqi\]/);
+  assert.match(pageManagement, /while \(true\)/);
+  const pageInventory = await source("app/(private)/content/strapi-pages/page.tsx");
+  assert.match(pageInventory, /role="search"/);
+  assert.match(pageInventory, /pagination\.pageCount/);
+  assert.match(pageInventory, /rel="next"/);
+  const siteSettingsManagement = await source("lib/strapi-site-settings-management.ts");
+  assert.match(siteSettingsManagement, /return listManagedStrapiPages\(\)/);
+  assert.doesNotMatch(siteSettingsManagement, /pagination\[pageSize\].*100/);
 });
 
 test("media upload is bounded and private visibility is part of the editor contract", async () => {

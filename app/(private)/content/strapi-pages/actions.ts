@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import {
   createManagedStrapiPageWithWorkflow,
   getManagedStrapiPage,
-  listManagedStrapiPages,
+  assertManagedStrapiPageSlugAvailable,
   rollbackManagedStrapiPage,
   transitionManagedStrapiPage,
   updateManagedStrapiPageWithWorkflow,
@@ -14,7 +14,6 @@ import {
 } from "@/lib/strapi-management";
 import {
   assertAllowedPageSlug,
-  assertUniquePageSlug,
   immutablePageKey,
 } from "@/lib/cms-page-validation";
 import { requireContentManagerApiUser } from "@/lib/rbac";
@@ -254,8 +253,7 @@ function publicationIntent(formData: FormData): PublicationIntent {
 }
 
 async function assertPageSlugIsUnique(input: ManagedStrapiPageInput, excludeDocumentId?: string) {
-  const pages = await listManagedStrapiPages();
-  assertUniquePageSlug({ slug: input.slug, pages, excludeDocumentId });
+  await assertManagedStrapiPageSlugAvailable(input.slug, excludeDocumentId);
 }
 
 function revalidateManagedPageEditor(documentId?: string) {
