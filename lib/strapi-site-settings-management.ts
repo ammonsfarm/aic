@@ -323,15 +323,19 @@ export async function getManagedSiteSettings() {
     return url;
   };
 
-  const draftPayload = await strapiJson<StrapiSingleResponse<ManagedSiteSettings>>(createUrl("draft"));
-  let publishedPayload: StrapiSingleResponse<ManagedSiteSettings> = {};
-  try {
-    publishedPayload = await strapiJson<StrapiSingleResponse<ManagedSiteSettings>>(createUrl("published"));
-  } catch (error) {
-    if (!(error instanceof Error) || !error.message.includes("404")) {
+  const optionalSettings = async (status: StrapiPublicationStatus) => {
+    try {
+      return await strapiJson<StrapiSingleResponse<ManagedSiteSettings>>(createUrl(status));
+    } catch (error) {
+      if (error instanceof StrapiSiteSettingsRequestError && error.status === 404) {
+        return {};
+      }
       throw error;
     }
-  }
+  };
+
+  const draftPayload = await optionalSettings("draft");
+  const publishedPayload = await optionalSettings("published");
 
   const settings = draftPayload.data ? normalizeSettings(draftPayload.data) : null;
   const publishedSettings = publishedPayload.data ? normalizeSettings(publishedPayload.data) : null;

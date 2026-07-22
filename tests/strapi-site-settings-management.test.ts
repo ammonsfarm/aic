@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createManagedSiteSettingsWithWorkflow,
+  getManagedSiteSettings,
   listManagedSiteSettingsRevisions,
   rollbackManagedSiteSettings,
   type ManagedSiteSettingsInput,
@@ -40,6 +41,23 @@ afterEach(() => {
 });
 
 describe("site-settings editorial management", () => {
+  it("treats an absent singleton as an initializable empty state", async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ data: null }), {
+      status: 404,
+      headers: { "content-type": "application/json" },
+    })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getManagedSiteSettings()).resolves.toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [draftUrl] = fetchMock.mock.calls[0] as [URL];
+    const [publishedUrl] = fetchMock.mock.calls[1] as [URL];
+    expect(draftUrl.pathname).toBe("/api/site-setting");
+    expect(draftUrl.searchParams.get("status")).toBe("draft");
+    expect(publishedUrl.pathname).toBe("/api/site-setting");
+    expect(publishedUrl.searchParams.get("status")).toBe("published");
+  });
+
   it("initializes the singleton through the attributed create workflow", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       data: { documentId: "settings-1", ...input, publishedAt: null },
