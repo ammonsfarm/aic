@@ -4493,7 +4493,6 @@ input:focus {
 .pw-nav__links a:hover,
 .pw-nav__links a:focus-visible {
   background: oklch(89% 0.038 88);
-  outline: none;
 }
 
 .pw-nav__cta {
@@ -4604,7 +4603,6 @@ input:focus {
 .pw-button:hover,
 .pw-button:focus-visible {
   transform: translateY(-2px);
-  outline: none;
 }
 
 .pw-button--primary {
@@ -4649,7 +4647,6 @@ input:focus {
 .pw-link-band a:hover,
 .pw-link-band a:focus-visible {
   background: oklch(90% 0.04 84);
-  outline: none;
 }
 
 .pw-section {
@@ -4755,7 +4752,6 @@ input:focus {
 .pw-endorsement:focus-within {
   transform: translateY(-3px);
   box-shadow: 0 26px 70px oklch(22% 0.04 120 / 14%);
-  outline: none;
 }
 
 .pw-listen-card strong {
@@ -5196,6 +5192,29 @@ input:focus {
   }
   .pw-footer nav {
     justify-content: flex-start;
+  }
+}
+
+/* Public accessibility overrides must remain after component-specific hover rules. */
+.pw-site :where(a, button, input, select, textarea, summary, audio):focus-visible {
+  outline: 3px solid var(--pw-night) !important;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 6px var(--pw-gold);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
   }
 }
 
