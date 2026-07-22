@@ -185,13 +185,14 @@ async function fetchStrapiPagesResult(url: URL, tags: string[]): Promise<StrapiP
   );
 
   if (result.status === "unavailable") return result;
-  if (!Array.isArray(result.data.data)) {
+  const payload = result.data;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload) || !Array.isArray(payload.data)) {
     console.warn("Strapi page request returned an invalid list payload; using the non-Strapi fallback.");
     return { status: "unavailable" };
   }
 
-  if (result.data.data.length === 0) return { status: "not-found" };
-  const entity = result.data.data[0];
+  if (payload.data.length === 0) return { status: "not-found" };
+  const entity = payload.data[0];
   if (!entity || typeof entity !== "object") {
     console.warn("Strapi page request returned an invalid page entity; using the non-Strapi fallback.");
     return { status: "unavailable" };
