@@ -10,6 +10,8 @@ restart anything by themselves.
 - Bind address: `127.0.0.1:1337`
 - Source: `/mnt/storage/aic/services/jimwood-cms`
 - Secrets: `/etc/aic/strapi.env` (root-owned, mode 0600)
+- Secrets recovery copy: `/mnt/storage/backups/aic-strapi-secrets` (root-only,
+  checksummed, and separate from service-user database/media backups)
 - Database: a separate PostgreSQL database, never the AIC application schema
 - Durable new uploads: `/mnt/storage/pastorwood-media/strapi/uploads`
 - Backups: `/mnt/storage/backups/aic-strapi`
@@ -23,7 +25,9 @@ direct admin access is required.
 
 `provision-strapi.sh` creates `/etc/aic/strapi.env` with independent random
 secrets, creates the isolated `aic_strapi` role/database in `farm-postgres`, and
-locks the environment file to root mode 0600. It is idempotent and refuses
+locks the environment file to root mode 0600. It also maintains a checksummed,
+root-only recovery copy on `/mnt/storage`; that copy is required to decrypt API
+tokens after a database restore. Provisioning is idempotent and refuses
 unexpected paths or database settings.
 
 At service bootstrap, Strapi creates or reconciles one custom least-privilege

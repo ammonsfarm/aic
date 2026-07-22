@@ -32,11 +32,15 @@ for (const name of [
 test("provisioning is pinned to an isolated database and protected secret file", () => {
   const script = source("ops/strapi/provision-strapi.sh");
   assert.match(script, /env_file="\$\{STRAPI_ENV_FILE:-\/etc\/aic\/strapi\.env\}"/);
+  assert.match(script, /secrets_backup="\$\{STRAPI_SECRETS_BACKUP:-\/mnt\/storage\/backups\/aic-strapi-secrets\}"/);
   assert.match(script, /database_name="aic_strapi"/);
   assert.match(script, /database_role="aic_strapi"/);
   assert.match(script, /root:root:600/);
   assert.match(script, /NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION/);
   assert.match(script, /REVOKE ALL ON DATABASE/);
+  assert.match(script, /install -d -o root -g root -m 0700 "\$\{secrets_backup\}"/);
+  assert.match(script, /install -o root -g root -m 0600 "\$\{env_file\}" "\$\{secrets_backup\}\/strapi\.env"/);
+  assert.match(script, /sha256sum --check SHA256SUMS/);
   assert.doesNotMatch(script, /DATABASE_PASSWORD[^\n]+docker exec/);
 });
 

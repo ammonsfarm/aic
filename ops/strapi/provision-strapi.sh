@@ -8,12 +8,14 @@ if [[ "${EUID}" -ne 0 ]]; then
 fi
 
 env_file="${STRAPI_ENV_FILE:-/etc/aic/strapi.env}"
+secrets_backup="${STRAPI_SECRETS_BACKUP:-/mnt/storage/backups/aic-strapi-secrets}"
 postgres_container="${STRAPI_POSTGRES_CONTAINER:-farm-postgres}"
 database_name="aic_strapi"
 database_role="aic_strapi"
 
-if [[ "${env_file}" != "/etc/aic/strapi.env" ]]; then
-  echo "Refusing unexpected Strapi environment path: ${env_file}" >&2
+if [[ "${env_file}" != "/etc/aic/strapi.env" ||
+      "${secrets_backup}" != "/mnt/storage/backups/aic-strapi-secrets" ]]; then
+  echo "Refusing unexpected Strapi environment or secrets-backup path." >&2
   exit 1
 fi
 
@@ -117,4 +119,14 @@ fi
 } | docker exec -i "${postgres_container}" sh -lc \
   'psql -X --set ON_ERROR_STOP=1 --quiet -U "$POSTGRES_USER" -d postgres'
 
-echo "Provisioned private Strapi configuration and isolated PostgreSQL database."
+install -d -o root -g root -m 0700 "${secrets_backup}"
+install -o root -g root -m 0600 "${env_file}" "${secrets_backup}/strapi.env"
+(
+  cd "${secrets_backup}"
+  sha256sum strapi.env > SHA256SUMS
+  chown root:root SHA256SUMS
+  chmod 0600 SHA256SUMS
+  sha256sum --check SHA256SUMS
+)
+
+echo "Provisioned private Strapi configuration, recovery copy, and isolated PostgreSQL database."
