@@ -7,6 +7,9 @@ import { STRAPI_PUBLIC_MEDIA_CACHE_TAG, strapiPublicMediaCacheTag } from "@/lib/
 
 type MediaNode = { documentId: string; url: string; mime: string; size: number | null };
 
+const PAGE_MEDIA_PAGE_SIZE = 100;
+const MAX_PAGE_MEDIA_PAGES = 10_000;
+
 function findMediaNode(value: unknown, documentId: string): MediaNode | null {
   if (!value || typeof value !== "object") return null;
   if (Array.isArray(value)) {
@@ -34,6 +37,16 @@ function strapiBaseUrl() {
   return (process.env.STRAPI_URL || "").replace(/\/+$/, "");
 }
 
+function pageCount(value: unknown) {
+  if (!value || typeof value !== "object") return 0;
+  const meta = (value as Record<string, unknown>).meta;
+  if (!meta || typeof meta !== "object") return 0;
+  const pagination = (meta as Record<string, unknown>).pagination;
+  if (!pagination || typeof pagination !== "object") return 0;
+  const count = Number((pagination as Record<string, unknown>).pageCount);
+  return Number.isSafeInteger(count) && count > 0 ? count : 0;
+}
+
 function queryUrl(apiPath: string, documentId: string, relation: string, extra: Record<string, string> = {}) {
   const url = new URL(`/api/${apiPath}`, strapiBaseUrl());
   url.searchParams.set("status", "published");
@@ -57,15 +70,6 @@ export async function authorizedPublishedCmsMedia(documentId: string) {
     queryUrl("episodes", documentId, "featuredImage"),
     queryUrl("posts", documentId, "featuredImage"),
   ];
-  const pageUrl = new URL("/api/pages", origin);
-  pageUrl.searchParams.set("status", "published");
-  pageUrl.searchParams.set("populate[sections][populate]", "*");
-  pageUrl.searchParams.set("pagination[pageSize]", "100");
-  queries.push(pageUrl);
-  const settingsUrl = new URL("/api/site-setting", origin);
-  settingsUrl.searchParams.set("status", "published");
-  settingsUrl.searchParams.set("populate", "*");
-  queries.push(settingsUrl);
   for (const url of queries) {
     const payload = await fetchStrapiJsonOrNull<unknown>(url, {
       headers,
@@ -74,6 +78,32 @@ export async function authorizedPublishedCmsMedia(documentId: string) {
     const media = findMediaNode(payload, documentId);
     if (media) return media;
   }
+
+  for (let page = 1; page <= MAX_PAGE_MEDIA_PAGES; page += 1) {
+    const pageUrl = new URL("/api/pages", origin);
+    pageUrl.searchParams.set("status", "published");
+    pageUrl.searchParams.set("populate[sections][populate]", "*");
+    pageUrl.searchParams.set("pagination[page]", String(page));
+    pageUrl.searchParams.set("pagination[pageSize]", String(PAGE_MEDIA_PAGE_SIZE));
+    const payload = await fetchStrapiJsonOrNull<unknown>(pageUrl, {
+      headers,
+      next: { revalidate: 300, tags: [STRAPI_PUBLIC_MEDIA_CACHE_TAG, strapiPublicMediaCacheTag(documentId)] },
+    }, { label: "Published Strapi media authorization" });
+    const media = findMediaNode(payload, documentId);
+    if (media) return media;
+    const pages = pageCount(payload);
+    if (!pages || page >= pages) break;
+  }
+
+  const settingsUrl = new URL("/api/site-setting", origin);
+  settingsUrl.searchParams.set("status", "published");
+  settingsUrl.searchParams.set("populate", "*");
+  const settingsPayload = await fetchStrapiJsonOrNull<unknown>(settingsUrl, {
+    headers,
+    next: { revalidate: 300, tags: [STRAPI_PUBLIC_MEDIA_CACHE_TAG, strapiPublicMediaCacheTag(documentId)] },
+  }, { label: "Published Strapi media authorization" });
+  const settingsMedia = findMediaNode(settingsPayload, documentId);
+  if (settingsMedia) return settingsMedia;
   return null;
 }
 
