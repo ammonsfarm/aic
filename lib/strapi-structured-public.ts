@@ -21,6 +21,8 @@ export type PublishedPage<T> = {
 
 type PublicEntryPage = PublishedPage<PublicEntry>;
 
+const STRAPI_MAX_PAGE_SIZE = 100;
+
 export type PublishedPost = PublicEntry & {
   title: string;
   slug: string;
@@ -121,6 +123,13 @@ function number(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function strapiPageSize(value: number | undefined) {
+  const normalized = typeof value === "number" && Number.isFinite(value)
+    ? Math.floor(value)
+    : STRAPI_MAX_PAGE_SIZE;
+  return Math.min(Math.max(normalized, 1), STRAPI_MAX_PAGE_SIZE);
+}
+
 async function publishedCollectionPage(
   key: StructuredCollectionKey,
   options: {
@@ -131,7 +140,7 @@ async function publishedCollectionPage(
   } = {},
 ): Promise<PublicEntryPage> {
   const requestedPage = Math.max(1, Math.floor(options.page || 1));
-  const requestedPageSize = Math.min(Math.max(options.pageSize || 100, 1), 250);
+  const requestedPageSize = strapiPageSize(options.pageSize);
   const empty = { items: [], page: requestedPage, pageSize: requestedPageSize, pageCount: 0, total: 0 };
   const origin = baseUrl();
   if (!origin) return empty;
@@ -201,7 +210,7 @@ async function allPublishedEntries(key: StructuredCollectionKey, options: Parame
   const items: PublicEntry[] = [];
   let page = 1;
   do {
-    const result = await publishedCollectionPage(key, { ...options, page, pageSize: 250 });
+    const result = await publishedCollectionPage(key, { ...options, page, pageSize: STRAPI_MAX_PAGE_SIZE });
     items.push(...result.items);
     if (!result.pageCount || page >= result.pageCount) break;
     page += 1;

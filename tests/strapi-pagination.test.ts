@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { getPublishedEpisodeBySlug, listAllPublishedEpisodes, listPublishedBoardMembers } from "@/lib/strapi-structured-public";
+import {
+  getPublishedEpisodeBySlug,
+  listAllPublishedEpisodes,
+  listPublishedBoardMembers,
+  listPublishedEpisodesPage,
+} from "@/lib/strapi-structured-public";
 
 const originalUrl = process.env.STRAPI_URL;
 
@@ -14,7 +19,7 @@ function episode(index: number) {
 }
 
 describe("published Strapi archive pagination", () => {
-  it("looks up a detail slug directly instead of searching only the first 250", async () => {
+  it("looks up a detail slug directly instead of searching only the first page", async () => {
     process.env.STRAPI_URL = "http://127.0.0.1:1337";
     const fetchMock = vi.fn(async (input: URL | RequestInfo) => {
       const url = new URL(String(input));
@@ -31,20 +36,47 @@ describe("published Strapi archive pagination", () => {
 
   it("walks every Strapi metadata page for sitemap generation", async () => {
     process.env.STRAPI_URL = "http://127.0.0.1:1337";
+    const requestedPages: number[] = [];
     const fetchMock = vi.fn(async (input: URL | RequestInfo) => {
-      const page = Number(new URL(String(input)).searchParams.get("pagination[page]"));
-      const data = page === 1
-        ? Array.from({ length: 250 }, (_, index) => episode(index + 1))
-        : Array.from({ length: 50 }, (_, index) => episode(index + 251));
-      return new Response(JSON.stringify({ data, meta: { pagination: { page, pageSize: 250, pageCount: 2, total: 300 } } }), { status: 200 });
+      const url = new URL(String(input));
+      const page = Number(url.searchParams.get("pagination[page]"));
+      requestedPages.push(page);
+      expect(url.searchParams.get("pagination[pageSize]")).toBe("100");
+      const firstRecord = ((page - 1) * 100) + 1;
+      const recordCount = Math.min(100, 300 - firstRecord + 1);
+      const data = Array.from({ length: recordCount }, (_, index) => episode(firstRecord + index));
+      return new Response(JSON.stringify({ data, meta: { pagination: { page, pageSize: 100, pageCount: 3, total: 300 } } }), { status: 200 });
     });
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await listAllPublishedEpisodes();
 
     expect(result).toHaveLength(300);
+    expect(result[100]?.slug).toBe("episode-101");
+    expect(result[249]?.slug).toBe("episode-250");
     expect(result.at(-1)?.slug).toBe("episode-300");
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(requestedPages).toEqual([1, 2, 3]);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("clamps an oversized page request so record 101 remains on page 2", async () => {
+    process.env.STRAPI_URL = "http://127.0.0.1:1337";
+    const fetchMock = vi.fn(async (input: URL | RequestInfo) => {
+      const url = new URL(String(input));
+      expect(url.searchParams.get("pagination[page]")).toBe("2");
+      expect(url.searchParams.get("pagination[pageSize]")).toBe("100");
+      return new Response(JSON.stringify({
+        data: [episode(101)],
+        meta: { pagination: { page: 2, pageSize: 100, pageCount: 3, total: 300 } },
+      }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await listPublishedEpisodesPage(2, 250);
+
+    expect(result).toMatchObject({ page: 2, pageSize: 100, pageCount: 3, total: 300 });
+    expect(result.items.map((item) => item.slug)).toEqual(["episode-101"]);
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it("serves imported board portraits only through the verified same-origin legacy route", async () => {
