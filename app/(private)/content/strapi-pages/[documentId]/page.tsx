@@ -1,9 +1,19 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { getManagedStrapiPage, listManagedStrapiPages, type ManagedStrapiPage } from "@/lib/strapi-management";
+import {
+  getManagedStrapiPage,
+  listManagedStrapiPageRevisions,
+  listManagedStrapiPages,
+  type ManagedStrapiPage,
+} from "@/lib/strapi-management";
 import type { StrapiPageSection } from "@/lib/strapi";
-import { saveStrapiPageAction } from "../actions";
+import {
+  deleteStrapiPageAction,
+  rollbackStrapiPageAction,
+  saveStrapiPageAction,
+  transitionStrapiPageAction,
+} from "../actions";
 import { AddSectionFields, ExistingSectionTypeFields, PageCoreFields, PageEditorForm } from "../page-editor-client";
 
 export const dynamic = "force-dynamic";
@@ -104,9 +114,14 @@ function SectionFields({ section, index }: { section: StrapiPageSection; index: 
 
 async function getEditorData(documentId: string) {
   try {
-    const [page, pages] = await Promise.all([getManagedStrapiPage(documentId), listManagedStrapiPages()]);
+    const [page, pages, revisions] = await Promise.all([
+      getManagedStrapiPage(documentId),
+      listManagedStrapiPages(),
+      listManagedStrapiPageRevisions(documentId),
+    ]);
     return {
       page,
+      revisions,
       existingSlugs: pages.filter((item) => item.documentId !== documentId).map((item) => item.slug).filter(Boolean),
       error: null as string | null,
     };
@@ -114,6 +129,7 @@ async function getEditorData(documentId: string) {
     console.error("Page detail lookup failed", error);
     return {
       page: null,
+      revisions: [],
       existingSlugs: [] as string[],
       error: error instanceof Error ? error.message : "The page could not be loaded.",
     };
@@ -129,7 +145,7 @@ export default async function EditStrapiPage({
 }) {
   const { documentId } = await params;
   const { state } = await searchParams;
-  const { page, existingSlugs, error } = await getEditorData(documentId);
+  const { page, revisions, existingSlugs, error } = await getEditorData(documentId);
 
   if (!page && !error) {
     notFound();
@@ -154,6 +170,9 @@ export default async function EditStrapiPage({
     unpublished: ["Unpublished", "The public version was removed. The draft is still available here."],
     "created-draft": ["Draft created", "The new page is private until you publish it."],
     "created-published": ["Created and published", "The new page is now public."],
+    archived: ["Archived", "The page is retained with its history but is no longer public."],
+    restored: ["Restored", "The page is active as a draft and can be published when ready."],
+    "rolled-back": ["Revision restored", "The selected revision is now the current draft. Review it before publishing."],
   }[state ?? ""];
 
 
@@ -282,14 +301,84 @@ export default async function EditStrapiPage({
             </details>
           </div>
 
+          <label>
+            <span>Change note</span>
+            <input name="changeNote" maxLength={1000} placeholder="Optional reason for this revision" />
+            <small>Saved with the immutable revision and audit history.</small>
+          </label>
+
           <div className="editor-form__actions">
             <button className="button button--ghost" type="submit" name="publicationAction" value="draft">Save draft</button>
-            <button className="button" type="submit" name="publicationAction" value="publish">Publish</button>
+            {!page.archivedAt ? <button className="button" type="submit" name="publicationAction" value="publish">Publish</button> : null}
             {page.publicationStatus === "published" ? <button className="button button--ghost" type="submit" name="publicationAction" value="unpublish">Unpublish</button> : null}
             <Link className="button button--ghost" href="/content/site-pages">Cancel</Link>
             <span className="muted-copy">Last updated {formatDate(page.updatedAt)}</span>
           </div>
         </PageEditorForm>
+      </section>
+
+      <section className="data-card stack">
+        <div className="data-card__header">
+          <div>
+            <p className="eyebrow">Lifecycle</p>
+            <h2>Archive, restore, and history</h2>
+          </div>
+        </div>
+        <div className="button-row">
+          {page.archivedAt ? (
+            <form action={transitionStrapiPageAction.bind(null, page.documentId, "restore")}>
+              <input type="hidden" name="transitionNote" value="Restored from the page builder." />
+              <button className="button" type="submit">Restore as draft</button>
+            </form>
+          ) : (
+            <form action={transitionStrapiPageAction.bind(null, page.documentId, "archive")}>
+              <label>
+                <span>Archive reason</span>
+                <input name="transitionNote" maxLength={1000} required />
+              </label>
+              <button className="button button--ghost" type="submit">Archive page</button>
+            </form>
+          )}
+        </div>
+
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Revision</th><th>Action</th><th>Editor</th><th>Date</th><th>Restore</th></tr></thead>
+            <tbody>
+              {revisions.map((revision) => (
+                <tr key={revision.documentId}>
+                  <td>#{revision.revisionNumber}</td>
+                  <td>{revision.action}{revision.note ? <small className="table-subline">{revision.note}</small> : null}</td>
+                  <td>{revision.actorName || revision.actorEmail}</td>
+                  <td>{formatDate(revision.createdAt)}</td>
+                  <td>
+                    <form action={rollbackStrapiPageAction.bind(null, page.documentId, revision.documentId)}>
+                      <input type="hidden" name="rollbackNote" value={`Restored revision ${revision.revisionNumber}.`} />
+                      <button className="button button--ghost" type="submit">Restore draft</button>
+                    </form>
+                  </td>
+                </tr>
+              ))}
+              {revisions.length === 0 ? <tr><td colSpan={5}>No revisions have been recorded yet.</td></tr> : null}
+            </tbody>
+          </table>
+        </div>
+
+        <details className="notice-card notice-card--error">
+          <summary>Delete this page permanently</summary>
+          <form className="stack" action={deleteStrapiPageAction.bind(null, page.documentId, page.title)}>
+            <p>Type <strong>{page.title}</strong> exactly. The immutable audit event remains after deletion.</p>
+            <label>
+              <span>Page title confirmation</span>
+              <input name="deleteConfirmation" required autoComplete="off" />
+            </label>
+            <label>
+              <span>Deletion reason</span>
+              <input name="deleteNote" maxLength={1000} required />
+            </label>
+            <button className="button button--danger" type="submit">Delete page</button>
+          </form>
+        </details>
       </section>
     </div>
   );

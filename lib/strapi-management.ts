@@ -1,5 +1,6 @@
 import "server-only";
 
+import type { CurrentAppUser } from "@/lib/rbac";
 import type { StrapiMedia, StrapiPageSection } from "@/lib/strapi";
 import { fetchWithTimeout } from "@/lib/strapi-request";
 
@@ -23,8 +24,21 @@ export type ManagedStrapiPage = {
   publishedAt: string;
   updatedAt: string;
   createdAt: string;
+  archivedAt: string;
+  archiveReason: string;
   sections: StrapiPageSection[];
   publicationStatus: StrapiPublicationStatus;
+};
+
+export type ManagedStrapiPageRevision = {
+  documentId: string;
+  revisionNumber: number;
+  action: string;
+  actorEmail: string;
+  actorName: string;
+  note: string;
+  snapshot: Record<string, unknown>;
+  createdAt: string;
 };
 
 export type ManagedStrapiPageInput = {
@@ -176,6 +190,8 @@ function normalizePage(entity: StrapiEntity<ManagedStrapiPage>): ManagedStrapiPa
     publicationStatus: getString(source.publishedAt) ? "published" : "draft",
     updatedAt: getString(source.updatedAt),
     createdAt: getString(source.createdAt),
+    archivedAt: getString(source.archivedAt),
+    archiveReason: getString(source.archiveReason),
     sections: rawSections.flatMap((section) => {
       const normalized = normalizeSection(section);
       return normalized ? [normalized] : [];
@@ -340,4 +356,121 @@ export async function unpublishManagedStrapiPage(documentId: string) {
   }
 
   return draft;
+}
+
+function editorialActor(user: CurrentAppUser) {
+  return {
+    id: user.clerkUserId,
+    email: user.email,
+    name: user.name,
+  };
+}
+
+async function editorialPageRequest(
+  path: string,
+  method: "POST" | "PUT" | "GET",
+  body?: Record<string, unknown>,
+) {
+  const baseUrl = requireConfig();
+  return strapiJson<StrapiSingleResponse<ManagedStrapiPage> | StrapiListResponse<Record<string, unknown>>>(
+    new URL(path, baseUrl),
+    {
+      method,
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    },
+  );
+}
+
+export async function createManagedStrapiPageWithWorkflow(
+  input: ManagedStrapiPageInput,
+  user: CurrentAppUser,
+  note = "",
+) {
+  const payload = await editorialPageRequest("/api/editorial/page", "POST", {
+    data: pagePayload(input).data,
+    actor: editorialActor(user),
+    note,
+  }) as StrapiSingleResponse<ManagedStrapiPage>;
+  const page = payload.data ? normalizePage(payload.data) : null;
+  if (!page) {
+    throw new Error("Strapi did not return the created page.");
+  }
+  return page;
+}
+
+export async function updateManagedStrapiPageWithWorkflow(
+  documentId: string,
+  input: ManagedStrapiPageInput,
+  user: CurrentAppUser,
+  note = "",
+) {
+  const payload = await editorialPageRequest(
+    `/api/editorial/page/${encodeURIComponent(documentId)}`,
+    "PUT",
+    { data: pagePayload(input).data, actor: editorialActor(user), note },
+  ) as StrapiSingleResponse<ManagedStrapiPage>;
+  const page = payload.data ? normalizePage(payload.data) : null;
+  if (!page) {
+    throw new Error("Strapi did not return the updated page.");
+  }
+  return page;
+}
+
+export async function transitionManagedStrapiPage(
+  documentId: string,
+  action: "publish" | "unpublish" | "archive" | "restore" | "delete",
+  user: CurrentAppUser,
+  note = "",
+  expectedTitle = "",
+) {
+  return editorialPageRequest(
+    `/api/editorial/page/${encodeURIComponent(documentId)}/${action}`,
+    "POST",
+    { actor: editorialActor(user), note, ...(expectedTitle ? { expectedTitle } : {}) },
+  );
+}
+
+export async function rollbackManagedStrapiPage(
+  documentId: string,
+  revisionDocumentId: string,
+  user: CurrentAppUser,
+  note = "",
+) {
+  return editorialPageRequest(
+    `/api/editorial/page/${encodeURIComponent(documentId)}/rollback`,
+    "POST",
+    { actor: editorialActor(user), note, revisionDocumentId },
+  );
+}
+
+export async function listManagedStrapiPageRevisions(documentId: string): Promise<ManagedStrapiPageRevision[]> {
+  const revisions: ManagedStrapiPageRevision[] = [];
+  for (let page = 1; page <= 100; page += 1) {
+    const payload = await editorialPageRequest(
+      `/api/editorial/page/${encodeURIComponent(documentId)}/revisions?page=${page}`,
+      "GET",
+    ) as StrapiListResponse<Record<string, unknown>>;
+    const batch = payload.data ?? [];
+    revisions.push(...batch.flatMap((entity) => {
+      const source = asRecord(entity.attributes ?? entity);
+      const revisionDocumentId = getString(entity.documentId ?? source.documentId);
+      if (!revisionDocumentId) {
+        return [];
+      }
+      return [{
+        documentId: revisionDocumentId,
+        revisionNumber: getNumber(source.revisionNumber) ?? 0,
+        action: getString(source.action),
+        actorEmail: getString(source.actorEmail),
+        actorName: getString(source.actorName),
+        note: getString(source.note),
+        snapshot: asRecord(source.snapshot),
+        createdAt: getString(source.createdAt),
+      }];
+    }));
+    if (batch.length < 100) {
+      return revisions;
+    }
+  }
+  throw new Error("Revision history exceeds the supported 10,000-item safety bound.");
 }

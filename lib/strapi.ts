@@ -189,6 +189,8 @@ export async function getStrapiPageByPageKey(pageKey: string): Promise<StrapiPag
 
   const url = new URL("/api/pages", baseUrl);
   url.searchParams.set("filters[pageKey][$eq]", pageKey);
+  url.searchParams.set("filters[active][$eq]", "true");
+  url.searchParams.set("filters[archivedAt][$null]", "true");
   url.searchParams.set("status", "published");
   url.searchParams.set("pagination[pageSize]", "1");
   url.searchParams.set("populate[sections][populate]", "*");
@@ -204,6 +206,8 @@ export async function getStrapiPageBySlug(slug: string): Promise<StrapiPage | nu
 
   const url = new URL("/api/pages", baseUrl);
   url.searchParams.set("filters[slug][$eq]", slug);
+  url.searchParams.set("filters[active][$eq]", "true");
+  url.searchParams.set("filters[archivedAt][$null]", "true");
   url.searchParams.set("status", "published");
   url.searchParams.set("pagination[pageSize]", "1");
   url.searchParams.set("populate[sections][populate]", "*");

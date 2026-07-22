@@ -41,7 +41,29 @@ test("provisioning is pinned to an isolated database and protected secret file",
   assert.match(script, /install -d -o root -g root -m 0700 "\$\{secrets_backup\}"/);
   assert.match(script, /install -o root -g root -m 0600 "\$\{env_file\}" "\$\{secrets_backup\}\/strapi\.env"/);
   assert.match(script, /sha256sum --check SHA256SUMS/);
+  assert.match(script, /cms_tmp_root="\/mnt\/storage\/aic\/services\/jimwood-cms\/\.tmp"/);
+  assert.match(script, /media_root="\/mnt\/storage\/pastorwood-media\/strapi"/);
+  assert.match(script, /backup_root="\/mnt\/storage\/backups\/aic-strapi"/);
+  assert.match(script, /install -d -o ammonsfarm -g ammonsfarm -m 0750/);
+  assert.match(script, /"\$\{media_root\}\/uploads"/);
   assert.doesNotMatch(script, /DATABASE_PASSWORD[^\n]+docker exec/);
+});
+
+test("all systemd writable paths exist before service namespace setup", () => {
+  const provision = source("ops/strapi/provision-strapi.sh");
+  const service = source("ops/strapi/systemd/aic-strapi.service");
+  const backupUnit = source("ops/strapi/systemd/aic-strapi-backup.service");
+
+  for (const expected of [
+    "/mnt/storage/aic/services/jimwood-cms/.tmp",
+    "/mnt/storage/pastorwood-media/strapi",
+    "/mnt/storage/backups/aic-strapi",
+  ]) {
+    assert.match(provision, new RegExp(expected.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")));
+  }
+  assert.match(service, /ReadWritePaths=\/mnt\/storage\/aic\/services\/jimwood-cms\/\.tmp/);
+  assert.match(service, /ReadWritePaths=\/mnt\/storage\/pastorwood-media\/strapi/);
+  assert.match(backupUnit, /ReadWritePaths=\/mnt\/storage\/backups\/aic-strapi/);
 });
 
 test("managed Strapi token is scoped, runtime-only, and replaces broad defaults", () => {

@@ -103,7 +103,7 @@ export function PipelineOperations({ isAdministrator, unmatched }: PipelineOpera
               </label>
               <label>
                 <span>Reason</span>
-                <input name="reason" maxLength={1000} disabled={!isAdministrator} placeholder="Why is a retry needed?" />
+                <input name="reason" maxLength={1000} disabled={!isAdministrator} required={option.stage === "transcript-edits"} placeholder="Why is a retry needed?" />
               </label>
               <button className="button button--primary" type="submit" disabled={!isAdministrator || Boolean(busy)}>
                 {busy === `retry:${option.stage}` ? "Queueing…" : `Queue ${option.label}`}

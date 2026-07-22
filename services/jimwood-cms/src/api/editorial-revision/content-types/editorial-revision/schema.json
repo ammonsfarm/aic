@@ -9,6 +9,13 @@
   },
   "options": { "draftAndPublish": false },
   "pluginOptions": {},
+  "indexes": [
+    {
+      "name": "pastorwood_editorial_revision_identity_uq",
+      "columns": ["entity_type", "entity_document_id", "revision_number"],
+      "type": "unique"
+    }
+  ],
   "attributes": {
     "entityType": {
       "type": "enumeration",

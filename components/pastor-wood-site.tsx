@@ -343,13 +343,21 @@ function PastorWoodFooter({ siteSettings }: { siteSettings?: StrapiSiteSettings 
   );
 }
 
-export function PastorWoodShell({ children, siteSettings }: { children: React.ReactNode; siteSettings?: StrapiSiteSettings | null }) {
+export function PastorWoodShell({
+  children,
+  siteSettings,
+  contentElement = "main",
+}: {
+  children: React.ReactNode;
+  siteSettings?: StrapiSiteSettings | null;
+  contentElement?: "main" | "div";
+}) {
   return (
-    <main className="pw-site">
+    <div className="pw-site">
       <PastorWoodNav siteSettings={siteSettings} />
-      {children}
+      {contentElement === "main" ? <main id="main-content">{children}</main> : <div>{children}</div>}
       <PastorWoodFooter siteSettings={siteSettings} />
-    </main>
+    </div>
   );
 }
 

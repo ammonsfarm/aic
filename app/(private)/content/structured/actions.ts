@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 
 import {
   createStructuredEntry,
+  getStructuredEntry,
   rollbackStructuredEntry,
   transitionStructuredEntry,
   updateStructuredEntry,
@@ -21,6 +22,8 @@ import { requireContentManagerApiUser } from "@/lib/rbac";
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 const MAX_AUDIO_BYTES = 250 * 1024 * 1024;
 const MAX_OTHER_BYTES = 50 * 1024 * 1024;
+const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"]);
+const BLOCKED_ACTIVE_CONTENT_TYPES = new Set(["image/svg+xml", "text/html", "application/xhtml+xml", "application/xml", "text/xml", "text/javascript", "application/javascript"]);
 
 function formString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -114,6 +117,13 @@ function validateFile(field: StructuredFieldDefinition, file: File) {
   const isImage = type.startsWith("image/");
   const isAudio = type.startsWith("audio/");
   const limit = isImage ? MAX_IMAGE_BYTES : isAudio ? MAX_AUDIO_BYTES : MAX_OTHER_BYTES;
+
+  if (BLOCKED_ACTIVE_CONTENT_TYPES.has(type)) {
+    throw new Error(`${field.label} cannot contain browser-executable active content.`);
+  }
+  if (isImage && !ALLOWED_IMAGE_TYPES.has(type)) {
+    throw new Error(`${field.label} must be JPEG, PNG, WebP, GIF, or AVIF.`);
+  }
 
   if (file.size > limit) {
     throw new Error(
@@ -275,9 +285,21 @@ export async function deleteStructuredEntryAction(
   formData: FormData,
 ) {
   const user = await requireContentManagerApiUser();
+  const definition = getStructuredCollection(key);
+  if (!definition) {
+    throw new Error("Unsupported structured content type.");
+  }
+  const current = await getStructuredEntry(key, documentId);
+  if (!current) {
+    throw new Error("The content item no longer exists in Strapi.");
+  }
+  const currentTitle = String(current[definition.titleField] || "Untitled");
   const confirmation = formString(formData, "deleteConfirmation");
-  if (!confirmation || confirmation !== expectedTitle) {
-    throw new Error("Deletion confirmation must exactly match the item title.");
+  if (currentTitle !== expectedTitle) {
+    throw new Error("The item title changed after this editor was opened. Reload before deleting it.");
+  }
+  if (!confirmation || confirmation !== currentTitle) {
+    throw new Error("Deletion confirmation must exactly match the current item title.");
   }
 
   await transitionStructuredEntry(
@@ -286,8 +308,8 @@ export async function deleteStructuredEntryAction(
     "delete",
     user,
     formString(formData, "deleteNote") || "Deleted from the AIC content manager.",
+    confirmation,
   );
   revalidateStructuredPaths(key);
-  const definition = getStructuredCollection(key);
   redirect(`${definition?.editorPath || `/content/structured/${key}`}?deleted=1`);
 }

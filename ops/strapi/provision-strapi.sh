@@ -12,6 +12,9 @@ secrets_backup="${STRAPI_SECRETS_BACKUP:-/mnt/storage/backups/aic-strapi-secrets
 postgres_container="${STRAPI_POSTGRES_CONTAINER:-farm-postgres}"
 database_name="aic_strapi"
 database_role="aic_strapi"
+cms_tmp_root="/mnt/storage/aic/services/jimwood-cms/.tmp"
+media_root="/mnt/storage/pastorwood-media/strapi"
+backup_root="/mnt/storage/backups/aic-strapi"
 
 if [[ "${env_file}" != "/etc/aic/strapi.env" ||
       "${secrets_backup}" != "/mnt/storage/backups/aic-strapi-secrets" ]]; then
@@ -104,6 +107,20 @@ if [[ ! "${DATABASE_PASSWORD}" =~ ^[0-9a-f]{64}$ ]]; then
   echo "Strapi database password does not match the generated secret format." >&2
   exit 1
 fi
+if [[ "${STRAPI_MEDIA_ROOT:-}" != "${media_root}/uploads" ||
+      "${STRAPI_BACKUP_ROOT:-}" != "${backup_root}" ]]; then
+  echo "Existing Strapi storage settings do not match the farm production contract." >&2
+  exit 1
+fi
+
+# systemd resolves ReadWritePaths before ExecStartPre. Create every writable
+# namespace target during provisioning so the first service start cannot fail
+# before prepare-strapi-storage.sh is allowed to run.
+install -d -o ammonsfarm -g ammonsfarm -m 0750 \
+  "${cms_tmp_root}" \
+  "${media_root}" \
+  "${media_root}/uploads" \
+  "${backup_root}"
 
 {
   printf "SELECT format('CREATE ROLE %%I LOGIN PASSWORD %%L', '%s', '%s') WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '%s') \\gexec\n" \

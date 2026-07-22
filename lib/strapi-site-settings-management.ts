@@ -223,6 +223,8 @@ function normalizeManagedPage(entity: StrapiEntity<ManagedStrapiPage>): ManagedS
     publishedAt: getString(source.publishedAt),
     updatedAt: getString(source.updatedAt),
     createdAt: getString(source.createdAt),
+    archivedAt: getString(source.archivedAt),
+    archiveReason: getString(source.archiveReason),
     sections: [],
     publicationStatus: getString(source.publishedAt) ? "published" : "draft",
   };

@@ -1,7 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { listStructuredEntries, type StructuredEntry } from "@/lib/strapi-structured-management";
+import {
+  listStructuredEntriesPage,
+  type StructuredEntry,
+  type StructuredPagination,
+} from "@/lib/strapi-structured-management";
 import { getStructuredCollection } from "@/lib/structured-content-config";
 
 export const dynamic = "force-dynamic";
@@ -51,7 +55,7 @@ export default async function StructuredCollectionPage({
   searchParams,
 }: {
   params: Promise<{ collection: string }>;
-  searchParams: Promise<{ deleted?: string }>;
+  searchParams: Promise<{ deleted?: string; page?: string; q?: string }>;
 }) {
   const { collection } = await params;
   const definition = getStructuredCollection(collection);
@@ -59,18 +63,33 @@ export default async function StructuredCollectionPage({
     notFound();
   }
 
+  const query = await searchParams;
+  const requestedPage = Math.max(1, Number.parseInt(query.page || "1", 10) || 1);
+  const search = (query.q || "").trim().slice(0, 160);
   let entries: StructuredEntry[] = [];
+  let pagination: StructuredPagination = { page: requestedPage, pageSize: 50, pageCount: 0, total: 0 };
   let error = "";
   try {
-    entries = await listStructuredEntries(definition.key);
+    const result = await listStructuredEntriesPage(definition.key, { page: requestedPage, search });
+    entries = result.entries;
+    pagination = result.pagination;
   } catch (cause) {
     console.error("Structured content list failed", cause);
     error = cause instanceof Error ? cause.message : "Structured content could not be loaded.";
   }
+  if (!error && requestedPage > 1 && (pagination.pageCount === 0 || requestedPage > pagination.pageCount)) {
+    notFound();
+  }
 
-  const query = await searchParams;
   const publishedCount = entries.filter((entry) => entry.isPublished && !entry.archivedAt).length;
   const draftCount = entries.filter((entry) => !entry.isPublished && !entry.archivedAt).length;
+  const pageHref = (page: number) => {
+    const params = new URLSearchParams();
+    if (search) params.set("q", search);
+    if (page > 1) params.set("page", String(page));
+    const suffix = params.toString();
+    return suffix ? `${definition.editorPath}?${suffix}` : definition.editorPath;
+  };
 
   return (
     <div className="stack">
@@ -81,9 +100,9 @@ export default async function StructuredCollectionPage({
           <p>{definition.description}</p>
         </div>
         <div className="status-list" aria-label="Content inventory summary">
-          <span><strong>{entries.length}</strong>Total</span>
-          {definition.publishable ? <span><strong>{publishedCount}</strong>Published</span> : null}
-          {definition.publishable ? <span><strong>{draftCount}</strong>Draft</span> : null}
+          <span><strong>{pagination.total}</strong>{search ? "Matches" : "Total"}</span>
+          {definition.publishable ? <span><strong>{publishedCount}</strong>Published on this page</span> : null}
+          {definition.publishable ? <span><strong>{draftCount}</strong>Draft on this page</span> : null}
         </div>
       </section>
 
@@ -114,6 +133,17 @@ export default async function StructuredCollectionPage({
             </Link>
           </div>
         </div>
+
+        <form className="filter-form" method="get" action={definition.editorPath} role="search">
+          <label>
+            <span>Search {definition.pluralLabel.toLowerCase()}</span>
+            <input name="q" defaultValue={search} maxLength={160} placeholder="Title, slug, or identifier" />
+          </label>
+          <div className="button-row">
+            <button className="button" type="submit">Search</button>
+            {search ? <Link className="button button--ghost" href={definition.editorPath}>Clear</Link> : null}
+          </div>
+        </form>
 
         <div className="responsive-table" role="region" aria-label={definition.pluralLabel}>
           <table>
@@ -155,6 +185,13 @@ export default async function StructuredCollectionPage({
             </tbody>
           </table>
         </div>
+        {pagination.pageCount > 1 ? (
+          <nav className="pagination" aria-label={`${definition.pluralLabel} pages`}>
+            {pagination.page > 1 ? <Link className="button button--ghost" href={pageHref(pagination.page - 1)} rel="prev">Previous</Link> : <span />}
+            <span>Page {pagination.page} of {pagination.pageCount}</span>
+            {pagination.page < pagination.pageCount ? <Link className="button button--ghost" href={pageHref(pagination.page + 1)} rel="next">Next</Link> : <span />}
+          </nav>
+        ) : null}
       </section>
     </div>
   );

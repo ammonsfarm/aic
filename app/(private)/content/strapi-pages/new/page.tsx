@@ -107,6 +107,12 @@ export default async function NewStrapiPage() {
             <p>After you create the page, open it again to add Text, Image + Text, or Call to Action sections one at a time.</p>
           </section>
 
+          <label>
+            <span>Creation note</span>
+            <input name="changeNote" maxLength={1000} placeholder="Optional reason or source for this page" />
+            <small>Saved with the initial revision and audit history.</small>
+          </label>
+
           <div className="editor-form__actions">
             <button className="button button--ghost" type="submit" name="publicationAction" value="draft">Create draft</button>
             <button className="button" type="submit" name="publicationAction" value="publish">Create and publish</button>

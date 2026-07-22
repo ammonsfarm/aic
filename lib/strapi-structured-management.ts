@@ -6,6 +6,7 @@ import {
   type StructuredCollectionKey,
 } from "@/lib/structured-content-config";
 import type { CurrentAppUser } from "@/lib/rbac";
+import { fetchWithTimeout, strapiUploadTimeoutMs } from "@/lib/strapi-request";
 
 export type StructuredEntry = {
   id?: number;
@@ -30,7 +31,9 @@ export type StructuredRevision = {
 
 type StrapiEnvelope<T> = {
   data: T;
-  meta?: unknown;
+  meta?: {
+    pagination?: Partial<StructuredPagination>;
+  };
 };
 
 type EditorialActor = {
@@ -39,7 +42,26 @@ type EditorialActor = {
   name: string;
 };
 
-const LIST_PAGE_SIZE = 100;
+const DEFAULT_LIST_PAGE_SIZE = 50;
+
+export type StructuredPagination = {
+  page: number;
+  pageSize: number;
+  pageCount: number;
+  total: number;
+};
+
+export type StructuredEntryPage = {
+  entries: StructuredEntry[];
+  pagination: StructuredPagination;
+};
+
+export type StructuredInventorySummary = {
+  total: number;
+  draft: number;
+  published: number;
+  archived: number;
+};
 
 function managementBaseUrl() {
   const value = process.env.STRAPI_MANAGEMENT_URL?.trim() || process.env.STRAPI_URL?.trim() || "";
@@ -102,7 +124,7 @@ async function strapiRequest<T>(
   init: RequestInit = {},
   options: { allowNotFound?: boolean } = {},
 ): Promise<T | null> {
-  const response = await fetch(new URL(path, managementBaseUrl()), {
+  const response = await fetchWithTimeout(new URL(path, managementBaseUrl()), {
     ...init,
     headers: {
       Accept: "application/json",
@@ -111,7 +133,7 @@ async function strapiRequest<T>(
       ...init.headers,
     },
     cache: "no-store",
-  });
+  }, init.body instanceof FormData ? strapiUploadTimeoutMs() : undefined);
 
   const text = await response.text();
   if (options.allowNotFound && response.status === 404) {
@@ -132,44 +154,111 @@ async function strapiRequest<T>(
   return (text ? JSON.parse(text) : null) as T | null;
 }
 
-function listPath(definition: StructuredCollectionDefinition, status?: "draft" | "published") {
+function searchFields(definition: StructuredCollectionDefinition) {
+  if (definition.entityType === "episode") return ["title", "slug", "trackId"];
+  if (definition.entityType === "redirect") return ["fromPath", "toPath"];
+  return [definition.titleField, definition.slugField].filter((field): field is string => Boolean(field));
+}
+
+function listPath(
+  definition: StructuredCollectionDefinition,
+  options: {
+    status?: "draft" | "published";
+    page?: number;
+    pageSize?: number;
+    search?: string;
+    documentIds?: string[];
+    archived?: "only" | "exclude";
+  } = {},
+) {
   const query = new URLSearchParams();
-  query.set("pagination[pageSize]", String(LIST_PAGE_SIZE));
+  query.set("pagination[page]", String(options.page ?? 1));
+  query.set("pagination[pageSize]", String(options.pageSize ?? DEFAULT_LIST_PAGE_SIZE));
   query.set("sort", "updatedAt:desc");
   query.set("populate", "*");
-  if (status) {
-    query.set("status", status);
+  if (options.status) {
+    query.set("status", options.status);
+  }
+  const search = options.search?.trim().slice(0, 160) || "";
+  if (search) {
+    searchFields(definition).forEach((field, index) => {
+      query.set(`filters[$or][${index}][${field}][$containsi]`, search);
+    });
+  }
+  options.documentIds?.forEach((documentId, index) => {
+    query.set(`filters[documentId][$in][${index}]`, documentId);
+  });
+  if (options.documentIds) {
+    query.set("pagination[pageSize]", String(Math.max(1, options.documentIds.length)));
+  }
+  if (options.archived === "only") {
+    query.set("filters[archivedAt][$notNull]", "true");
+  } else if (options.archived === "exclude") {
+    query.set("filters[archivedAt][$null]", "true");
   }
   return `/api/${definition.apiPath}?${query.toString()}`;
 }
 
-async function listVersion(
-  definition: StructuredCollectionDefinition,
-  status?: "draft" | "published",
-): Promise<StructuredEntry[]> {
-  const response = await strapiRequest<StrapiEnvelope<unknown[]>>(listPath(definition, status));
-  return (response?.data || [])
-    .map((entry) => normalizeEntry(entry, status === "published"))
-    .filter((entry): entry is StructuredEntry => Boolean(entry));
+function normalizedPagination(meta: StrapiEnvelope<unknown>["meta"], fallbackPage: number, fallbackPageSize: number): StructuredPagination {
+  const pagination = meta?.pagination;
+  return {
+    page: Number(pagination?.page) || fallbackPage,
+    pageSize: Number(pagination?.pageSize) || fallbackPageSize,
+    pageCount: Number(pagination?.pageCount) || 0,
+    total: Number(pagination?.total) || 0,
+  };
 }
 
-export async function listStructuredEntries(key: StructuredCollectionKey) {
+async function listVersionPage(
+  definition: StructuredCollectionDefinition,
+  options: {
+    status?: "draft" | "published";
+    page: number;
+    pageSize: number;
+    search?: string;
+    documentIds?: string[];
+    archived?: "only" | "exclude";
+  },
+): Promise<StructuredEntryPage> {
+  const response = await strapiRequest<StrapiEnvelope<unknown[]>>(listPath(definition, options));
+  const entries = (response?.data || [])
+    .map((entry) => normalizeEntry(entry, options.status === "published"))
+    .filter((entry): entry is StructuredEntry => Boolean(entry));
+  return {
+    entries,
+    pagination: normalizedPagination(response?.meta, options.page, options.pageSize),
+  };
+}
+
+export async function listStructuredEntriesPage(
+  key: StructuredCollectionKey,
+  options: { page?: number; pageSize?: number; search?: string } = {},
+): Promise<StructuredEntryPage> {
   const definition = getStructuredCollection(key);
   if (!definition) {
-    return [];
+    return { entries: [], pagination: { page: 1, pageSize: DEFAULT_LIST_PAGE_SIZE, pageCount: 0, total: 0 } };
   }
+  const page = Math.max(1, Math.floor(options.page || 1));
+  const pageSize = Math.min(100, Math.max(1, Math.floor(options.pageSize || DEFAULT_LIST_PAGE_SIZE)));
+  const search = options.search?.trim().slice(0, 160) || "";
 
   if (!definition.publishable) {
-    return listVersion(definition);
+    return listVersionPage(definition, { page, pageSize, search });
   }
 
-  const [drafts, published] = await Promise.all([
-    listVersion(definition, "draft"),
-    listVersion(definition, "published"),
-  ]);
-  const publishedById = new Map(published.map((entry) => [entry.documentId, entry]));
+  const drafts = await listVersionPage(definition, { status: "draft", page, pageSize, search });
+  const documentIds = drafts.entries.map((entry) => entry.documentId);
+  const published = documentIds.length
+    ? await listVersionPage(definition, {
+        status: "published",
+        page: 1,
+        pageSize: documentIds.length,
+        documentIds,
+      })
+    : { entries: [], pagination: { page: 1, pageSize, pageCount: 0, total: 0 } };
+  const publishedById = new Map(published.entries.map((entry) => [entry.documentId, entry]));
 
-  const mergedDrafts: StructuredEntry[] = drafts
+  const mergedDrafts: StructuredEntry[] = drafts.entries
     .map((draft) => {
       const live = publishedById.get(draft.documentId);
       publishedById.delete(draft.documentId);
@@ -180,8 +269,37 @@ export async function listStructuredEntries(key: StructuredCollectionKey) {
       };
     });
 
-  return [...mergedDrafts, ...publishedById.values()]
-    .sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")));
+  return {
+    entries: [...mergedDrafts, ...publishedById.values()]
+      .sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || ""))),
+    pagination: drafts.pagination,
+  };
+}
+
+export async function getStructuredInventorySummary(
+  key: StructuredCollectionKey,
+): Promise<StructuredInventorySummary> {
+  const definition = getStructuredCollection(key);
+  if (!definition) {
+    return { total: 0, draft: 0, published: 0, archived: 0 };
+  }
+  const status = definition.publishable ? "draft" as const : undefined;
+  const [all, archived, published] = await Promise.all([
+    listVersionPage(definition, { status, page: 1, pageSize: 1 }),
+    listVersionPage(definition, { status, page: 1, pageSize: 1, archived: "only" }),
+    definition.publishable
+      ? listVersionPage(definition, { status: "published", page: 1, pageSize: 1, archived: "exclude" })
+      : Promise.resolve({ entries: [], pagination: { page: 1, pageSize: 1, pageCount: 0, total: 0 } }),
+  ]);
+  const total = all.pagination.total;
+  const archivedCount = Math.min(total, archived.pagination.total);
+  const publishedCount = Math.min(total - archivedCount, published.pagination.total);
+  return {
+    total,
+    archived: archivedCount,
+    published: publishedCount,
+    draft: Math.max(0, total - archivedCount - publishedCount),
+  };
 }
 
 async function getVersion(
@@ -284,6 +402,7 @@ export async function transitionStructuredEntry(
   action: "publish" | "unpublish" | "archive" | "restore" | "delete",
   user: CurrentAppUser,
   note = "",
+  expectedTitle = "",
 ) {
   const definition = getStructuredCollection(key);
   if (!definition) {
@@ -294,7 +413,7 @@ export async function transitionStructuredEntry(
     `/api/editorial/${definition.entityType}/${encodeURIComponent(documentId)}/${action}`,
     {
       method: "POST",
-      body: JSON.stringify({ actor: actorFor(user), note }),
+      body: JSON.stringify({ actor: actorFor(user), note, ...(expectedTitle ? { expectedTitle } : {}) }),
     },
   );
 }
@@ -326,27 +445,34 @@ export async function listStructuredRevisions(key: StructuredCollectionKey, docu
     return [];
   }
 
-  const response = await strapiRequest<StrapiEnvelope<unknown[]>>(
-    `/api/editorial/${definition.entityType}/${encodeURIComponent(documentId)}/revisions`,
-  );
-
-  return (response?.data || []).map((item) => {
-    const normalized = normalizeEntry(item);
-    const raw = normalized || (item as Record<string, unknown>);
-    return {
-      documentId: String(raw.documentId || ""),
-      revisionNumber: Number(raw.revisionNumber || 0),
-      action: String(raw.action || ""),
-      actorEmail: String(raw.actorEmail || ""),
-      actorName: String(raw.actorName || ""),
-      note: String(raw.note || ""),
-      snapshot:
-        raw.snapshot && typeof raw.snapshot === "object"
-          ? (raw.snapshot as Record<string, unknown>)
-          : {},
-      createdAt: typeof raw.createdAt === "string" ? raw.createdAt : undefined,
-    } satisfies StructuredRevision;
-  });
+  const revisions: StructuredRevision[] = [];
+  for (let page = 1; page <= 100; page += 1) {
+    const response = await strapiRequest<StrapiEnvelope<unknown[]>>(
+      `/api/editorial/${definition.entityType}/${encodeURIComponent(documentId)}/revisions?page=${page}`,
+    );
+    const batch = response?.data || [];
+    revisions.push(...batch.map((item) => {
+      const normalized = normalizeEntry(item);
+      const raw = normalized || (item as Record<string, unknown>);
+      return {
+        documentId: String(raw.documentId || ""),
+        revisionNumber: Number(raw.revisionNumber || 0),
+        action: String(raw.action || ""),
+        actorEmail: String(raw.actorEmail || ""),
+        actorName: String(raw.actorName || ""),
+        note: String(raw.note || ""),
+        snapshot:
+          raw.snapshot && typeof raw.snapshot === "object"
+            ? (raw.snapshot as Record<string, unknown>)
+            : {},
+        createdAt: typeof raw.createdAt === "string" ? raw.createdAt : undefined,
+      } satisfies StructuredRevision;
+    }));
+    if (batch.length < 100) {
+      return revisions;
+    }
+  }
+  throw new Error("Revision history exceeds the supported 10,000-item safety bound.");
 }
 
 export async function uploadStructuredFile(file: File) {

@@ -1,10 +1,10 @@
 import Link from "next/link";
 
 import {
+  getStructuredInventorySummary,
   listStructuredAuditEvents,
-  listStructuredEntries,
   type StructuredAuditEvent,
-  type StructuredEntry,
+  type StructuredInventorySummary,
 } from "@/lib/strapi-structured-management";
 import {
   STRUCTURED_COLLECTION_KEYS,
@@ -38,7 +38,7 @@ export default async function ContentWorkflowPage() {
   const results = await Promise.allSettled(
     STRUCTURED_COLLECTION_KEYS.map(async (key) => ({
       key,
-      entries: await listStructuredEntries(key),
+      summary: await getStructuredInventorySummary(key),
     })),
   );
 
@@ -53,10 +53,9 @@ export default async function ContentWorkflowPage() {
     auditError = cause instanceof Error ? cause.message : "Audit events could not be loaded.";
   }
 
-  const allEntries = inventory.flatMap((group) => group.entries);
-  const published = allEntries.filter((entry) => entry.isPublished && !entry.archivedAt).length;
-  const drafts = allEntries.filter((entry) => !entry.isPublished && !entry.archivedAt).length;
-  const archived = allEntries.filter((entry) => Boolean(entry.archivedAt)).length;
+  const published = inventory.reduce((total, group) => total + group.summary.published, 0);
+  const drafts = inventory.reduce((total, group) => total + group.summary.draft, 0);
+  const archived = inventory.reduce((total, group) => total + group.summary.archived, 0);
 
   return (
     <div className="stack">
@@ -81,13 +80,13 @@ export default async function ContentWorkflowPage() {
       ) : null}
 
       <section className="overview-grid" aria-label="Structured content collections">
-        {inventory.map(({ key, entries }: { key: StructuredCollectionKey; entries: StructuredEntry[] }) => {
+        {inventory.map(({ key, summary }: { key: StructuredCollectionKey; summary: StructuredInventorySummary }) => {
           const definition = STRUCTURED_COLLECTIONS[key];
           return (
             <article className="overview-primary" key={key}>
               <p className="eyebrow">{definition.entityType}</p>
               <h2>{definition.pluralLabel}</h2>
-              <p>{entries.length} total · {entries.filter((entry) => entry.isPublished).length} published · {entries.filter((entry) => entry.archivedAt).length} archived</p>
+              <p>{summary.total} total · {summary.published} published · {summary.draft} draft · {summary.archived} archived</p>
               <Link className="button button--ghost" href={definition.editorPath}>Open inventory →</Link>
             </article>
           );

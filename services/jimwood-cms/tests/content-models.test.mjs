@@ -48,7 +48,7 @@ test("redirects are an explicit non-draft registry", async () => {
   assert.equal(model.attributes.statusCode.default, 301);
 });
 
-test("revision and audit collections are append-only through their controllers", async () => {
+test("revision and audit collections are append-only through API and database lifecycles", async () => {
   for (const name of ["editorial-revision", "editorial-event"]) {
     const model = await schema(name);
     assert.equal(model.options.draftAndPublish, false);
@@ -56,7 +56,14 @@ test("revision and audit collections are append-only through their controllers",
     assert.match(controller, /async update/);
     assert.match(controller, /async delete/);
     assert.match(controller, /immutable/);
+    const lifecycle = await text(`src/api/${name}/content-types/${name}/lifecycles.ts`);
+    for (const hook of ["beforeUpdate", "beforeUpdateMany", "beforeDelete", "beforeDeleteMany"]) {
+      assert.match(lifecycle, new RegExp(hook));
+    }
   }
+  const revision = await schema("editorial-revision");
+  assert.deepEqual(revision.indexes[0].columns, ["entity_type", "entity_document_id", "revision_number"]);
+  assert.equal(revision.indexes[0].type, "unique");
 });
 
 test("editorial workflow exposes create, update, transition, and revision reads", async () => {
@@ -72,6 +79,11 @@ test("editorial workflow exposes create, update, transition, and revision reads"
   }
   assert.match(controller, /actorEmail/);
   assert.match(controller, /revisionNumber/);
+  assert.match(controller, /strapi\.db\.transaction/);
+  assert.match(controller, /pg_advisory_xact_lock/);
+  assert.match(controller, /Archived content must be restored/);
+  assert.match(controller, /expectedTitle !== currentTitle/);
+  assert.match(controller, /Deletion confirmation no longer matches/);
 });
 
 test("page identity remains a unique immutable-facing key in the content contract", async () => {
