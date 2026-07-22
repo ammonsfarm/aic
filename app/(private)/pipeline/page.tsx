@@ -1,6 +1,10 @@
 import { RoutePanel } from "@/components/route-panel";
-import { getPipelineRuns } from "@/lib/podcast-insights";
+import { DataFreshnessNotice } from "@/components/data-freshness";
+import { PipelineOperations } from "@/components/pipeline-operations";
+import { getOperationalDashboard, listUnmatchedPodtracEpisodes } from "@/lib/admin-operations";
 import { getPodtracDashboard } from "@/lib/podcast-data";
+import { addReportDays } from "@/lib/podcast-reporting";
+import { isCurrentUserAdministrator } from "@/lib/rbac";
 
 function formatDate(value: string | null) {
   if (!value) {
@@ -28,15 +32,35 @@ function statusClass(status: string) {
   return "status-item";
 }
 
-export default async function PipelinePage() {
-  const [runs, dashboard] = await Promise.all([getPipelineRuns(18), getPodtracDashboard()]);
+export const dynamic = "force-dynamic";
+
+export default async function PipelinePage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
+  const params = await searchParams;
+  const query = params.q?.trim().slice(0, 120) ?? "";
+  const [operations, dashboard, unmatched, isAdministrator] = await Promise.all([
+    getOperationalDashboard({ limit: 20 }),
+    getPodtracDashboard(),
+    listUnmatchedPodtracEpisodes({ query, limit: 20 }),
+    isCurrentUserAdministrator(),
+  ]);
+  const exportToday = operations.generatedAt.slice(0, 10);
+  const exportStart = addReportDays(exportToday, -29);
 
   return (
     <RoutePanel
       eyebrow="Pipeline"
       title="Ingestion and sync console"
-      aside={<p className="note">Read-only control plane for now. Add actions once runner orchestration endpoints are added.</p>}
+      aside={<p className="note">Authoritative ingest, Podtrac and transcript worker state. Retry controls enqueue fixed background jobs for administrators.</p>}
     >
+      <section className="split-board split-board--wide">
+        <DataFreshnessNotice label="Daily ingest" freshness={operations.freshness.ingest} />
+        <DataFreshnessNotice label="Podtrac reporting" freshness={operations.freshness.podtrac} />
+        <div className={operations.podtracAuth.state === "auth-error" ? "status-item status-item--warn" : "status-item"} role={operations.podtracAuth.state === "auth-error" ? "alert" : "status"}>
+          <strong>Podtrac authentication: {operations.podtracAuth.state}</strong>
+          <span>{operations.podtracAuth.message}</span>
+          <small>{operations.podtracAuth.checkedAt ? `Runner log checked ${formatDate(operations.podtracAuth.checkedAt)}.` : "No runner log timestamp."}</small>
+        </div>
+      </section>
       <section className="split-board split-board--wide">
         <div>
           <p className="eyebrow">Health snapshot</p>
@@ -79,30 +103,89 @@ export default async function PipelinePage() {
           <p className="eyebrow">Pipeline history</p>
           <h2>Latest pipeline run rows</h2>
           <div className="status-list">
-            {runs.length === 0 ? <p className="note">No pipeline rows found yet.</p> : null}
-            {runs.map((run) => (
-              <span key={`${run.source}-${run.completedAt ?? run.startedAt}`} className={statusClass(run.status)}>
+            {operations.runs.length === 0 ? <p className="note">No authoritative pipeline rows found yet.</p> : null}
+            {operations.runs.map((run) => (
+              <span key={`${run.source}-${run.id}`} className={statusClass(`${run.status} ${run.error}`.toLowerCase())}>
                 <strong>{run.source}</strong>
-                {run.status}
+                {run.status} · {run.stage}
                 <br />
-                <span className="note">{formatDate(run.completedAt ?? run.startedAt)} · {run.error || "OK"}</span>
+                <span className="note">
+                  {formatDate(run.completedAt ?? run.startedAt)} · data through {run.dataCurrentThrough ?? "unknown"} · {run.error || "OK"}
+                </span>
               </span>
             ))}
           </div>
         </div>
         <div>
-          <p className="eyebrow">Run expectations</p>
-          <h2>Suggested operator steps</h2>
+          <p className="eyebrow">Transcript edit worker</p>
+          <h2>Correction queue state</h2>
           <div className="status-list status-list--compact">
-            <span><strong>1.</strong> RSS + MP3 catalog ingestion from latest feed sync</span>
-            <span><strong>2.</strong> Transcription/normalization and transcript chunking</span>
-            <span><strong>3.</strong> Transcript embedding and speech similarity indexing</span>
-            <span><strong>4.</strong> Intelligence summary/vector generation</span>
-            <span><strong>5.</strong> Podtrac sync and match reconciliation</span>
-            <span><strong>6.</strong> Re-run this page to validate row movement</span>
+            {Object.entries(operations.transcript.counts).map(([status, count]) => (
+              <span key={status} className={statusClass(status)}><strong>{status}</strong>{count}</span>
+            ))}
+            <span><strong>Latest update</strong>{formatDate(operations.transcript.latestUpdate)}</span>
           </div>
         </div>
       </section>
+
+      <section className="split-board split-board--wide">
+        <div>
+          <p className="eyebrow">Stage detail</p>
+          <h2>Latest ingest stage events</h2>
+          <div className="status-list status-list--compact">
+            {operations.stageEvents.slice(0, 24).map((event) => (
+              <span key={event.id} className={statusClass(`${event.status} ${event.error}`.toLowerCase())}>
+                <strong>{event.stage}</strong>{event.status} · run {event.runId}
+                <small>{formatDate(event.completedAt ?? event.startedAt)} · {event.error || "OK"}</small>
+              </span>
+            ))}
+          </div>
+        </div>
+        <div>
+          <p className="eyebrow">Queued handoff</p>
+          <h2>Retry request history</h2>
+          <div className="status-list status-list--compact">
+            {operations.retries.length === 0 ? <p className="note">No retry requests yet.</p> : null}
+            {operations.retries.map((retry) => (
+              <span key={retry.id} className={statusClass(`${retry.status} ${retry.error}`.toLowerCase())}>
+                <strong>{retry.stage}</strong>{retry.status}
+                <small>{formatDate(retry.completedAt ?? retry.startedAt ?? retry.requestedAt)} · {retry.error || retry.outputSummary || retry.reason || "No note"}</small>
+              </span>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="podcast-chart-section">
+        <div className="chart-section-head">
+          <div><p className="eyebrow">Reconciliation search</p><h2>Find unmatched Podtrac episodes</h2></div>
+          <form className="range-form" method="get">
+            <label><span>Title or Podtrac id</span><input name="q" defaultValue={query} /></label>
+            <button className="button button--ghost" type="submit">Search</button>
+          </form>
+        </div>
+        {isAdministrator ? (
+          <div className="podcast-subnav">
+            <a className="button button--ghost" href={`/api/admin/podcast/export?report=unmatched&startDate=${exportToday.slice(0, 4)}-01-01&endDate=${exportToday}`}>Export unmatched CSV</a>
+            <a className="button button--ghost" href={`/api/admin/podcast/export?report=pipeline&startDate=${exportStart}&endDate=${exportToday}`}>Export pipeline CSV</a>
+            <a className="button button--ghost" href={`/api/admin/podcast/export?report=transcript-edits&startDate=${exportStart}&endDate=${exportToday}`}>Export transcript CSV</a>
+          </div>
+        ) : null}
+      </section>
+
+      <PipelineOperations isAdministrator={isAdministrator} unmatched={unmatched} />
+
+      {isAdministrator && operations.audit.length > 0 ? (
+        <section className="podcast-chart-section">
+          <p className="eyebrow">Administrative audit</p>
+          <h2>Recent operational changes</h2>
+          <div className="status-list status-list--compact">
+            {operations.audit.map((event) => (
+              <span key={event.id}><strong>{event.action}</strong>{event.entityType} {event.entityId}<small>{formatDate(event.createdAt)} by {event.actorEmail}</small></span>
+            ))}
+          </div>
+        </section>
+      ) : null}
     </RoutePanel>
   );
 }

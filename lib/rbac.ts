@@ -275,6 +275,26 @@ export function isResearchUserRole(role: AicRole) {
   return role === "Admin" || role === "Content Manager" || role === "Research User" || role === "User";
 }
 
+export function canGenerateForRole(role: AicRole) {
+  return role !== "Read Only";
+}
+
+export function canMutateForRole(role: AicRole) {
+  return role !== "Read Only";
+}
+
+export function roleLandingPath(role: AicRole) {
+  if (role === "Content Manager") {
+    return "/content";
+  }
+
+  if (role === "Admin") {
+    return "/overview";
+  }
+
+  return "/podcast";
+}
+
 export async function isCurrentUserAdministrator() {
   return isAdministratorRole(await getCurrentUserRole());
 }
@@ -284,15 +304,20 @@ export async function isCurrentUserContentManager() {
 }
 
 export async function requireAdministrator(redirectTo = "/podcast") {
-  if (!(await isCurrentUserAdministrator())) {
-    redirect(redirectTo);
+  const appUser = await requireSignedInAppUser();
+  if (!isAdministratorRole(appUser.role)) {
+    const safeTarget = redirectTo === "/admin" || redirectTo === "/overview" ? roleLandingPath(appUser.role) : redirectTo;
+    redirect(safeTarget);
   }
+
+  return appUser;
 }
 
 export async function requireContentManagerOrAdmin(redirectTo = "/overview") {
   const appUser = await requireSignedInAppUser();
   if (!isContentManagerRole(appUser.role)) {
-    redirect(redirectTo);
+    const safeTarget = redirectTo === "/overview" ? roleLandingPath(appUser.role) : redirectTo;
+    redirect(safeTarget);
   }
 
   return appUser;
@@ -305,7 +330,8 @@ export async function requireContentManager(redirectTo = "/overview") {
 export async function requireResearchUser(redirectTo = "/overview") {
   const appUser = await requireSignedInAppUser();
   if (!isResearchUserRole(appUser.role)) {
-    redirect(redirectTo);
+    const safeTarget = redirectTo === "/overview" ? roleLandingPath(appUser.role) : redirectTo;
+    redirect(safeTarget);
   }
 
   return appUser;
@@ -327,6 +353,34 @@ export async function requireContentManagerApiUser(): Promise<CurrentAppUser> {
   }
 
   return appUser;
+}
+
+export async function requireGenerationApiUser(): Promise<CurrentAppUser> {
+  const appUser = await requireSignedInAppUser();
+  if (!canGenerateForRole(appUser.role)) {
+    throw new ForbiddenError("This role cannot run generation requests.");
+  }
+
+  return appUser;
+}
+
+export async function getGenerationApiUser(): Promise<CurrentAppUser | null> {
+  const appUser = await requireSignedInAppUser();
+  return canGenerateForRole(appUser.role) ? appUser : null;
+}
+
+export async function requireMutationApiUser(): Promise<CurrentAppUser> {
+  const appUser = await requireSignedInAppUser();
+  if (!canMutateForRole(appUser.role)) {
+    throw new ForbiddenError("This role cannot change data.");
+  }
+
+  return appUser;
+}
+
+export async function getMutationApiUser(): Promise<CurrentAppUser | null> {
+  const appUser = await requireSignedInAppUser();
+  return canMutateForRole(appUser.role) ? appUser : null;
 }
 
 export function isForbiddenError(error: unknown) {

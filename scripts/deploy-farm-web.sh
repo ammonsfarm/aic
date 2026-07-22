@@ -10,6 +10,7 @@ REMOTE_PORT="${REMOTE_PORT:-8087}"
 INSTALL_TRANSCRIPT_EDIT_WORKER="${INSTALL_TRANSCRIPT_EDIT_WORKER:-1}"
 INSTALL_STRAPI_SERVICE="${INSTALL_STRAPI_SERVICE:-1}"
 RUN_STRAPI_BACKUP_DRILL="${RUN_STRAPI_BACKUP_DRILL:-0}"
+INSTALL_ADMIN_OPERATIONS_WORKER="${INSTALL_ADMIN_OPERATIONS_WORKER:-1}"
 SERVICE_URL="http://127.0.0.1:${REMOTE_PORT}"
 
 ssh_target="${REMOTE_USER}@${REMOTE_HOST}"
@@ -62,6 +63,11 @@ npm run build
 if [ "${INSTALL_TRANSCRIPT_EDIT_WORKER}" = "1" ]; then
   echo "Installing transcript edit worker timer..."
   bash scripts/install-transcript-edit-worker.sh
+fi
+
+if [ "${INSTALL_ADMIN_OPERATIONS_WORKER}" = "1" ]; then
+  echo "Installing allowlisted admin operations worker timer..."
+  bash scripts/install-admin-operations-worker.sh
 fi
 
 if [ "${RUN_STRAPI_BACKUP_DRILL}" = "1" ]; then

@@ -1,9 +1,9 @@
-import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 
 import { buildReadingPlanExportHtml, readingPlanExportFilename } from "@/lib/reading-plan-export";
 import type { ReadingPlanResult } from "@/lib/reading-plan";
 import { checkChatRateLimit, publicChatError } from "@/lib/rag-route-guards";
+import { getGenerationApiUser } from "@/lib/rbac";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -102,8 +102,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Reading-plan export request is too large." }, { status: 413 });
   }
 
-  const { userId } = await auth.protect();
-  const rateLimit = checkChatRateLimit(request, userId);
+  const appUser = await getGenerationApiUser();
+  if (!appUser) {
+    return NextResponse.json({ error: "This role cannot generate exports." }, { status: 403 });
+  }
+  const rateLimit = checkChatRateLimit(request, appUser.clerkUserId);
   if (!rateLimit.ok) {
     return NextResponse.json(
       { error: "Too many reading-plan export requests. Try again shortly." },

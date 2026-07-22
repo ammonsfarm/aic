@@ -1,5 +1,17 @@
 import "server-only";
 import { queryRows } from "@/lib/db";
+import {
+  calculateFreshness,
+  normalizeReportDate,
+  parsePodcastRange,
+  percentageChange,
+  podcastRangeOptions,
+  previousReportRange,
+  resolveReportDateRange,
+  type DataFreshness,
+  type PodcastRangeKey,
+  type ReportDateRange,
+} from "@/lib/podcast-reporting";
 
 type EpisodeBaseRow = {
   track_id: string;
@@ -189,6 +201,7 @@ type DateExtentRow = {
 
 type PodcastStatsSummaryRow = {
   range_downloads: string;
+  previous_range_downloads: string;
   all_time_downloads: string;
   podtrac_episode_count: string;
   podtrac_matched_count: string;
@@ -209,6 +222,7 @@ type EpisodeStatisticRow = {
 type EpisodeStatisticSummaryRow = {
   all_time_downloads: string;
   range_downloads: string;
+  previous_range_downloads?: string;
   first_activity_date: string | null;
   last_activity_date: string | null;
 };
@@ -456,19 +470,18 @@ export type PodtracDashboard = {
   clientDownloads: Array<{ client: string; downloads: number }>;
 };
 
-export type PodtracRangeKey = "30d" | "60d" | "quarter" | "ytd" | "max";
-
-export type PodtracRange = {
-  key: PodtracRangeKey;
-  label: string;
-  startDate: string | null;
-  endDate: string | null;
-  minDate: string | null;
-  maxDate: string | null;
-};
+export type PodtracRangeKey = PodcastRangeKey;
+export type PodtracRange = ReportDateRange;
 
 export type PodcastStatsDashboard = {
   range: PodtracRange;
+  freshness: DataFreshness;
+  comparison: {
+    previousStartDate: string | null;
+    previousEndDate: string | null;
+    previousDownloads: number;
+    changePercent: number | null;
+  };
   counts: {
     rangeDownloads: number;
     allTimeDownloads: number;
@@ -490,6 +503,20 @@ export type PodcastStatsDashboard = {
 
 export type EpisodeStatisticsDashboard = {
   range: PodtracRange;
+  freshness: DataFreshness;
+  comparison: {
+    previousStartDate: string | null;
+    previousEndDate: string | null;
+    previousDownloads: number;
+    changePercent: number | null;
+  };
+  pagination: {
+    page: number;
+    pageSize: number;
+    totalEpisodes: number;
+    totalPages: number;
+    query: string;
+  };
   selectedDownloadDate: string | null;
   summary: {
     importedDownloads: number;
@@ -532,26 +559,9 @@ export type EpisodeStatisticsDashboard = {
   clientDownloads: Array<{ client: string; downloads: number }>;
 };
 
-export const podtracRangeOptions: Array<{ key: PodtracRangeKey; label: string }> = [
-  { key: "30d", label: "30 days" },
-  { key: "60d", label: "60 days" },
-  { key: "quarter", label: "Last quarter" },
-  { key: "ytd", label: "Year to date" },
-  { key: "max", label: "Max" },
-];
+export const podtracRangeOptions = podcastRangeOptions;
 
-function normalizeDateParam(value: string | null | undefined): string | null {
-  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return null;
-  }
-
-  const date = new Date(`${value}T00:00:00Z`);
-  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
-    return null;
-  }
-
-  return value;
-}
+const normalizeDateParam = normalizeReportDate;
 
 function toNumber(value: string | number | null | undefined): number {
   if (typeof value === "number") {
@@ -563,69 +573,27 @@ function toNumber(value: string | number | null | undefined): number {
 }
 
 export function parsePodtracRange(value: string | null | undefined): PodtracRangeKey {
-  if (value === "60d" || value === "quarter" || value === "ytd" || value === "max") {
-    return value;
-  }
-
-  return "30d";
+  return parsePodcastRange(value);
 }
 
-function addDays(value: string, days: number) {
-  const date = new Date(`${value}T00:00:00Z`);
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().slice(0, 10);
-}
-
-function startOfYear(value: string) {
-  return `${value.slice(0, 4)}-01-01`;
-}
-
-function rangeLabel(key: PodtracRangeKey) {
-  return podtracRangeOptions.find((option) => option.key === key)?.label ?? "30 days";
-}
-
-async function resolvePodtracRange(key: PodtracRangeKey): Promise<PodtracRange> {
+async function resolvePodtracRange(
+  key: PodtracRangeKey,
+  { startDate, endDate, today }: { startDate?: string; endDate?: string; today?: string } = {},
+): Promise<PodtracRange> {
   const rows = await queryRows<DateExtentRow>(`
     select min(activity_date)::text as min_date, max(activity_date)::text as max_date
     from podtrac_daily_activity
   `);
   const extent = rows[0] ?? { min_date: null, max_date: null };
 
-  if (!extent.min_date || !extent.max_date) {
-    return {
-      key,
-      label: rangeLabel(key),
-      startDate: null,
-      endDate: null,
-      minDate: extent.min_date,
-      maxDate: extent.max_date,
-    };
-  }
-
-  let startDate = extent.min_date;
-
-  if (key === "30d") {
-    startDate = addDays(extent.max_date, -29);
-  } else if (key === "60d") {
-    startDate = addDays(extent.max_date, -59);
-  } else if (key === "quarter") {
-    startDate = addDays(extent.max_date, -89);
-  } else if (key === "ytd") {
-    startDate = startOfYear(extent.max_date);
-  }
-
-  if (startDate < extent.min_date) {
-    startDate = extent.min_date;
-  }
-
-  return {
+  return resolveReportDateRange({
     key,
-    label: rangeLabel(key),
-    startDate,
-    endDate: extent.max_date,
     minDate: extent.min_date,
     maxDate: extent.max_date,
-  };
+    startDate,
+    endDate,
+    today,
+  });
 }
 
 function normalizeArray(value: unknown): string[] {
@@ -1908,12 +1876,24 @@ async function getClientDownloadsForRange(range: PodtracRange, limit: number) {
   }));
 }
 
-export async function getPodcastStatsDashboard(rangeKey: PodtracRangeKey): Promise<PodcastStatsDashboard> {
-  const range = await resolvePodtracRange(rangeKey);
+export async function getPodcastStatsDashboard(
+  rangeKey: PodtracRangeKey,
+  options: { startDate?: string; endDate?: string; today?: string } = {},
+): Promise<PodcastStatsDashboard> {
+  const range = await resolvePodtracRange(rangeKey, options);
+  const freshness = calculateFreshness({ dataCurrentThrough: range.maxDate, today: options.today, slaDays: 2 });
+  const previousRange = previousReportRange(range);
 
   if (!range.startDate || !range.endDate) {
     return {
       range,
+      freshness,
+      comparison: {
+        previousStartDate: previousRange?.startDate ?? null,
+        previousEndDate: previousRange?.endDate ?? null,
+        previousDownloads: 0,
+        changePercent: null,
+      },
       counts: {
         rangeDownloads: 0,
         allTimeDownloads: 0,
@@ -1936,12 +1916,17 @@ export async function getPodcastStatsDashboard(rangeKey: PodtracRangeKey): Promi
             from podtrac_daily_activity
             where activity_date between $1::date and $2::date
           ) as range_downloads,
+          (
+            select coalesce(sum(download_count), 0)::text
+            from podtrac_daily_activity
+            where activity_date between $3::date and $4::date
+          ) as previous_range_downloads,
           (select coalesce(sum(download_count), 0)::text from podtrac_daily_activity) as all_time_downloads,
           (select count(*)::text from podtrac_episodes) as podtrac_episode_count,
           (select count(*)::text from podtrac_episodes where track_id is not null) as podtrac_matched_count,
           (select count(*)::text from podtrac_episodes where track_id is null or match_status = 'unmatched') as podtrac_unmatched_count
       `,
-      [range.startDate, range.endDate],
+      [range.startDate, range.endDate, previousRange?.startDate ?? range.startDate, previousRange?.endDate ?? range.endDate],
     ),
     queryRows<TrendRow>(
       `
@@ -1967,7 +1952,9 @@ export async function getPodcastStatsDashboard(rangeKey: PodtracRangeKey): Promi
             coalesce(string_agg(distinct pe.match_status, ', '), 'unmatched') as match_status,
             coalesce(sum(pda.download_count), 0)::text as downloads
           from podtrac_episodes pe
-          left join podtrac_daily_activity pda on pda.podtrac_episode_id = pe.podtrac_episode_id
+          left join podtrac_daily_activity pda
+            on pda.podtrac_episode_id = pe.podtrac_episode_id
+           and pda.activity_date between $1::date and $2::date
           where pe.track_id is not null
           group by pe.track_id
         )
@@ -1983,15 +1970,25 @@ export async function getPodcastStatsDashboard(rangeKey: PodtracRangeKey): Promi
         order by coalesce(pbt.downloads::bigint, 0) desc, e.publish_date desc
         limit 15
       `,
+      [range.startDate, range.endDate],
     ),
     getCountryDownloadsForRange(range, 10),
   ]);
   const summary = summaryRows[0];
+  const rangeDownloads = toNumber(summary?.range_downloads);
+  const previousDownloads = toNumber(summary?.previous_range_downloads);
 
   return {
     range,
+    freshness,
+    comparison: {
+      previousStartDate: previousRange?.startDate ?? null,
+      previousEndDate: previousRange?.endDate ?? null,
+      previousDownloads,
+      changePercent: percentageChange(rangeDownloads, previousDownloads),
+    },
     counts: {
-      rangeDownloads: toNumber(summary?.range_downloads),
+      rangeDownloads,
       allTimeDownloads: toNumber(summary?.all_time_downloads),
       podtracEpisodes: toNumber(summary?.podtrac_episode_count),
       podtracMatched: toNumber(summary?.podtrac_matched_count),
@@ -2017,17 +2014,42 @@ export async function getEpisodeStatisticsDashboard({
   rangeKey,
   trackId,
   downloadDate,
+  startDate,
+  endDate,
+  page = 1,
+  pageSize = 50,
+  query = "",
+  today,
 }: {
   rangeKey: PodtracRangeKey;
   trackId?: string;
   downloadDate?: string;
+  startDate?: string;
+  endDate?: string;
+  page?: number;
+  pageSize?: number;
+  query?: string;
+  today?: string;
 }): Promise<EpisodeStatisticsDashboard> {
-  const range = await resolvePodtracRange(rangeKey);
+  const range = await resolvePodtracRange(rangeKey, { startDate, endDate, today });
+  const freshness = calculateFreshness({ dataCurrentThrough: range.maxDate, today, slaDays: 2 });
+  const previousRange = previousReportRange(range);
   const selectedDownloadDate = normalizeDateParam(downloadDate);
+  const normalizedQuery = query.trim().slice(0, 120);
+  const safePage = Math.max(1, Math.trunc(page) || 1);
+  const safePageSize = Math.min(Math.max(Math.trunc(pageSize) || 50, 10), 100);
 
   if (!range.startDate || !range.endDate) {
     return {
       range,
+      freshness,
+      comparison: {
+        previousStartDate: previousRange?.startDate ?? null,
+        previousEndDate: previousRange?.endDate ?? null,
+        previousDownloads: 0,
+        changePercent: null,
+      },
+      pagination: { page: 1, pageSize: safePageSize, totalEpisodes: 0, totalPages: 0, query: normalizedQuery },
       selectedDownloadDate: null,
       summary: {
         importedDownloads: 0,
@@ -2046,12 +2068,25 @@ export async function getEpisodeStatisticsDashboard({
     };
   }
 
+  const episodeCountRows = await queryRows<{ count: string }>(
+    `select count(distinct pe.track_id)::text as count
+       from podtrac_episodes pe
+       join episodes e on e.track_id = pe.track_id
+      where pe.track_id is not null
+        and ($1 = '' or e.title ilike '%' || $1 || '%' or e.track_id ilike '%' || $1 || '%')`,
+    [normalizedQuery],
+  );
+  const totalEpisodes = toNumber(episodeCountRows[0]?.count);
+  const totalPages = totalEpisodes > 0 ? Math.ceil(totalEpisodes / safePageSize) : 0;
+  const resolvedPage = Math.min(safePage, Math.max(totalPages, 1));
+
   const [summaryRows, trendRows, episodes, countryDownloads, clientDownloads] = await Promise.all([
     queryRows<EpisodeStatisticSummaryRow & { matched_episodes: string }>(
       `
         select
           coalesce(sum(pda.download_count), 0)::text as all_time_downloads,
           coalesce(sum(pda.download_count) filter (where pda.activity_date between $1::date and $2::date), 0)::text as range_downloads,
+          coalesce(sum(pda.download_count) filter (where pda.activity_date between $3::date and $4::date), 0)::text as previous_range_downloads,
           min(pda.activity_date)::text as first_activity_date,
           max(pda.activity_date)::text as last_activity_date,
           count(distinct pe.track_id)::text as matched_episodes
@@ -2059,7 +2094,7 @@ export async function getEpisodeStatisticsDashboard({
         left join podtrac_daily_activity pda on pda.podtrac_episode_id = pe.podtrac_episode_id
         where pe.track_id is not null
       `,
-      [range.startDate, range.endDate],
+      [range.startDate, range.endDate, previousRange?.startDate ?? range.startDate, previousRange?.endDate ?? range.endDate],
     ),
     queryRows<TrendRow>(
       `
@@ -2102,16 +2137,16 @@ export async function getEpisodeStatisticsDashboard({
           pbt.last_activity_date
         from episodes e
         join podtrac_by_track pbt on pbt.track_id = e.track_id
-        order by coalesce(pbt.all_time_downloads::bigint, 0) desc, e.publish_date desc
+        where ($3 = '' or e.title ilike '%' || $3 || '%' or e.track_id ilike '%' || $3 || '%')
+        order by coalesce(pbt.range_downloads::bigint, 0) desc, e.publish_date desc
+        limit $4 offset $5
       `,
-      [range.startDate, range.endDate],
+      [range.startDate, range.endDate, normalizedQuery, safePageSize, (resolvedPage - 1) * safePageSize],
     ),
     getCountryDownloadsForRange(range, 10),
     getClientDownloadsForRange(range, 10),
   ]);
-  const selectedTrackId = episodes.some((episode) => episode.track_id === trackId)
-    ? trackId
-    : undefined;
+  const selectedTrackId = typeof trackId === "string" && trackId.trim() ? trackId.trim() : undefined;
   const selectedDateInRange =
     selectedDownloadDate && selectedDownloadDate >= range.startDate && selectedDownloadDate <= range.endDate
       ? selectedDownloadDate
@@ -2152,6 +2187,26 @@ export async function getEpisodeStatisticsDashboard({
         [selectedTrackId, range.startDate, range.endDate],
       )
     : Promise.resolve([] as TrendRow[]);
+  const selectedBasePromise = selectedTrackId
+    ? queryRows<EpisodeStatisticRow>(
+        `select
+           e.track_id,
+           e.title,
+           e.publish_date,
+           coalesce(max(pe.title), '') as podtrac_title,
+           coalesce(string_agg(distinct pe.match_status, ', '), 'unmatched') as match_status,
+           coalesce(sum(pda.download_count), 0)::text as all_time_downloads,
+           coalesce(sum(pda.download_count) filter (where pda.activity_date between $2::date and $3::date), 0)::text as range_downloads,
+           max(pda.activity_date)::text as last_activity_date
+         from episodes e
+         join podtrac_episodes pe on pe.track_id = e.track_id
+         left join podtrac_daily_activity pda on pda.podtrac_episode_id = pe.podtrac_episode_id
+         where e.track_id = $1
+         group by e.track_id, e.title, e.publish_date
+         limit 1`,
+        [selectedTrackId, range.startDate, range.endDate],
+      )
+    : Promise.resolve([] as EpisodeStatisticRow[]);
   const dateEpisodePromise = selectedDateInRange
     ? queryRows<DateEpisodeDownloadRow>(
           `
@@ -2178,21 +2233,38 @@ export async function getEpisodeStatisticsDashboard({
           [selectedDateInRange],
         )
     : Promise.resolve([] as DateEpisodeDownloadRow[]);
-  const [selectedSummaryRows, selectedTrendRows, dateEpisodeRows] = await Promise.all([
+  const [selectedSummaryRows, selectedTrendRows, selectedBaseRows, dateEpisodeRows] = await Promise.all([
     selectedSummaryPromise,
     selectedTrendPromise,
+    selectedBasePromise,
     dateEpisodePromise,
   ]);
-  const selectedBase = episodes.find((episode) => episode.track_id === selectedTrackId);
+  const selectedBase = selectedBaseRows[0] ?? episodes.find((episode) => episode.track_id === selectedTrackId);
   const summary = summaryRows[0];
   const selectedSummary = selectedSummaryRows[0];
+  const summaryRangeDownloads = toNumber(summary?.range_downloads);
+  const previousDownloads = toNumber(summary?.previous_range_downloads);
 
   return {
     range,
+    freshness,
+    comparison: {
+      previousStartDate: previousRange?.startDate ?? null,
+      previousEndDate: previousRange?.endDate ?? null,
+      previousDownloads,
+      changePercent: percentageChange(summaryRangeDownloads, previousDownloads),
+    },
+    pagination: {
+      page: resolvedPage,
+      pageSize: safePageSize,
+      totalEpisodes,
+      totalPages,
+      query: normalizedQuery,
+    },
     selectedDownloadDate: selectedDateInRange,
     summary: {
       importedDownloads: toNumber(summary?.all_time_downloads),
-      rangeDownloads: toNumber(summary?.range_downloads),
+      rangeDownloads: summaryRangeDownloads,
       firstActivityDate: summary?.first_activity_date ?? null,
       lastActivityDate: summary?.last_activity_date ?? null,
       matchedEpisodes: toNumber(summary?.matched_episodes),

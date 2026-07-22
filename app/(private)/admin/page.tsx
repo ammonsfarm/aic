@@ -1,5 +1,9 @@
+import Link from "next/link";
+
 import { AdminConsole } from "@/components/admin-console";
+import { DataFreshnessNotice } from "@/components/data-freshness";
 import { RoutePanel } from "@/components/route-panel";
+import { getOperationalDashboard } from "@/lib/admin-operations";
 import { getSupportedAgentModels } from "@/lib/agent-models";
 import { getAgentSettingsView, type AgentSettingsView } from "@/lib/agent-settings";
 import { listAppUsers, requireAdministrator } from "@/lib/rbac";
@@ -44,7 +48,11 @@ async function getAdminSettings() {
 export default async function AdminPage() {
   await requireAdministrator("/overview");
   const settings = await getAdminSettings();
-  const [users, modelCatalog] = await Promise.all([listAppUsers(), getSupportedAgentModels(settings.provider)]);
+  const [users, modelCatalog, operations] = await Promise.all([
+    listAppUsers(),
+    getSupportedAgentModels(settings.provider),
+    getOperationalDashboard({ limit: 10 }),
+  ]);
 
   return (
     <RoutePanel
@@ -64,6 +72,29 @@ export default async function AdminPage() {
         </div>
       }
     >
+      <section className="admin-section" id="system-health">
+        <div className="admin-section__header">
+          <div>
+            <p className="eyebrow">System health</p>
+            <h2>Authoritative operational state</h2>
+          </div>
+          <Link className="button button--ghost" href="/pipeline">Open pipeline controls</Link>
+        </div>
+        <div className="split-board split-board--wide">
+          <DataFreshnessNotice label="Daily ingest" freshness={operations.freshness.ingest} />
+          <DataFreshnessNotice label="Podtrac" freshness={operations.freshness.podtrac} />
+          <div className={operations.podtracAuth.state === "auth-error" ? "status-item status-item--warn" : "status-item"} role={operations.podtracAuth.state === "auth-error" ? "alert" : "status"}>
+            <strong>Podtrac authentication: {operations.podtracAuth.state}</strong>
+            <span>{operations.podtracAuth.message}</span>
+          </div>
+        </div>
+        <div className="status-list status-list--compact">
+          <span><strong>Queued retries</strong>{operations.retries.filter((item) => item.status === "queued").length}</span>
+          <span><strong>Running retries</strong>{operations.retries.filter((item) => item.status === "running").length}</span>
+          <span><strong>Failed transcript edits</strong>{operations.transcript.counts.failed ?? 0}</span>
+          <span><strong>Pending transcript edits</strong>{operations.transcript.counts.pending ?? 0}</span>
+        </div>
+      </section>
       <AdminConsole initialSettings={settings} initialUsers={users} initialModelCatalog={modelCatalog} />
     </RoutePanel>
   );

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
 
 import { queryRows } from "@/lib/db";
+import { getMutationApiUser } from "@/lib/rbac";
 
 type RouteParams = {
   trackId: string;
@@ -92,7 +92,10 @@ async function findTranscriptSource(trackId: string, segmentId: string) {
 
 export async function POST(request: NextRequest, { params }: RouteContext) {
   const { trackId } = await params;
-  const { userId } = await auth.protect();
+  const appUser = await getMutationApiUser();
+  if (!appUser) {
+    return NextResponse.json({ error: "This role cannot change transcript data." }, { status: 403 });
+  }
 
   if (!trackId) {
     return NextResponse.json({ error: "track_id is required" }, { status: 400 });
@@ -141,7 +144,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       source.source_table,
       parsed.originalText,
       parsed.editedText,
-      userId ?? "",
+      appUser.email,
     ],
   );
 

@@ -1,0 +1,233 @@
+#!/usr/bin/env python3
+"""Process allowlisted admin-operation requests outside the web process."""
+
+from __future__ import annotations
+
+import argparse
+import os
+from pathlib import Path
+import re
+import socket
+import subprocess
+from typing import Any
+
+import psycopg
+from psycopg.rows import dict_row
+
+
+DEFAULT_ENV_FILE = Path("/mnt/storage/aic/.env")
+DEFAULT_WEB_ROOT = Path("/mnt/storage/aic")
+DEFAULT_PODCAST_ROOT = Path("/mnt/storage/aic_podcast")
+
+
+def load_env(path: Path) -> None:
+    if not path.exists():
+        return
+    for raw_line in path.read_text().splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+def dsn() -> str:
+    return (
+        f"host={os.environ['DB_HOST']} "
+        f"port={os.environ.get('DB_PORT', '5432')} "
+        f"dbname={os.environ.get('DB_NAME', 'aic')} "
+        f"user={os.environ['DB_USER']} "
+        f"password={os.environ['DB_PASSWORD']}"
+    )
+
+
+def build_command(stage: str, env_file: Path = DEFAULT_ENV_FILE) -> tuple[list[str], Path, int]:
+    web_root = Path(os.environ.get("AIC_WEB_ROOT", str(DEFAULT_WEB_ROOT)))
+    podcast_root = Path(os.environ.get("AIC_PODCAST_ROOT", str(DEFAULT_PODCAST_ROOT)))
+    podcast_python = os.environ.get("AIC_PODCAST_PYTHON", str(podcast_root / ".venv-pg/bin/python"))
+    web_python = os.environ.get("AIC_WEB_PYTHON", str(web_root / ".venv-pg/bin/python"))
+
+    if stage == "daily-ingest":
+        return (
+            [
+                podcast_python,
+                str(podcast_root / "run_daily_podcast_ingest.py"),
+                "--transcribe-engine",
+                "mistral",
+                "--max-tracks",
+                "50",
+                "--transcribe-workers",
+                "4",
+                "--intelligence-workers",
+                "4",
+                "--intelligence-provider",
+                "silo",
+                "--intelligence-model",
+                os.environ.get("AIC_INTELLIGENCE_MODEL", "openai-codex/gpt-5.6-luna"),
+                "--intelligence-reasoning-effort",
+                "medium",
+                "--no-extractive-fallback",
+            ],
+            podcast_root,
+            7_200,
+        )
+    if stage == "podtrac-import":
+        return (
+            [
+                "/usr/bin/flock",
+                "-n",
+                "/tmp/aic_podtrac_ingest.lock",
+                "/usr/bin/bash",
+                str(podcast_root / "scripts/run_podtrac_daily_server.sh"),
+            ],
+            podcast_root,
+            1_800,
+        )
+    if stage == "transcript-edits":
+        return (
+            [
+                web_python,
+                str(web_root / "scripts/apply_transcript_edit_requests.py"),
+                "--env-file",
+                str(env_file),
+                "--limit",
+                "25",
+            ],
+            web_root,
+            900,
+        )
+    raise ValueError(f"Unsupported admin operation stage: {stage}")
+
+
+def safe_output(value: str, limit: int = 4_000) -> str:
+    redacted = re.sub(
+        r"(?i)(authorization|cookie|password|secret|api[_-]?key|token)\s*[:=]\s*[^\s,;]+",
+        r"\1=[redacted]",
+        value,
+    )
+    return redacted[-limit:].strip()
+
+
+def claim_request(conn: psycopg.Connection[Any], worker_id: str) -> dict[str, Any] | None:
+    with conn.transaction():
+        row = conn.execute(
+            """
+            select id, stage, source_run_id, reason, requested_by
+              from pipeline_retry_requests
+             where status = 'queued'
+             order by requested_at
+             for update skip locked
+             limit 1
+            """
+        ).fetchone()
+        if not row:
+            return None
+        conn.execute(
+            """
+            update pipeline_retry_requests
+               set status = 'running', started_at = now(), worker_id = %s, updated_at = now()
+             where id = %s
+            """,
+            (worker_id, row["id"]),
+        )
+        conn.execute(
+            """
+            insert into admin_operation_audit(action, entity_type, entity_id, actor_email, detail_json)
+            values ('pipeline_retry_started', 'pipeline_retry_request', %s, 'system-worker',
+                    jsonb_build_object('stage', %s, 'workerId', %s))
+            """,
+            (str(row["id"]), row["stage"], worker_id),
+        )
+        return dict(row)
+
+
+def complete_request(
+    conn: psycopg.Connection[Any],
+    request: dict[str, Any],
+    *,
+    return_code: int,
+    output: str,
+) -> None:
+    status = "completed" if return_code == 0 else "failed"
+    summary = safe_output(output)
+    error = "" if return_code == 0 else summary or f"Allowlisted runner exited with status {return_code}."
+    with conn.transaction():
+        conn.execute(
+            """
+            update pipeline_retry_requests
+               set status = %s,
+                   completed_at = now(),
+                   output_summary = %s,
+                   error = %s,
+                   updated_at = now()
+             where id = %s and status = 'running'
+            """,
+            (status, summary if return_code == 0 else "", error, request["id"]),
+        )
+        conn.execute(
+            """
+            insert into admin_operation_audit(action, entity_type, entity_id, actor_email, detail_json)
+            values (%s, 'pipeline_retry_request', %s, 'system-worker',
+                    jsonb_build_object('stage', %s, 'status', %s, 'returnCode', %s))
+            """,
+            (
+                "pipeline_retry_completed" if return_code == 0 else "pipeline_retry_failed",
+                str(request["id"]),
+                request["stage"],
+                status,
+                return_code,
+            ),
+        )
+
+
+def run_request(request: dict[str, Any], env_file: Path) -> tuple[int, str]:
+    command, cwd, timeout = build_command(request["stage"], env_file)
+    try:
+        result = subprocess.run(
+            command,
+            cwd=cwd,
+            env=os.environ.copy(),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+            shell=False,
+        )
+        output = "\n".join(part for part in (result.stdout, result.stderr) if part)
+        return result.returncode, output
+    except subprocess.TimeoutExpired as error:
+        output = "\n".join(
+            part.decode(errors="replace") if isinstance(part, bytes) else part or ""
+            for part in (error.stdout, error.stderr)
+        )
+        return 124, f"Allowlisted runner timed out after {timeout} seconds.\n{output}"
+    except Exception as error:  # The queue must record runner launch failures.
+        return 126, f"Could not start allowlisted runner: {type(error).__name__}: {error}"
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Process queued AIC admin operations.")
+    parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
+    parser.add_argument("--limit", type=int, default=1)
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    load_env(args.env_file)
+    worker_id = f"{socket.gethostname()}:{os.getpid()}"
+    processed = 0
+    with psycopg.connect(dsn(), row_factory=dict_row) as conn:
+        while processed < max(1, args.limit):
+            request = claim_request(conn, worker_id)
+            if not request:
+                break
+            return_code, output = run_request(request, args.env_file)
+            complete_request(conn, request, return_code=return_code, output=output)
+            processed += 1
+    print(f"processed={processed}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
