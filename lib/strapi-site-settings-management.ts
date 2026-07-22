@@ -1,6 +1,7 @@
 import "server-only";
 
-import type { ManagedStrapiPage } from "@/lib/strapi-management";
+import type { ManagedStrapiPage, StrapiPublicationStatus } from "@/lib/strapi-management";
+import { fetchWithTimeout } from "@/lib/strapi-request";
 
 type StrapiEntity<T> = {
   id?: number;
@@ -40,6 +41,8 @@ export type ManagedSiteSettings = {
   donateButtonLabel: string;
   donateButtonUrl: string;
   updatedAt: string;
+  publishedAt: string;
+  publicationStatus: StrapiPublicationStatus;
 };
 
 export type ManagedNavigationItemInput = {
@@ -104,7 +107,7 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 async function strapiJson<T>(url: URL | string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     ...init,
     headers: {
       ...headers(),
@@ -186,6 +189,8 @@ function normalizeSettings(entity: StrapiEntity<ManagedSiteSettings>): ManagedSi
     donateButtonLabel: getString(source.donateButtonLabel) || "Donate",
     donateButtonUrl: getString(source.donateButtonUrl) || "/donate",
     updatedAt: getString(source.updatedAt),
+    publishedAt: getString(source.publishedAt),
+    publicationStatus: getString(source.publishedAt) ? "published" : "draft",
   };
 }
 
@@ -219,6 +224,7 @@ function normalizeManagedPage(entity: StrapiEntity<ManagedStrapiPage>): ManagedS
     updatedAt: getString(source.updatedAt),
     createdAt: getString(source.createdAt),
     sections: [],
+    publicationStatus: getString(source.publishedAt) ? "published" : "draft",
   };
 }
 
@@ -264,14 +270,37 @@ function siteSettingsPayload(input: ManagedSiteSettingsInput) {
 
 export async function getManagedSiteSettings() {
   const baseUrl = requireConfig();
-  const url = new URL("/api/site-setting", baseUrl);
-  url.searchParams.set("status", "draft");
-  url.searchParams.set("populate[topNavigation][populate]", "page");
-  url.searchParams.set("populate[footerNavigation][populate]", "page");
-  url.searchParams.set("populate[utilityNavigation][populate]", "page");
+  const createUrl = (status: StrapiPublicationStatus) => {
+    const url = new URL("/api/site-setting", baseUrl);
+    url.searchParams.set("status", status);
+    url.searchParams.set("populate[topNavigation][populate]", "page");
+    url.searchParams.set("populate[footerNavigation][populate]", "page");
+    url.searchParams.set("populate[utilityNavigation][populate]", "page");
+    return url;
+  };
 
-  const payload = await strapiJson<StrapiSingleResponse<ManagedSiteSettings>>(url);
-  return payload.data ? normalizeSettings(payload.data) : null;
+  const draftPayload = await strapiJson<StrapiSingleResponse<ManagedSiteSettings>>(createUrl("draft"));
+  let publishedPayload: StrapiSingleResponse<ManagedSiteSettings> = {};
+  try {
+    publishedPayload = await strapiJson<StrapiSingleResponse<ManagedSiteSettings>>(createUrl("published"));
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes("404")) {
+      throw error;
+    }
+  }
+
+  const settings = draftPayload.data ? normalizeSettings(draftPayload.data) : null;
+  const publishedSettings = publishedPayload.data ? normalizeSettings(publishedPayload.data) : null;
+  if (!settings && !publishedSettings) {
+    return null;
+  }
+
+  const source = settings ?? publishedSettings!;
+  return {
+    ...source,
+    publishedAt: publishedSettings?.publishedAt ?? "",
+    publicationStatus: publishedSettings ? "published" as const : "draft" as const,
+  };
 }
 
 export async function listSiteSettingsPageOptions() {
@@ -288,9 +317,13 @@ export async function listSiteSettingsPageOptions() {
   });
 }
 
-export async function updateManagedSiteSettings(input: ManagedSiteSettingsInput) {
+export async function updateManagedSiteSettings(
+  input: ManagedSiteSettingsInput,
+  status: StrapiPublicationStatus = "draft",
+) {
   const baseUrl = requireConfig();
   const url = new URL("/api/site-setting", baseUrl);
+  url.searchParams.set("status", status);
   const payload = await strapiJson<StrapiSingleResponse<ManagedSiteSettings>>(url, {
     method: "PUT",
     body: JSON.stringify(siteSettingsPayload(input)),
@@ -299,6 +332,20 @@ export async function updateManagedSiteSettings(input: ManagedSiteSettingsInput)
 
   if (!settings) {
     throw new Error("Strapi did not return the updated site settings.");
+  }
+
+  return settings;
+}
+
+export async function unpublishManagedSiteSettings() {
+  const baseUrl = requireConfig();
+  const url = new URL("/api/site-setting", baseUrl);
+  url.searchParams.set("status", "published");
+  await strapiJson<null>(url, { method: "DELETE" });
+  const settings = await getManagedSiteSettings();
+
+  if (!settings) {
+    throw new Error("Site settings were unpublished, but the draft could not be reloaded.");
   }
 
   return settings;

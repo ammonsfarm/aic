@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "lint": "eslint .",
-    "test": "node --test tests/*.test.mjs",
+    "test": "vitest run && python3 -m unittest discover -s tests/python -p 'test_*.py' && npm run test:structured",
+    "test:structured": "node --test tests/*.test.mjs",
     "deploy:farm": "bash ./scripts/deploy-farm-web.sh"
   },
   "dependencies": {
@@ -20,7 +21,8 @@
     "next": "latest",
     "pg": "^8.20.0",
     "react": "latest",
-    "react-dom": "latest"
+    "react-dom": "latest",
+    "sanitize-html": "^2.17.6"
   },
   "devDependencies": {
     "@eslint/eslintrc": "latest",
@@ -28,8 +30,10 @@
     "@types/pg": "^8.20.0",
     "@types/react": "latest",
     "@types/react-dom": "latest",
+    "@types/sanitize-html": "^2.16.1",
     "eslint": "latest",
     "eslint-config-next": "latest",
-    "typescript": "latest"
+    "typescript": "latest",
+    "vitest": "^4.1.10"
   }
 }

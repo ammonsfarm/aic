@@ -108,9 +108,8 @@ export default async function NewStrapiPage() {
           </section>
 
           <div className="editor-form__actions">
-            <button className="button" type="submit">
-              Create page
-            </button>
+            <button className="button button--ghost" type="submit" name="publicationAction" value="draft">Create draft</button>
+            <button className="button" type="submit" name="publicationAction" value="publish">Create and publish</button>
             <Link className="button button--ghost" href="/content/site-pages">
               Cancel
             </Link>

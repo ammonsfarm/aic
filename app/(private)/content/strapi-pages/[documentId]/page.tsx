@@ -125,10 +125,10 @@ export default async function EditStrapiPage({
   searchParams,
 }: {
   params: Promise<{ documentId: string }>;
-  searchParams: Promise<{ saved?: string; created?: string }>;
+  searchParams: Promise<{ state?: string }>;
 }) {
   const { documentId } = await params;
-  const { saved, created } = await searchParams;
+  const { state } = await searchParams;
   const { page, existingSlugs, error } = await getEditorData(documentId);
 
   if (!page && !error) {
@@ -148,6 +148,14 @@ export default async function EditStrapiPage({
   }
 
   const saveAction = saveStrapiPageAction.bind(null, page.documentId);
+  const notice = {
+    "draft-saved": ["Draft saved", "The draft was saved. The public page was not changed."],
+    published: ["Published", "The latest page content is now public."],
+    unpublished: ["Unpublished", "The public version was removed. The draft is still available here."],
+    "created-draft": ["Draft created", "The new page is private until you publish it."],
+    "created-published": ["Created and published", "The new page is now public."],
+  }[state ?? ""];
+
 
   return (
     <div className="stack">
@@ -155,9 +163,7 @@ export default async function EditStrapiPage({
         <div>
           <p className="eyebrow">Content / Site Pages</p>
           <h1>{page.title || "Untitled page"}</h1>
-          <p>
-            Edit public page content from the AIC content workspace. Changes are saved securely and update the public site cache.
-          </p>
+          <p>Edit the draft, preview it safely, and publish only when the page is ready for visitors.</p>
         </div>
         <div className="status-list" aria-label="Page status">
           <span>
@@ -165,7 +171,7 @@ export default async function EditStrapiPage({
             Site visibility flag
           </span>
           <span>
-            <strong>{page.publishedAt ? "Published" : "Draft"}</strong>
+            <strong>{page.publicationStatus === "published" ? "Published" : "Draft only"}</strong>
             Publish state
           </span>
           <span>
@@ -175,17 +181,10 @@ export default async function EditStrapiPage({
         </div>
       </section>
 
-      {saved ? (
+      {notice ? (
         <section className="notice-card notice-card--success" role="status">
-          <strong>Saved</strong>
-          <p>Page content was updated and the public page cache was revalidated.</p>
-        </section>
-      ) : null}
-
-      {created ? (
-        <section className="notice-card notice-card--success" role="status">
-          <strong>Created</strong>
-          <p>The new page was created. Add sections and connect the public route when ready.</p>
+          <strong>{notice[0]}</strong>
+          <p>{notice[1]}</p>
         </section>
       ) : null}
 
@@ -197,12 +196,13 @@ export default async function EditStrapiPage({
           </div>
           <div className="button-row">
             <Link className="button button--ghost" href="/content/site-pages">Back to pages</Link>
-            <Link className="button button--ghost" href={publicPath(page)} target="_blank">View public page</Link>
+            <Link className="button button--ghost" href={`/preview/site-pages/${page.documentId}`} target="_blank">Preview draft</Link>
+            {page.publicationStatus === "published" ? <Link className="button button--ghost" href={publicPath(page)} target="_blank">View public page</Link> : null}
           </div>
         </div>
 
         <PageEditorForm action={saveAction}>
-          <PageCoreFields initialTitle={page.title} initialSlug={page.slug} existingSlugs={existingSlugs} />
+          <PageCoreFields initialTitle={page.title} initialSlug={page.slug} initialPageKey={page.pageKey} existingSlugs={existingSlugs} />
 
           <div className="checkbox-grid">
             <label className="checkbox-row">
@@ -283,7 +283,9 @@ export default async function EditStrapiPage({
           </div>
 
           <div className="editor-form__actions">
-            <button className="button" type="submit">Save page</button>
+            <button className="button button--ghost" type="submit" name="publicationAction" value="draft">Save draft</button>
+            <button className="button" type="submit" name="publicationAction" value="publish">Publish</button>
+            {page.publicationStatus === "published" ? <button className="button button--ghost" type="submit" name="publicationAction" value="unpublish">Unpublish</button> : null}
             <Link className="button button--ghost" href="/content/site-pages">Cancel</Link>
             <span className="muted-copy">Last updated {formatDate(page.updatedAt)}</span>
           </div>
