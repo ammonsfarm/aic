@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag } from "@/lib/strapi";
 import { STRAPI_SITE_SETTINGS_CACHE_TAG } from "@/lib/strapi-site-settings";
+import { isPublicStrapiChange, strapiWebhookEvent } from "@/lib/strapi-webhook";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -133,8 +134,15 @@ export async function POST(request: NextRequest) {
   if (!providedSecret || !safeSecretEquals(providedSecret, configuredSecret)) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
-
   const payload = await readPayload(request);
+  if (!isPublicStrapiChange(payload)) {
+    return NextResponse.json({
+      revalidated: false,
+      event: strapiWebhookEvent(payload) || "unknown",
+      reason: "Only publish, unpublish, and delete events invalidate the public cache.",
+    });
+  }
+
   const { pageKeys, slugs } = collectIdentifiers(payload);
   const tags = new Set([STRAPI_PAGES_CACHE_TAG, STRAPI_SITE_SETTINGS_CACHE_TAG]);
   const paths = pathsToRevalidate(pageKeys, slugs);

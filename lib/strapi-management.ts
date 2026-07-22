@@ -1,6 +1,9 @@
 import "server-only";
 
 import type { StrapiMedia, StrapiPageSection } from "@/lib/strapi";
+import { fetchWithTimeout } from "@/lib/strapi-request";
+
+export type StrapiPublicationStatus = "draft" | "published";
 
 export type ManagedStrapiPage = {
   id?: number;
@@ -21,6 +24,7 @@ export type ManagedStrapiPage = {
   updatedAt: string;
   createdAt: string;
   sections: StrapiPageSection[];
+  publicationStatus: StrapiPublicationStatus;
 };
 
 export type ManagedStrapiPageInput = {
@@ -169,6 +173,7 @@ function normalizePage(entity: StrapiEntity<ManagedStrapiPage>): ManagedStrapiPa
     seoTitle: getString(source.seoTitle),
     seoDescription: getString(source.seoDescription),
     publishedAt: getString(source.publishedAt),
+    publicationStatus: getString(source.publishedAt) ? "published" : "draft",
     updatedAt: getString(source.updatedAt),
     createdAt: getString(source.createdAt),
     sections: rawSections.flatMap((section) => {
@@ -179,7 +184,7 @@ function normalizePage(entity: StrapiEntity<ManagedStrapiPage>): ManagedStrapiPa
 }
 
 async function strapiJson<T>(url: URL | string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     ...init,
     headers: {
       ...headers(),
@@ -195,6 +200,28 @@ async function strapiJson<T>(url: URL | string, init?: RequestInit): Promise<T> 
   }
 
   return (text ? JSON.parse(text) : null) as T;
+}
+
+function mergePublicationState(
+  draftEntity: StrapiEntity<ManagedStrapiPage> | undefined,
+  publishedEntity: StrapiEntity<ManagedStrapiPage> | undefined,
+) {
+  const page = normalizePage(draftEntity ?? publishedEntity ?? {});
+  if (!page) {
+    return null;
+  }
+
+  const publishedPage = publishedEntity ? normalizePage(publishedEntity) : null;
+  return {
+    ...page,
+    publishedAt: publishedPage?.publishedAt ?? "",
+    publicationStatus: publishedPage ? "published" as const : "draft" as const,
+  };
+}
+
+function setStatus(url: URL, status: StrapiPublicationStatus) {
+  url.searchParams.set("status", status);
+  return url;
 }
 
 function pagePayload(input: ManagedStrapiPageInput) {
@@ -219,33 +246,56 @@ function pagePayload(input: ManagedStrapiPageInput) {
 
 export async function listManagedStrapiPages() {
   const baseUrl = requireConfig();
-  const url = new URL("/api/pages", baseUrl);
-  url.searchParams.set("status", "draft");
-  url.searchParams.set("pagination[pageSize]", "100");
-  url.searchParams.set("sort[0]", "navigationOrder:asc");
-  url.searchParams.set("sort[1]", "title:asc");
-  url.searchParams.set("populate[sections][populate]", "*");
+  const createUrl = (status: StrapiPublicationStatus) => {
+    const url = setStatus(new URL("/api/pages", baseUrl), status);
+    url.searchParams.set("pagination[pageSize]", "100");
+    url.searchParams.set("sort[0]", "navigationOrder:asc");
+    url.searchParams.set("sort[1]", "title:asc");
+    url.searchParams.set("populate[sections][populate]", "*");
+    return url;
+  };
 
-  const payload = await strapiJson<StrapiListResponse<ManagedStrapiPage>>(url);
-  return (payload.data ?? []).flatMap((entity) => {
-    const page = normalizePage(entity);
+  const [draftPayload, publishedPayload] = await Promise.all([
+    strapiJson<StrapiListResponse<ManagedStrapiPage>>(createUrl("draft")),
+    strapiJson<StrapiListResponse<ManagedStrapiPage>>(createUrl("published")),
+  ]);
+  const publishedByDocumentId = new Map(
+    (publishedPayload.data ?? []).map((entity) => [getString(entity.documentId), entity]),
+  );
+
+  return (draftPayload.data ?? []).flatMap((entity) => {
+    const page = mergePublicationState(entity, publishedByDocumentId.get(getString(entity.documentId)));
     return page ? [page] : [];
   });
 }
 
 export async function getManagedStrapiPage(documentId: string) {
   const baseUrl = requireConfig();
-  const url = new URL(`/api/pages/${documentId}`, baseUrl);
-  url.searchParams.set("status", "draft");
-  url.searchParams.set("populate[sections][populate]", "*");
+  const createUrl = (status: StrapiPublicationStatus) => {
+    const url = setStatus(new URL(`/api/pages/${documentId}`, baseUrl), status);
+    url.searchParams.set("populate[sections][populate]", "*");
+    return url;
+  };
 
-  const payload = await strapiJson<StrapiSingleResponse<ManagedStrapiPage>>(url);
-  return payload.data ? normalizePage(payload.data) : null;
+  const draftPayload = await strapiJson<StrapiSingleResponse<ManagedStrapiPage>>(createUrl("draft"));
+  let publishedPayload: StrapiSingleResponse<ManagedStrapiPage> = {};
+  try {
+    publishedPayload = await strapiJson<StrapiSingleResponse<ManagedStrapiPage>>(createUrl("published"));
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes("404")) {
+      throw error;
+    }
+  }
+
+  return mergePublicationState(draftPayload.data, publishedPayload.data);
 }
 
-export async function createManagedStrapiPage(input: ManagedStrapiPageInput) {
+export async function createManagedStrapiPage(
+  input: ManagedStrapiPageInput,
+  status: StrapiPublicationStatus = "draft",
+) {
   const baseUrl = requireConfig();
-  const url = new URL("/api/pages", baseUrl);
+  const url = setStatus(new URL("/api/pages", baseUrl), status);
   const payload = await strapiJson<StrapiSingleResponse<ManagedStrapiPage>>(url, {
     method: "POST",
     body: JSON.stringify(pagePayload(input)),
@@ -259,9 +309,13 @@ export async function createManagedStrapiPage(input: ManagedStrapiPageInput) {
   return page;
 }
 
-export async function updateManagedStrapiPage(documentId: string, input: ManagedStrapiPageInput) {
+export async function updateManagedStrapiPage(
+  documentId: string,
+  input: ManagedStrapiPageInput,
+  status: StrapiPublicationStatus = "draft",
+) {
   const baseUrl = requireConfig();
-  const url = new URL(`/api/pages/${documentId}`, baseUrl);
+  const url = setStatus(new URL(`/api/pages/${documentId}`, baseUrl), status);
   const payload = await strapiJson<StrapiSingleResponse<ManagedStrapiPage>>(url, {
     method: "PUT",
     body: JSON.stringify(pagePayload(input)),
@@ -273,4 +327,17 @@ export async function updateManagedStrapiPage(documentId: string, input: Managed
   }
 
   return page;
+}
+
+export async function unpublishManagedStrapiPage(documentId: string) {
+  const baseUrl = requireConfig();
+  const url = setStatus(new URL(`/api/pages/${documentId}`, baseUrl), "published");
+  await strapiJson<null>(url, { method: "DELETE" });
+  const draft = await getManagedStrapiPage(documentId);
+
+  if (!draft) {
+    throw new Error("The page was unpublished, but its draft could not be reloaded.");
+  }
+
+  return draft;
 }

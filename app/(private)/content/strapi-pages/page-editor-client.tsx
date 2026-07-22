@@ -11,6 +11,7 @@ import { useMemo, useRef, useState } from "react";
 type PageCoreFieldsProps = {
   initialTitle?: string;
   initialSlug?: string;
+  initialPageKey?: string;
   existingSlugs: string[];
 };
 
@@ -211,7 +212,7 @@ export function PageEditorForm({ action, children }: PageEditorFormProps) {
   );
 }
 
-export function PageCoreFields({ initialTitle = "", initialSlug = "", existingSlugs }: PageCoreFieldsProps) {
+export function PageCoreFields({ initialTitle = "", initialSlug = "", initialPageKey = "", existingSlugs }: PageCoreFieldsProps) {
   const [title, setTitle] = useState(initialTitle);
   const [slug, setSlug] = useState(initialSlug);
   const [slugWasEdited, setSlugWasEdited] = useState(Boolean(initialSlug));
@@ -252,7 +253,7 @@ export function PageCoreFields({ initialTitle = "", initialSlug = "", existingSl
           aria-invalid={slugExists}
           placeholder="about-pastor-wood"
         />
-        <input type="hidden" name="pageKey" value={normalizedSlug} />
+        <input type="hidden" name="pageKey" value={initialPageKey || normalizedSlug} />
         <small>The unique part of the web address for this page. Example: about-pastor-wood</small>
         {slugExists ? <strong className="field-error">This page URL is already in use.</strong> : null}
       </label>

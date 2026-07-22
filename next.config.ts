@@ -1,5 +1,7 @@
 import type { NextConfig } from "next";
 
+import { applicationSecurityHeaders } from "./lib/security-headers";
+
 const nextConfig: NextConfig = {
   experimental: {
     serverActions: {
@@ -8,6 +10,14 @@ const nextConfig: NextConfig = {
   },
   turbopack: {
     root: process.cwd(),
+  },
+  async headers() {
+    return [
+      {
+        source: "/(.*)",
+        headers: applicationSecurityHeaders(),
+      },
+    ];
   },
 };
 

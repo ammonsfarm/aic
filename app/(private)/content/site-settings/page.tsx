@@ -216,8 +216,8 @@ async function getEditorData() {
   }
 }
 
-export default async function SiteSettingsPage({ searchParams }: { searchParams: Promise<{ saved?: string }> }) {
-  const { saved } = await searchParams;
+export default async function SiteSettingsPage({ searchParams }: { searchParams: Promise<{ state?: string }> }) {
+  const { state } = await searchParams;
   const { settings, pages, error } = await getEditorData();
 
   if (!settings) {
@@ -241,9 +241,7 @@ export default async function SiteSettingsPage({ searchParams }: { searchParams:
         <div>
           <p className="eyebrow">Content / Site Settings</p>
           <h1>Site settings and navigation</h1>
-          <p>
-            Manage public site settings from AIC. Changes update the saved site settings and revalidate the public site cache.
-          </p>
+          <p>Edit and preview the draft, then publish navigation and global settings when they are ready.</p>
         </div>
         <div className="status-list" aria-label="Site settings summary">
           <span>
@@ -256,15 +254,25 @@ export default async function SiteSettingsPage({ searchParams }: { searchParams:
           </span>
           <span>
             <strong>{settings.showDonateButton ? "Visible" : "Hidden"}</strong>
+          <span>
+            <strong>{settings.publicationStatus === "published" ? "Published" : "Draft only"}</strong>
+            Publish state
+          </span>
             Donate button
           </span>
         </div>
       </section>
 
-      {saved ? (
+      {state ? (
         <section className="notice-card notice-card--success" role="status">
-          <strong>Saved</strong>
-          <p>Site settings were updated and the public site cache was revalidated.</p>
+          <strong>{state === "published" ? "Published" : state === "unpublished" ? "Unpublished" : "Draft saved"}</strong>
+          <p>
+            {state === "published"
+              ? "The latest site settings are now public."
+              : state === "unpublished"
+                ? "The public settings were removed; the draft remains available."
+                : "The draft was saved. The public site was not changed."}
+          </p>
         </section>
       ) : null}
 
@@ -276,7 +284,8 @@ export default async function SiteSettingsPage({ searchParams }: { searchParams:
           </div>
           <div className="button-row">
             <Link className="button button--ghost" href="/content">Back to content portal</Link>
-            <Link className="button button--ghost" href="/" target="_blank">View public site</Link>
+            <Link className="button button--ghost" href="/preview/site-settings" target="_blank">Preview draft</Link>
+            {settings.publicationStatus === "published" ? <Link className="button button--ghost" href="/" target="_blank">View public site</Link> : null}
           </div>
         </div>
 
@@ -318,7 +327,9 @@ export default async function SiteSettingsPage({ searchParams }: { searchParams:
           ))}
 
           <div className="editor-form__actions">
-            <button className="button" type="submit">Save site settings</button>
+            <button className="button button--ghost" type="submit" name="publicationAction" value="draft">Save draft</button>
+            <button className="button" type="submit" name="publicationAction" value="publish">Publish</button>
+            {settings.publicationStatus === "published" ? <button className="button button--ghost" type="submit" name="publicationAction" value="unpublish">Unpublish</button> : null}
             <Link className="button button--ghost" href="/content">Cancel</Link>
             <span className="muted-copy">Last updated {formatDate(settings.updatedAt)}</span>
           </div>

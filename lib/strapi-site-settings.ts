@@ -1,6 +1,7 @@
 import "server-only";
 
 import { STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag } from "@/lib/strapi";
+import { fetchStrapiJsonOrNull } from "@/lib/strapi-request";
 
 export const STRAPI_SITE_SETTINGS_CACHE_TAG = "strapi:site-settings";
 
@@ -143,20 +144,21 @@ export async function getStrapiSiteSettings(): Promise<StrapiSiteSettings | null
   url.searchParams.set("populate[footerNavigation][populate]", "page");
   url.searchParams.set("populate[utilityNavigation][populate]", "page");
 
-  const response = await fetch(url, {
-    headers,
-    next: {
-      revalidate: strapiPageRevalidateSeconds(),
-      tags: [STRAPI_SITE_SETTINGS_CACHE_TAG, STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag("site-settings")],
+  const payload = await fetchStrapiJsonOrNull<StrapiSingleResponse<StrapiSiteSettings>>(
+    url,
+    {
+      headers,
+      next: {
+        revalidate: strapiPageRevalidateSeconds(),
+        tags: [STRAPI_SITE_SETTINGS_CACHE_TAG, STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag("site-settings")],
+      },
     },
-  });
+    { label: "Strapi site settings request" },
+  );
 
-  if (!response.ok) {
-    const details = await response.text().catch(() => "");
-    console.warn(`Strapi site settings request failed with ${response.status}. Falling back.`, details.slice(0, 500));
+  if (!payload) {
     return null;
   }
 
-  const payload = (await response.json()) as StrapiSingleResponse<StrapiSiteSettings>;
   return payload.data ? normalizeSettings(payload.data) : null;
 }

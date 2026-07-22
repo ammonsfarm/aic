@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 
 import { getStrapiSiteSettings, type StrapiSiteSettings } from "@/lib/strapi-site-settings";
+import { safeCmsHref, sanitizeCmsHtml } from "@/lib/cms-html";
 
 const originalSite = "https://www.pastorwood.org";
 
@@ -342,7 +343,7 @@ function PastorWoodFooter({ siteSettings }: { siteSettings?: StrapiSiteSettings 
   );
 }
 
-function PastorWoodShell({ children, siteSettings }: { children: React.ReactNode; siteSettings?: StrapiSiteSettings | null }) {
+export function PastorWoodShell({ children, siteSettings }: { children: React.ReactNode; siteSettings?: StrapiSiteSettings | null }) {
   return (
     <main className="pw-site">
       <PastorWoodNav siteSettings={siteSettings} />
@@ -371,9 +372,7 @@ function EndorsementFigure({ item }: { item: { name: string; title: string; quot
   );
 }
 
-export async function PastorWoodSite() {
-  const siteSettings = await getStrapiSiteSettings();
-
+function PastorWoodHome({ siteSettings }: { siteSettings?: StrapiSiteSettings | null }) {
   return (
     <PastorWoodShell siteSettings={siteSettings}>
       <section className="pw-hero" id="top">
@@ -436,7 +435,16 @@ export async function PastorWoodSite() {
   );
 }
 
-function PageHero({ eyebrow, title, body }: { eyebrow?: string; title: string; body: string }) {
+export async function PastorWoodSite() {
+  const siteSettings = await getStrapiSiteSettings();
+  return <PastorWoodHome siteSettings={siteSettings} />;
+}
+
+export function PastorWoodSitePreview({ siteSettings }: { siteSettings: StrapiSiteSettings }) {
+  return <PastorWoodHome siteSettings={siteSettings} />;
+}
+
+export function PageHero({ eyebrow, title, body }: { eyebrow?: string; title: string; body: string }) {
   return (
     <section className="pw-page-hero">
       {eyebrow ? <p className="pw-kicker">{eyebrow}</p> : null}
@@ -506,41 +514,6 @@ export type PastorWoodCmsPage = {
   sections?: PastorWoodCmsSection[];
 };
 
-function escapeCmsHtml(value: string) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function legacyMarkdownToHtml(value: string) {
-  return escapeCmsHtml(value)
-    .replace(/\*\*([\s\S]+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(?!\*)([\s\S]+?)\*/g, "<em>$1</em>")
-    .replace(/\[u\]([\s\S]+?)\[\/u\]/g, "<u>$1</u>")
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
-    .split(/\n{2,}/)
-    .map((paragraph) => paragraph.trim())
-    .filter(Boolean)
-    .map((paragraph) => `<p>${paragraph}</p>`)
-    .join("");
-}
-
-function sanitizeCmsHtml(value: string) {
-  const source = /<[a-z][\s\S]*>/i.test(value) ? value : legacyMarkdownToHtml(value);
-
-  return source
-    .replace(/<\/?(script|style|iframe|object|embed|form|input|button|textarea|select|option|meta|link)[^>]*>/gi, "")
-    .replace(/\son\w+="[^"]*"/gi, "")
-    .replace(/\son\w+='[^']*'/gi, "")
-    .replace(/\son\w+=[^\s>]+/gi, "")
-    .replace(/href="\s*javascript:[^"]*"/gi, 'href="#"')
-    .replace(/href='\s*javascript:[^']*'/gi, "href='#'")
-    .replace(/<(?!\/?(?:p|br|strong|b|em|i|u|ul|ol|li|h1|h2|h3|a)\b)[^>]*>/gi, "")
-    .replace(/<a\s+/gi, '<a rel="noreferrer" ');
-}
-
 function RichTextContent({ value }: { value: string }) {
   return <div className="pw-rich-text" dangerouslySetInnerHTML={{ __html: sanitizeCmsHtml(value) }} />;
 }
@@ -558,6 +531,7 @@ function CmsPageSections({ sections }: { sections?: PastorWoodCmsSection[] }) {
         const isCta = section.component === "page-sections.cta-section";
         const isImageText = section.component === "page-sections.image-text-section";
         const imageFirst = isImageText && section.imageSide === "left";
+        const buttonHref = safeCmsHref(section.buttonUrl ?? "");
         const copy = (
           <div>
             {section.eyebrow ? <p className="pw-kicker">{section.eyebrow}</p> : null}
@@ -575,8 +549,8 @@ function CmsPageSections({ sections }: { sections?: PastorWoodCmsSection[] }) {
             {imageFirst ? image : null}
             {copy}
             {!imageFirst ? image : null}
-            {isCta && section.buttonLabel && section.buttonUrl ? (
-              <a className="pw-button pw-button--primary" href={section.buttonUrl} target={section.buttonUrl.startsWith("http") ? "_blank" : undefined} rel={section.buttonUrl.startsWith("http") ? "noreferrer" : undefined}>{section.buttonLabel}</a>
+            {isCta && section.buttonLabel && buttonHref ? (
+              <a className="pw-button pw-button--primary" href={buttonHref} target={buttonHref.startsWith("http") ? "_blank" : undefined} rel={buttonHref.startsWith("http") ? "noreferrer noopener" : undefined}>{section.buttonLabel}</a>
             ) : null}
           </article>
         );
