@@ -53,6 +53,13 @@ type TranscriptRequestRow = {
   created_at: string;
   updated_at: string;
   processing_error: string;
+  attempt_count: number;
+  next_attempt_at: string;
+  needs_revectorization: boolean;
+  revectorization_attempt_count: number;
+  next_revectorization_at: string;
+  terminal_edit: boolean;
+  terminal_revectorization: boolean;
 };
 
 type RetryRequestRow = {
@@ -144,6 +151,13 @@ export type OperationalDashboard = {
       createdAt: string;
       updatedAt: string;
       error: string;
+      attemptCount: number;
+      nextAttemptAt: string;
+      needsRevectorization: boolean;
+      revectorizationAttemptCount: number;
+      nextRevectorizationAt: string;
+      terminalEdit: boolean;
+      terminalRevectorization: boolean;
     }>;
   };
   retries: Array<{
@@ -283,9 +297,22 @@ export async function getOperationalDashboard({ limit = 20 }: { limit?: number }
         [safeLimit],
       ),
       queryRows<TranscriptStatusRow>(
-        `select status, count(*)::text as count, max(updated_at)::text as latest
-           from transcript_edit_requests
-          group by status
+        `select status, count, latest
+           from (
+             select status, count(*)::text as count, max(updated_at)::text as latest
+               from transcript_edit_requests
+              group by status
+             union all
+             select 'needs-revectorization', count(*)::text, max(updated_at)::text
+               from transcript_edit_requests
+              where status = 'applied' and needs_revectorization
+             union all
+             select 'terminal-revectorization', count(*)::text, max(updated_at)::text
+               from transcript_edit_requests
+              where status = 'applied' and needs_revectorization
+                and next_revectorization_at = 'infinity'::timestamptz
+           ) summary
+          where count::int > 0
           order by status`,
       ),
       queryRows<TranscriptRequestRow>(
@@ -297,7 +324,15 @@ export async function getOperationalDashboard({ limit = 20 }: { limit?: number }
            r.edited_by,
            r.created_at::text,
            r.updated_at::text,
-           r.processing_error
+           r.processing_error,
+           r.attempt_count,
+           r.next_attempt_at::text,
+           r.needs_revectorization,
+           r.revectorization_attempt_count,
+           r.next_revectorization_at::text,
+           (r.status = 'failed' and r.next_attempt_at = 'infinity'::timestamptz) as terminal_edit,
+           (r.status = 'applied' and r.needs_revectorization
+             and r.next_revectorization_at = 'infinity'::timestamptz) as terminal_revectorization
          from transcript_edit_requests r
          left join episodes e on e.track_id = r.track_id
          order by r.updated_at desc
@@ -384,6 +419,13 @@ export async function getOperationalDashboard({ limit = 20 }: { limit?: number }
         createdAt: row.created_at,
         updatedAt: row.updated_at,
         error: row.processing_error,
+        attemptCount: Number(row.attempt_count) || 0,
+        nextAttemptAt: row.next_attempt_at,
+        needsRevectorization: row.needs_revectorization,
+        revectorizationAttemptCount: Number(row.revectorization_attempt_count) || 0,
+        nextRevectorizationAt: row.next_revectorization_at,
+        terminalEdit: row.terminal_edit,
+        terminalRevectorization: row.terminal_revectorization,
       })),
     },
     retries: retryRows.map((row) => ({
@@ -542,9 +584,45 @@ export async function queuePipelineRetry({
 }) {
   const normalizedSourceRunId = boundedText(sourceRunId, 120) || null;
   const normalizedReason = boundedText(reason, 1000);
+  if (stage === "transcript-edits" && !normalizedReason) {
+    throw new Error("A reason is required before retrying transcript edits or terminal vector work.");
+  }
   const client = await getPool().connect();
   try {
     await client.query("begin");
+    let terminalReset = { edit_count: 0, revectorization_count: 0 };
+    if (stage === "transcript-edits") {
+      const resetResult = await client.query<{ edit_count: number; revectorization_count: number }>(
+        `with candidates as (
+           select id,
+                  next_attempt_at = 'infinity'::timestamptz as edit_terminal,
+                  next_revectorization_at = 'infinity'::timestamptz as revectorization_terminal
+             from transcript_edit_requests
+            where next_attempt_at = 'infinity'::timestamptz
+               or next_revectorization_at = 'infinity'::timestamptz
+            for update
+         ), reset as (
+           update transcript_edit_requests r
+              set attempt_count = case when c.edit_terminal then 0 else r.attempt_count end,
+                  next_attempt_at = case when c.edit_terminal then now() else r.next_attempt_at end,
+                  revectorization_attempt_count = case when c.revectorization_terminal then 0 else r.revectorization_attempt_count end,
+                  next_revectorization_at = case when c.revectorization_terminal then now() else r.next_revectorization_at end,
+                  claimed_at = null,
+                  worker_id = '',
+                  revectorization_claimed_at = null,
+                  revectorization_worker_id = '',
+                  processing_error = '',
+                  updated_at = now()
+             from candidates c
+            where r.id = c.id
+            returning c.edit_terminal, c.revectorization_terminal
+         )
+         select count(*) filter (where edit_terminal)::int as edit_count,
+                count(*) filter (where revectorization_terminal)::int as revectorization_count
+           from reset`,
+      );
+      terminalReset = resetResult.rows[0] ?? terminalReset;
+    }
     const result = await client.query<RetryRequestRow>(
       `insert into pipeline_retry_requests(stage, source_run_id, reason, requested_by)
        values ($1, $2, $3, $4)
@@ -558,6 +636,21 @@ export async function queuePipelineRetry({
        values ('pipeline_retry_queued', 'pipeline_retry_request', $1, $2, $3::jsonb)`,
       [request.id, actorEmail, JSON.stringify({ stage, sourceRunId: normalizedSourceRunId, reason: normalizedReason })],
     );
+    if (stage === "transcript-edits" && (terminalReset.edit_count || terminalReset.revectorization_count)) {
+      await client.query(
+        `insert into admin_operation_audit(action, entity_type, entity_id, actor_email, detail_json)
+         values ('transcript_terminal_retry_reset', 'pipeline_retry_request', $1, $2, $3::jsonb)`,
+        [
+          request.id,
+          actorEmail,
+          JSON.stringify({
+            reason: normalizedReason,
+            editCount: terminalReset.edit_count,
+            revectorizationCount: terminalReset.revectorization_count,
+          }),
+        ],
+      );
+    }
     await client.query("commit");
     return request;
   } catch (error) {

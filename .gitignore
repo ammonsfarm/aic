@@ -16,6 +16,7 @@ transcript_cache/
 .next/
 out/
 node_modules/
+*.tsbuildinfo
 
 # npm
 npm-debug.log*

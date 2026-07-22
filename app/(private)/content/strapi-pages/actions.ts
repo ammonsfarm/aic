@@ -4,16 +4,16 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { redirect } from "next/navigation";
 
 import {
-  createManagedStrapiPage,
+  createManagedStrapiPageWithWorkflow,
   getManagedStrapiPage,
-  listManagedStrapiPages,
-  unpublishManagedStrapiPage,
-  updateManagedStrapiPage,
+  assertManagedStrapiPageSlugAvailable,
+  rollbackManagedStrapiPage,
+  transitionManagedStrapiPage,
+  updateManagedStrapiPageWithWorkflow,
   type ManagedStrapiPageInput,
 } from "@/lib/strapi-management";
 import {
   assertAllowedPageSlug,
-  assertUniquePageSlug,
   immutablePageKey,
 } from "@/lib/cms-page-validation";
 import { requireContentManagerApiUser } from "@/lib/rbac";
@@ -35,6 +35,8 @@ const PAGE_PATH_BY_KEY: Record<string, string> = {
   "privacy-terms-conditions": "/privacy-terms-conditions",
   "written-resources": "/written-resources",
 };
+const MAX_SECTION_IMAGE_BYTES = 15 * 1024 * 1024;
+const ALLOWED_SECTION_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"]);
 
 function formString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -66,6 +68,12 @@ function strapiWriteToken() {
 async function uploadSectionImage(file: File) {
   if (!file.size) {
     return null;
+  }
+  if (file.size > MAX_SECTION_IMAGE_BYTES) {
+    throw new Error("Section images must be 15 MB or smaller.");
+  }
+  if (!ALLOWED_SECTION_IMAGE_TYPES.has(file.type.toLowerCase())) {
+    throw new Error("Section images must be JPEG, PNG, WebP, GIF, or AVIF files.");
   }
 
   const baseUrl = strapiBaseUrl();
@@ -246,8 +254,7 @@ function publicationIntent(formData: FormData): PublicationIntent {
 }
 
 async function assertPageSlugIsUnique(input: ManagedStrapiPageInput, excludeDocumentId?: string) {
-  const pages = await listManagedStrapiPages();
-  assertUniquePageSlug({ slug: input.slug, pages, excludeDocumentId });
+  await assertManagedStrapiPageSlugAvailable(input.slug, excludeDocumentId);
 }
 
 function revalidateManagedPageEditor(documentId?: string) {
@@ -279,7 +286,7 @@ function revalidatePublishedPage(
 }
 
 export async function saveStrapiPageAction(documentId: string, formData: FormData) {
-  await requireContentManagerApiUser();
+  const user = await requireContentManagerApiUser();
   const existingPage = await getManagedStrapiPage(documentId);
   if (!existingPage) {
     throw new Error("The page no longer exists in Strapi.");
@@ -289,16 +296,20 @@ export async function saveStrapiPageAction(documentId: string, formData: FormDat
   const input = await parsePageInput(formData, previousIdentity);
   await assertPageSlugIsUnique(input, documentId);
   const intent = publicationIntent(formData);
+  const note = formString(formData, "changeNote");
 
   if (intent === "unpublish") {
-    await updateManagedStrapiPage(documentId, input, "draft");
-    await unpublishManagedStrapiPage(documentId);
+    await updateManagedStrapiPageWithWorkflow(documentId, input, user, note);
+    await transitionManagedStrapiPage(documentId, "unpublish", user, note);
     revalidateManagedPageEditor(documentId);
     revalidatePublishedPage(input, previousIdentity);
     redirect(`/content/site-pages/${documentId}?state=unpublished`);
   }
 
-  await updateManagedStrapiPage(documentId, input, intent === "publish" ? "published" : "draft");
+  await updateManagedStrapiPageWithWorkflow(documentId, input, user, note);
+  if (intent === "publish") {
+    await transitionManagedStrapiPage(documentId, "publish", user, note);
+  }
   revalidateManagedPageEditor(documentId);
   if (intent === "publish") {
     revalidatePublishedPage(input, previousIdentity);
@@ -307,14 +318,84 @@ export async function saveStrapiPageAction(documentId: string, formData: FormDat
 }
 
 export async function createStrapiPageAction(formData: FormData) {
-  await requireContentManagerApiUser();
+  const user = await requireContentManagerApiUser();
   const input = await parsePageInput(formData);
   await assertPageSlugIsUnique(input);
   const status = publicationIntent(formData) === "publish" ? "published" : "draft";
-  const page = await createManagedStrapiPage(input, status);
+  const note = formString(formData, "changeNote");
+  const page = await createManagedStrapiPageWithWorkflow(input, user, note);
+  if (status === "published") {
+    await transitionManagedStrapiPage(page.documentId, "publish", user, note);
+  }
   revalidateManagedPageEditor(page.documentId);
   if (status === "published") {
     revalidatePublishedPage(input);
   }
   redirect(`/content/site-pages/${page.documentId}?state=${status === "published" ? "created-published" : "created-draft"}`);
+}
+
+export async function transitionStrapiPageAction(
+  documentId: string,
+  action: "archive" | "restore",
+  formData: FormData,
+) {
+  const user = await requireContentManagerApiUser();
+  const page = await getManagedStrapiPage(documentId);
+  if (!page) {
+    throw new Error("The page no longer exists in Strapi.");
+  }
+  const note = formString(formData, "transitionNote");
+  await transitionManagedStrapiPage(documentId, action, user, note);
+  revalidateManagedPageEditor(documentId);
+  revalidatePublishedPage({ ...page, sections: [] }, { pageKey: page.pageKey, slug: page.slug });
+  redirect(`/content/site-pages/${documentId}?state=${action}d`);
+}
+
+export async function rollbackStrapiPageAction(
+  documentId: string,
+  revisionDocumentId: string,
+  formData: FormData,
+) {
+  const user = await requireContentManagerApiUser();
+  const page = await getManagedStrapiPage(documentId);
+  if (!page) {
+    throw new Error("The page no longer exists in Strapi.");
+  }
+  await rollbackManagedStrapiPage(
+    documentId,
+    revisionDocumentId,
+    user,
+    formString(formData, "rollbackNote"),
+  );
+  revalidateManagedPageEditor(documentId);
+  redirect(`/content/site-pages/${documentId}?state=rolled-back`);
+}
+
+export async function deleteStrapiPageAction(
+  documentId: string,
+  expectedTitle: string,
+  formData: FormData,
+) {
+  const user = await requireContentManagerApiUser();
+  const page = await getManagedStrapiPage(documentId);
+  if (!page) {
+    throw new Error("The page no longer exists in Strapi.");
+  }
+  const confirmation = formString(formData, "deleteConfirmation");
+  if (page.title !== expectedTitle) {
+    throw new Error("The page title changed after this editor was opened. Reload before deleting it.");
+  }
+  if (confirmation !== page.title) {
+    throw new Error("Deletion confirmation must exactly match the current page title.");
+  }
+  await transitionManagedStrapiPage(
+    documentId,
+    "delete",
+    user,
+    formString(formData, "deleteNote") || "Deleted from the AIC page builder.",
+    confirmation,
+  );
+  revalidateManagedPageEditor();
+  revalidatePublishedPage({ ...page, sections: [] });
+  redirect("/content/site-pages?deleted=1");
 }

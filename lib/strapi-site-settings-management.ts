@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { ManagedStrapiPage, StrapiPublicationStatus } from "@/lib/strapi-management";
+import { listManagedStrapiPages, type StrapiPublicationStatus } from "@/lib/strapi-management";
 import { fetchWithTimeout } from "@/lib/strapi-request";
 
 type StrapiEntity<T> = {
@@ -8,10 +8,6 @@ type StrapiEntity<T> = {
   documentId?: string;
   attributes?: Partial<T>;
 } & Partial<T>;
-
-type StrapiListResponse<T> = {
-  data?: Array<StrapiEntity<T>>;
-};
 
 type StrapiSingleResponse<T> = {
   data?: StrapiEntity<T>;
@@ -194,40 +190,6 @@ function normalizeSettings(entity: StrapiEntity<ManagedSiteSettings>): ManagedSi
   };
 }
 
-function normalizeManagedPage(entity: StrapiEntity<ManagedStrapiPage>): ManagedStrapiPage | null {
-  const source = asRecord(entity.attributes ?? entity);
-  const documentId = getString(entity.documentId ?? source.documentId);
-  const title = getString(source.title);
-  const slug = getString(source.slug);
-  const pageKey = getString(source.pageKey);
-
-  if (!documentId || (!title && !slug && !pageKey)) {
-    return null;
-  }
-
-  return {
-    id: entity.id,
-    documentId,
-    pageKey,
-    slug,
-    title,
-    active: getBoolean(source.active, true),
-    showInNavigation: getBoolean(source.showInNavigation),
-    navigationLabel: getString(source.navigationLabel),
-    navigationOrder: getNumber(source.navigationOrder),
-    heroLabel: getString(source.heroLabel),
-    heroTitle: getString(source.heroTitle),
-    heroBody: getString(source.heroBody),
-    seoTitle: getString(source.seoTitle),
-    seoDescription: getString(source.seoDescription),
-    publishedAt: getString(source.publishedAt),
-    updatedAt: getString(source.updatedAt),
-    createdAt: getString(source.createdAt),
-    sections: [],
-    publicationStatus: getString(source.publishedAt) ? "published" : "draft",
-  };
-}
-
 function navigationPayload(items: ManagedNavigationItemInput[]) {
   return items.map((item) => {
     const payload: Record<string, unknown> = {
@@ -304,17 +266,7 @@ export async function getManagedSiteSettings() {
 }
 
 export async function listSiteSettingsPageOptions() {
-  const baseUrl = requireConfig();
-  const url = new URL("/api/pages", baseUrl);
-  url.searchParams.set("status", "draft");
-  url.searchParams.set("pagination[pageSize]", "100");
-  url.searchParams.set("sort[0]", "title:asc");
-
-  const payload = await strapiJson<StrapiListResponse<ManagedStrapiPage>>(url);
-  return (payload.data ?? []).flatMap((entity) => {
-    const page = normalizeManagedPage(entity);
-    return page ? [page] : [];
-  });
+  return listManagedStrapiPages();
 }
 
 export async function updateManagedSiteSettings(

@@ -28,7 +28,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Administrator role is required." }, { status: 403 });
     }
     const message = error instanceof Error ? error.message : "Could not queue the retry request.";
-    const status = /already queued or running/i.test(message) ? 409 : 500;
+    const status = /already queued or running/i.test(message)
+      ? 409
+      : /reason is required/i.test(message)
+        ? 400
+        : 500;
     return NextResponse.json({ error: message }, { status });
   }
 }

@@ -1,6 +1,13 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
 
-import { listManagedStrapiPages, type ManagedStrapiPage } from "@/lib/strapi-management";
+import {
+  getManagedStrapiPageSummary,
+  listManagedStrapiPagesPage,
+  type ManagedStrapiPage,
+  type ManagedStrapiPagePagination,
+  type ManagedStrapiPageSummary,
+} from "@/lib/strapi-management";
 
 export const dynamic = "force-dynamic";
 
@@ -43,22 +50,43 @@ function statusText(page: ManagedStrapiPage) {
   return page.publishedAt ? "Published" : "Draft";
 }
 
-async function getPages() {
+async function getPages(page: number, search: string) {
   try {
-    return { pages: await listManagedStrapiPages(), error: null as string | null };
+    const [result, summary] = await Promise.all([
+      listManagedStrapiPagesPage({ page, search }),
+      getManagedStrapiPageSummary(),
+    ]);
+    return { ...result, summary, error: null as string | null };
   } catch (error) {
     console.error("Page lookup failed", error);
     return {
       pages: [] as ManagedStrapiPage[],
+      pagination: { page, pageSize: 50, pageCount: 0, total: 0 } as ManagedStrapiPagePagination,
+      summary: { total: 0, active: 0, published: 0 } as ManagedStrapiPageSummary,
       error: error instanceof Error ? error.message : "Pages could not be loaded.",
     };
   }
 }
 
-export default async function StrapiPagesPage() {
-  const { pages, error } = await getPages();
-  const publishedCount = pages.filter((page) => page.publishedAt).length;
-  const activeCount = pages.filter((page) => page.active).length;
+export default async function StrapiPagesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ deleted?: string; page?: string; q?: string }>;
+}) {
+  const query = await searchParams;
+  const requestedPage = Math.max(1, Number.parseInt(query.page || "1", 10) || 1);
+  const search = (query.q || "").trim().slice(0, 160);
+  const { pages, pagination, summary, error } = await getPages(requestedPage, search);
+  if (!error && requestedPage > 1 && (pagination.pageCount === 0 || requestedPage > pagination.pageCount)) {
+    notFound();
+  }
+  const pageHref = (page: number) => {
+    const params = new URLSearchParams();
+    if (search) params.set("q", search);
+    if (page > 1) params.set("page", String(page));
+    const suffix = params.toString();
+    return suffix ? `/content/site-pages?${suffix}` : "/content/site-pages";
+  };
 
   return (
     <div className="stack">
@@ -72,19 +100,26 @@ export default async function StrapiPagesPage() {
         </div>
         <div className="status-list" aria-label="Page summary">
           <span>
-            <strong>{pages.length}</strong>
+            <strong>{summary.total}</strong>
             Pages
           </span>
           <span>
-            <strong>{activeCount}</strong>
+            <strong>{summary.active}</strong>
             Active
           </span>
           <span>
-            <strong>{publishedCount}</strong>
+            <strong>{summary.published}</strong>
             Published
           </span>
         </div>
       </section>
+
+      {query.deleted ? (
+        <section className="notice-card notice-card--success" role="status">
+          <strong>Page deleted</strong>
+          <p>The draft and public version were removed. The immutable audit snapshot remains available.</p>
+        </section>
+      ) : null}
 
       {error ? (
         <section className="notice-card" role="status">
@@ -108,6 +143,17 @@ export default async function StrapiPagesPage() {
             </Link>
           </div>
         </div>
+
+        <form className="filter-form" method="get" action="/content/site-pages" role="search">
+          <label>
+            <span>Search pages</span>
+            <input name="q" defaultValue={search} maxLength={160} placeholder="Title, slug, or page key" />
+          </label>
+          <div className="button-row">
+            <button className="button" type="submit">Search</button>
+            {search ? <Link className="button button--ghost" href="/content/site-pages">Clear</Link> : null}
+          </div>
+        </form>
 
         <div className="responsive-table" role="region" aria-label="Site pages">
           <table>
@@ -155,13 +201,26 @@ export default async function StrapiPagesPage() {
               {pages.length === 0 ? (
                 <tr>
                   <td colSpan={7}>
-                    <span className="muted-copy">No pages found.</span>
+                    <span className="muted-copy">
+                      {error ? "No pages could be loaded." : search ? "No pages match this search." : "No pages found."}
+                    </span>
                   </td>
                 </tr>
               ) : null}
             </tbody>
           </table>
         </div>
+        {pagination.pageCount > 1 ? (
+          <nav className="pagination" aria-label="Site page inventory pages">
+            {pagination.page > 1 ? (
+              <Link className="button button--ghost" href={pageHref(pagination.page - 1)} rel="prev">Previous</Link>
+            ) : <span />}
+            <span>Page {pagination.page} of {pagination.pageCount} · {pagination.total} {search ? "matches" : "pages"}</span>
+            {pagination.page < pagination.pageCount ? (
+              <Link className="button button--ghost" href={pageHref(pagination.page + 1)} rel="next">Next</Link>
+            ) : <span />}
+          </nav>
+        ) : null}
       </section>
     </div>
   );

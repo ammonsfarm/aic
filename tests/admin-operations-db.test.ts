@@ -52,6 +52,43 @@ describe("admin operation database workflows", () => {
     expect(mocks.release).toHaveBeenCalledOnce();
   });
 
+  it("audits and resets terminal transcript work when an administrator retries that stage", async () => {
+    mocks.clientQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes("with candidates as") && sql.includes("revectorization_terminal")) {
+        return { rows: [{ edit_count: 2, revectorization_count: 1 }] };
+      }
+      if (sql.includes("returning id::text, stage")) {
+        return {
+          rows: [{
+            id: "43",
+            stage: "transcript-edits",
+            source_run_id: null,
+            reason: "credentials repaired",
+            status: "queued",
+            requested_by: "admin@example.test",
+            requested_at: "2026-07-22T12:00:00Z",
+            started_at: null,
+            completed_at: null,
+            output_summary: "",
+            error: "",
+          }],
+        };
+      }
+      return { rows: [] };
+    });
+
+    await queuePipelineRetry({
+      stage: "transcript-edits",
+      reason: "credentials repaired",
+      actorEmail: "admin@example.test",
+    });
+
+    const statements = mocks.clientQuery.mock.calls.map(([sql]) => String(sql));
+    expect(statements.some((sql) => sql.includes("next_revectorization_at = case"))).toBe(true);
+    expect(statements.some((sql) => sql.includes("transcript_terminal_retry_reset"))).toBe(true);
+    expect(statements.at(-1)).toBe("commit");
+  });
+
   it("reconciles a Podtrac row and writes immutable audit records", async () => {
     mocks.clientQuery.mockImplementation(async (sql: string) => {
       if (sql.includes("from podtrac_episodes") && sql.includes("for update")) {

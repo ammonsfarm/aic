@@ -11,13 +11,18 @@ function formatDate(value: string | null) {
     return "In progress";
   }
 
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value === "infinity" ? "No automatic retry" : value;
+  }
+
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  }).format(new Date(value));
+  }).format(date);
 }
 
 function statusClass(status: string) {
@@ -124,6 +129,24 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
               <span key={status} className={statusClass(status)}><strong>{status}</strong>{count}</span>
             ))}
             <span><strong>Latest update</strong>{formatDate(operations.transcript.latestUpdate)}</span>
+          </div>
+          <h3>Recent correction state</h3>
+          <div className="status-list status-list--compact">
+            {operations.transcript.recent.slice(0, 8).map((edit) => (
+              <span
+                key={edit.id}
+                className={statusClass(`${edit.status} ${edit.terminalEdit || edit.terminalRevectorization ? "failure" : ""}`)}
+              >
+                <strong>{edit.episodeTitle}</strong>
+                {edit.status}{edit.needsRevectorization ? " · vector update pending" : ""}
+                <small>
+                  Edit attempts {edit.attemptCount}; vector attempts {edit.revectorizationAttemptCount}. {edit.terminalEdit || edit.terminalRevectorization
+                    ? "Admin retry required."
+                    : `Next eligible ${formatDate(edit.needsRevectorization ? edit.nextRevectorizationAt : edit.nextAttemptAt)}.`}
+                  {edit.error ? ` ${edit.error}` : ""}
+                </small>
+              </span>
+            ))}
           </div>
         </div>
       </section>
