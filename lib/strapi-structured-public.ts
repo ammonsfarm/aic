@@ -1,5 +1,6 @@
 import "server-only";
 
+import { safeCmsImageSrc } from "@/lib/cms-html";
 import { cmsMediaPublicUrl } from "@/lib/cms-media-url";
 import { STRAPI_STRUCTURED_CACHE_TAG, strapiStructuredCacheTag } from "@/lib/strapi-cache-tags";
 import type { StructuredCollectionKey } from "@/lib/structured-content-config";
@@ -292,7 +293,7 @@ export async function listPublishedBoardMembers(): Promise<PublishedPerson[]> {
     title: text(entry.title),
     organization: text(entry.organization),
     biography: text(entry.biography),
-    photoUrl: absoluteMediaUrl(entry.photo),
+    photoUrl: absoluteMediaUrl(entry.photo) || safeCmsImageSrc(text(entry.legacyPhotoUrl)),
     sortOrder: number(entry.sortOrder),
   }));
 }

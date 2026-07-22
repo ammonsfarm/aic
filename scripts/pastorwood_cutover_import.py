@@ -901,6 +901,26 @@ def safe_upload_relative_path(value: str) -> str | None:
     return path.as_posix()
 
 
+def local_legacy_media_url(value: str) -> str:
+    source = text(value)
+    try:
+        parsed = urllib.parse.urlsplit(source)
+    except ValueError:
+        return ""
+    if (
+        parsed.scheme not in {"http", "https"}
+        or (parsed.hostname or "").casefold() not in {"pastorwood.org", "www.pastorwood.org"}
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+        or "/wp-content/uploads/" not in parsed.path
+    ):
+        return ""
+    relative = safe_upload_relative_path(source)
+    return f"/media/legacy/{relative}" if relative else ""
+
+
 def normalize_legacy_url(raw_value: str) -> tuple[str, str]:
     cleaned = html.unescape(raw_value.strip())
     cleaned = re.sub(r'\s*"\s*\?>\s*$', "", cleaned)
@@ -1592,13 +1612,272 @@ def shortcode_attributes(value: str) -> dict[str, str]:
     }
 
 
+class DiviStructuredContentParser(HTMLParser):
+    """Extract board members and testimonials from WordPress-rendered Divi HTML."""
+
+    VOID_TAGS = {
+        "area", "base", "br", "col", "embed", "hr", "img", "input",
+        "link", "meta", "param", "source", "track", "wbr",
+    }
+    BLOCK_TAGS = {"article", "blockquote", "div", "h1", "h2", "h3", "h4", "h5", "h6", "li", "p", "section"}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.stack: list[dict[str, Any]] = []
+        self.people: list[dict[str, str]] = []
+        self.testimonials: list[dict[str, str]] = []
+        self.standalone_images: list[dict[str, str]] = []
+        self.current_person: dict[str, Any] | None = None
+        self.current_testimonial: dict[str, Any] | None = None
+
+    @staticmethod
+    def _classes(attributes: dict[str, str]) -> set[str]:
+        return {item for item in attributes.get("class", "").split() if item}
+
+    def _inside(self, class_name: str) -> bool:
+        return any(class_name in frame["classes"] for frame in self.stack)
+
+    @staticmethod
+    def _joined(parts: Sequence[str]) -> str:
+        return re.sub(r"\s+", " ", "".join(parts)).strip()
+
+    def _finish_frame(self, frame: dict[str, Any]) -> None:
+        if frame.get("finished"):
+            return
+        module = frame.get("module")
+        if module == "person" and isinstance(frame.get("record"), dict):
+            person = frame["record"]
+            frame["finished"] = True
+            if self.current_person is person:
+                self.current_person = None
+            record = {
+                "name": self._joined(person["name"]),
+                "position": self._joined(person["position"]),
+                "biography": self._joined(person["biography"]),
+                "imageUrl": text(person.get("imageUrl")),
+                "website": text(person.get("website")),
+            }
+            self.people.append(record)
+        elif module == "testimonial" and isinstance(frame.get("record"), dict):
+            testimonial = frame["record"]
+            frame["finished"] = True
+            if self.current_testimonial is testimonial:
+                self.current_testimonial = None
+            record = {
+                "quote": self._joined(testimonial["quote"]).strip(" \u201c\"\u201d"),
+                "attribution": self._joined(testimonial["attribution"]),
+                "title": self._joined(testimonial["title"]),
+                "organization": self._joined(testimonial["organization"]),
+                "documentUrl": text(testimonial.get("documentUrl")),
+            }
+            self.testimonials.append(record)
+
+    def _start(self, tag: str, attrs: list[tuple[str, str | None]], *, push: bool) -> None:
+        tag = tag.casefold()
+        attributes = {key.casefold(): html.unescape(value or "") for key, value in attrs}
+        classes = self._classes(attributes)
+        frame: dict[str, Any] = {"tag": tag, "classes": classes}
+
+        if tag == "div" and "et_pb_module" in classes and "et_pb_team_member" in classes:
+            if self.current_person is not None:
+                for existing in reversed(self.stack):
+                    if existing.get("module") == "person":
+                        self._finish_frame(existing)
+                        break
+            self.current_person = {"name": [], "position": [], "biography": [], "imageUrl": "", "website": ""}
+            frame["module"] = "person"
+            frame["record"] = self.current_person
+        elif tag == "div" and "et_pb_module" in classes and "et_pb_testimonial" in classes:
+            if self.current_testimonial is not None:
+                for existing in reversed(self.stack):
+                    if existing.get("module") == "testimonial":
+                        self._finish_frame(existing)
+                        break
+            self.current_testimonial = {
+                "quote": [], "attribution": [], "title": [], "organization": [], "documentUrl": "",
+            }
+            frame["module"] = "testimonial"
+            frame["record"] = self.current_testimonial
+
+        if self.current_person is not None:
+            if tag == "img" and self._inside("et_pb_team_member_image") and not self.current_person["imageUrl"]:
+                self.current_person["imageUrl"] = attributes.get("src", "")
+            elif tag == "a" and not self.current_person["website"]:
+                href = attributes.get("href", "")
+                if href.startswith(("https://", "http://")):
+                    self.current_person["website"] = href
+
+        if tag == "img" and self._inside("et_pb_image") and attributes.get("src"):
+            self.standalone_images.append({
+                "src": attributes["src"],
+                "label": attributes.get("alt") or attributes.get("title", ""),
+            })
+
+        if self.current_testimonial is not None and tag == "iframe" and self._inside("et_pb_testimonial_content"):
+            self.current_testimonial["documentUrl"] = attributes.get("src", "")
+
+        if tag == "br" or tag in self.BLOCK_TAGS:
+            self._capture_data(" ")
+
+        if push:
+            self.stack.append(frame)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self._start(tag, attrs, push=tag.casefold() not in self.VOID_TAGS)
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self._start(tag, attrs, push=False)
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = tag.casefold()
+        if tag in self.BLOCK_TAGS:
+            self._capture_data(" ")
+        matching_index = next((index for index in range(len(self.stack) - 1, -1, -1) if self.stack[index]["tag"] == tag), None)
+        if matching_index is None:
+            return
+        removed = self.stack[matching_index:]
+        del self.stack[matching_index:]
+        for frame in reversed(removed):
+            self._finish_frame(frame)
+
+    def _capture_data(self, value: str) -> None:
+        if self.current_person is not None:
+            if self._inside("et_pb_module_header"):
+                self.current_person["name"].append(value)
+            elif self._inside("et_pb_member_position"):
+                self.current_person["position"].append(value)
+            elif self._inside("et_pb_team_member_description"):
+                self.current_person["biography"].append(value)
+        if self.current_testimonial is not None:
+            if self._inside("et_pb_testimonial_content"):
+                self.current_testimonial["quote"].append(value)
+            elif self._inside("et_pb_testimonial_author"):
+                self.current_testimonial["attribution"].append(value)
+            elif self._inside("et_pb_testimonial_position"):
+                self.current_testimonial["title"].append(value)
+            elif self._inside("et_pb_testimonial_company"):
+                self.current_testimonial["organization"].append(value)
+
+    def handle_data(self, data: str) -> None:
+        self._capture_data(data)
+
+    def finish(self) -> None:
+        for frame in reversed(self.stack):
+            self._finish_frame(frame)
+        self.stack.clear()
+
+
+def divi_rendered_structured_content(value: str) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    parser = DiviStructuredContentParser()
+    parser.feed(value)
+    parser.close()
+    parser.finish()
+    normalized_people = [(person, normalize_title(person["name"])) for person in parser.people]
+    for image_record in parser.standalone_images:
+        label = normalize_title(image_record["label"])
+        if len(label) < 3:
+            continue
+        matches = [person for person, name in normalized_people if name == label or name.startswith(f"{label} ")]
+        if len(matches) == 1 and not matches[0]["imageUrl"]:
+            matches[0]["imageUrl"] = image_record["src"]
+    return parser.people, parser.testimonials
+
+
+def testimonial_document_url(value: str) -> str:
+    source = html.unescape(value).strip()
+    if source.startswith("//"):
+        source = f"https:{source}"
+    try:
+        parsed = urllib.parse.urlsplit(source)
+        if (parsed.hostname or "").casefold() == "docs.google.com":
+            embedded = urllib.parse.parse_qs(parsed.query).get("url", [])
+            if embedded:
+                return embedded[0]
+    except ValueError:
+        return source
+    return source
+
+
 def build_people_and_endorsements(
     wp_content: Sequence[dict[str, Any]],
+    excluded_endorsements: list[dict[str, str]] | None = None,
+    structured_coverage: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     people: list[dict[str, Any]] = []
     endorsements: list[dict[str, Any]] = []
+    people_coverage: list[dict[str, str]] = []
+    endorsement_coverage: list[dict[str, str]] = []
+    seen_people: set[str] = set()
+    seen_endorsements: set[tuple[str, str]] = set()
     team_pattern = re.compile(r"\[et_pb_team_member\s+([^\]]*)\](.*?)\[/et_pb_team_member\]", re.I | re.S)
     testimonial_pattern = re.compile(r"\[et_pb_testimonial\s+([^\]]*)\](.*?)\[/et_pb_testimonial\]", re.I | re.S)
+
+    def evidence(
+        records: list[dict[str, str]],
+        legacy_id: str,
+        page_id: str,
+        page_slug: str,
+        source_format: str,
+        status: str,
+        reason: str,
+    ) -> None:
+        records.append({
+            "legacyId": legacy_id,
+            "sourcePageId": page_id,
+            "sourcePageSlug": page_slug,
+            "sourceFormat": source_format,
+            "status": status,
+            "reason": reason,
+        })
+
+    def add_person(candidate: dict[str, Any], page_id: str, page_slug: str, source_format: str) -> None:
+        legacy_id = text(candidate.get("legacyId"))
+        name_key = normalize_title(text(candidate.get("name")))
+        if not name_key:
+            evidence(people_coverage, legacy_id, page_id, page_slug, source_format, "excluded", "missing-name")
+            return
+        if name_key in seen_people:
+            evidence(people_coverage, legacy_id, page_id, page_slug, source_format, "deduplicated", "duplicate-normalized-name")
+            return
+        seen_people.add(name_key)
+        people.append(candidate)
+        evidence(people_coverage, legacy_id, page_id, page_slug, source_format, "imported", "")
+
+    def add_endorsement(
+        candidate: dict[str, Any],
+        page_id: str,
+        page_slug: str,
+        source_format: str,
+        document_url: str = "",
+    ) -> None:
+        legacy_id = text(candidate.get("legacyId"))
+        attribution = text(candidate.get("attribution"))
+        quote = text(candidate.get("quote")).strip(" \u201c\"\u201d")
+        reason = ""
+        if not attribution:
+            reason = "missing-attribution"
+        elif len(quote) < 20:
+            reason = "document-only-no-textual-quote" if document_url else "insufficient-text-no-document"
+        if reason:
+            evidence(endorsement_coverage, legacy_id, page_id, page_slug, source_format, "excluded", reason)
+            if excluded_endorsements is not None:
+                excluded_endorsements.append({
+                    "legacyId": legacy_id,
+                    "attribution": attribution,
+                    "documentUrl": document_url,
+                    "reason": reason,
+                })
+            return
+        candidate["quote"] = quote
+        key = (normalize_title(attribution), normalize_title(quote))
+        if key in seen_endorsements:
+            evidence(endorsement_coverage, legacy_id, page_id, page_slug, source_format, "deduplicated", "duplicate-attribution-and-quote")
+            return
+        seen_endorsements.add(key)
+        candidate["sortOrder"] = len(endorsements) + 1
+        endorsements.append(candidate)
+        evidence(endorsement_coverage, legacy_id, page_id, page_slug, source_format, "imported", "")
+
     for page in wp_content:
         if text(page.get("type")) != "page":
             continue
@@ -1609,11 +1888,9 @@ def build_people_and_endorsements(
             for index, match in enumerate(team_pattern.finditer(content), start=1):
                 attributes = shortcode_attributes(match.group(1))
                 name = text(attributes.get("name"))
-                if not name:
-                    continue
                 biography = strip_markup(match.group(2))
                 legacy_id = f"wp-page:{page_id}:board:{index}"
-                people.append({
+                add_person({
                     "legacyId": legacy_id,
                     "name": name,
                     "slug": slugify(name, f"board-member-{index}"),
@@ -1626,38 +1903,86 @@ def build_people_and_endorsements(
                     "sortOrder": index,
                     "active": True,
                     "legacyUrl": f"{LEGACY_ORIGIN}/board-members/",
-                    "legacyPhotoUrl": text(attributes.get("image_url")),
-                })
+                    "legacyPhotoUrl": local_legacy_media_url(text(attributes.get("image_url"))),
+                }, page_id, page_slug, "divi-shortcode")
+
+            rendered_people, _ = divi_rendered_structured_content(content)
+            for index, rendered_person in enumerate(rendered_people, start=1):
+                name = text(rendered_person.get("name"))
+                add_person({
+                    "legacyId": f"wp-page:{page_id}:board-rendered:{index}",
+                    "name": name,
+                    "slug": slugify(name, f"board-member-{index}"),
+                    "title": text(rendered_person.get("position")),
+                    "organization": "",
+                    "biography": text(rendered_person.get("biography")),
+                    "website": text(rendered_person.get("website")),
+                    "roles": ["board"],
+                    "showOnBoard": True,
+                    "sortOrder": index,
+                    "active": True,
+                    "legacyUrl": f"{LEGACY_ORIGIN}/board-members/",
+                    "legacyPhotoUrl": local_legacy_media_url(text(rendered_person.get("imageUrl"))),
+                }, page_id, page_slug, "divi-rendered-html")
 
         for index, match in enumerate(testimonial_pattern.finditer(content), start=1):
             attributes = shortcode_attributes(match.group(1))
             attribution = text(attributes.get("author")) or text(attributes.get("admin_label")).removeprefix("Endorsement:").strip()
             quote = strip_markup(match.group(2)).strip(" “\"”")
-            if not attribution or len(quote) < 20:
-                continue
             legacy_id = f"wp-page:{page_id}:endorsement:{index}"
-            endorsements.append({
+            add_endorsement({
                 "legacyId": legacy_id,
                 "quote": quote,
                 "attribution": attribution,
                 "title": text(attributes.get("job_title")),
                 "organization": text(attributes.get("company_name")),
                 "sourceUrl": text(attributes.get("url")) or f"{LEGACY_ORIGIN}/{page_slug}/",
-                "sortOrder": len(endorsements) + 1,
-                "featured": page_slug == "abiding-in-christ" and len(endorsements) < 4,
+                "sortOrder": 0,
+                "featured": page_slug == "abiding-in-christ" and index <= 4,
                 "active": True,
-            })
+            }, page_id, page_slug, "divi-shortcode")
+
+        _, rendered_testimonials = divi_rendered_structured_content(content)
+        for index, rendered_testimonial in enumerate(rendered_testimonials, start=1):
+            attribution = text(rendered_testimonial.get("attribution"))
+            quote = text(rendered_testimonial.get("quote")).strip(" \u201c\"\u201d")
+            add_endorsement({
+                "legacyId": f"wp-page:{page_id}:endorsement-rendered:{index}",
+                "quote": quote,
+                "attribution": attribution,
+                "title": text(rendered_testimonial.get("title")),
+                "organization": text(rendered_testimonial.get("organization")),
+                "sourceUrl": f"{LEGACY_ORIGIN}/{page_slug}/",
+                "sortOrder": 0,
+                "featured": page_slug == "abiding-in-christ" and index <= 4,
+                "active": True,
+            }, page_id, page_slug, "divi-rendered-html", testimonial_document_url(text(rendered_testimonial.get("documentUrl"))))
 
     unique_slugs(people, "legacyId")
-    seen_endorsements: set[tuple[str, str]] = set()
-    deduped_endorsements: list[dict[str, Any]] = []
-    for endorsement in endorsements:
-        key = (normalize_title(text(endorsement.get("attribution"))), normalize_title(text(endorsement.get("quote"))))
-        if key in seen_endorsements:
-            continue
-        seen_endorsements.add(key)
-        deduped_endorsements.append(endorsement)
-    return people, deduped_endorsements
+    if structured_coverage is not None:
+        allowed_exclusion_reasons = {"document-only-no-textual-quote"}
+
+        def summary(records: list[dict[str, str]]) -> dict[str, Any]:
+            counts = Counter(record["status"] for record in records)
+            blocking = [
+                record for record in records
+                if record["status"] == "excluded" and record["reason"] not in allowed_exclusion_reasons
+            ]
+            return {
+                "encountered": len(records),
+                "imported": counts["imported"],
+                "deduplicated": counts["deduplicated"],
+                "excluded": counts["excluded"],
+                "blockingExclusions": blocking,
+                "records": records,
+            }
+
+        structured_coverage.clear()
+        structured_coverage.update({
+            "people": summary(people_coverage),
+            "endorsements": summary(endorsement_coverage),
+        })
+    return people, endorsements
 
 
 def extract_upload_references(wp_content: Sequence[dict[str, Any]]) -> defaultdict[str, set[str]]:
@@ -2110,7 +2435,13 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]
         episode_audio_deduplication,
         database_wp_content,
     )
-    people, endorsements = build_people_and_endorsements(wp_content)
+    excluded_endorsements: list[dict[str, str]] = []
+    structured_content_coverage: dict[str, Any] = {}
+    people, endorsements = build_people_and_endorsements(
+        wp_content,
+        excluded_endorsements,
+        structured_content_coverage,
+    )
     media_records, rejected_media = build_media_records(
         attachments,
         attachment_urls,
@@ -2234,6 +2565,20 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]
     redirect_reserved_sources = sum(1 for row in redirects if is_reserved_route(text(row.get("fromPath"))))
     verified_public_media_targets = {f"/media/legacy/{record.relative_path}" for record in media_records if record.visibility == "public" and record.exists}
     nonexistent_media_targets = sum(1 for row in redirects if text(row.get("toPath")).startswith("/media/legacy/") and text(row.get("toPath")) not in verified_public_media_targets)
+    people_without_photo_source = [
+        {"legacyId": text(person.get("legacyId")), "name": text(person.get("name"))}
+        for person in people
+        if not text(person.get("legacyPhotoUrl"))
+    ]
+    people_with_unverified_photo = [
+        {
+            "legacyId": text(person.get("legacyId")),
+            "name": text(person.get("name")),
+            "legacyPhotoUrl": text(person.get("legacyPhotoUrl")),
+        }
+        for person in people
+        if text(person.get("legacyPhotoUrl")) and text(person.get("legacyPhotoUrl")) not in verified_public_media_targets
+    ]
     plan = {
         "version": 1,
         "generatedAt": datetime.now(timezone.utc).isoformat(),
@@ -2288,6 +2633,8 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]
         "episodeAudioDeduplication": episode_audio_deduplication,
         "redirectReasons": dict(sorted(redirect_counts.items())),
         "excludedPages": excluded_pages,
+        "excludedEndorsements": excluded_endorsements,
+        "structuredContentCoverage": structured_content_coverage,
         "rejectedMedia": rejected_media,
         "redirectFailures": redirect_failures,
         "unmatchedRedirects": unmatched_redirects,
@@ -2307,6 +2654,12 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]
             "existing": sum(1 for record in media_records if record.exists),
             "missing": sum(1 for record in media_records if args.verify_media and not record.exists),
             "checksums": "computed and compared during --apply --copy-media only",
+        },
+        "peopleMediaCoverage": {
+            "people": len(people),
+            "verifiedPublicPhotos": len(people) - len(people_without_photo_source) - len(people_with_unverified_photo),
+            "withoutPhotoSource": people_without_photo_source,
+            "unverifiedPhotoSource": people_with_unverified_photo,
         },
         "episodeAudioCoverage": {
             "enabled": args.verify_episode_audio,
@@ -2375,6 +2728,37 @@ def validate_apply_preflight(plan: dict[str, Any]) -> None:
     redirect_integrity = plan.get("redirectIntegrity", {})
     if any(redirect_integrity.get(key) for key in ("selfLoops", "reservedSources", "nonexistentMediaTargets")) or plan.get("redirectFailures"):
         raise RuntimeError("Apply preflight failed: redirect integrity checks did not pass")
+    structured_coverage = plan.get("structuredContentCoverage", {})
+    if not isinstance(structured_coverage, dict):
+        raise RuntimeError("Apply preflight failed: structured extraction coverage is invalid")
+    for key in ("people", "endorsements"):
+        coverage_entry = structured_coverage.get(key, {})
+        if not isinstance(coverage_entry, dict):
+            raise RuntimeError(f"Apply preflight failed: {key} structured extraction coverage is invalid")
+        records = coverage_entry.get("records", [])
+        counts = Counter(text(record.get("status")) for record in records if isinstance(record, dict)) if isinstance(records, list) else Counter()
+        if (
+            not isinstance(records, list)
+            or coverage_entry.get("encountered") != len(records)
+            or coverage_entry.get("encountered", 0) <= 0
+            or coverage_entry.get("imported") != counts["imported"]
+            or coverage_entry.get("deduplicated") != counts["deduplicated"]
+            or coverage_entry.get("excluded") != counts["excluded"]
+            or coverage_entry.get("imported") != plan.get("plannedCounts", {}).get(key)
+            or coverage_entry.get("encountered") != counts["imported"] + counts["deduplicated"] + counts["excluded"]
+            or coverage_entry.get("blockingExclusions")
+        ):
+            raise RuntimeError(f"Apply preflight failed: {key} structured extraction coverage is incomplete")
+    if structured_coverage["endorsements"].get("excluded") != len(plan.get("excludedEndorsements", [])):
+        raise RuntimeError("Apply preflight failed: endorsement exclusions are not fully reported")
+    people_media = plan.get("peopleMediaCoverage", {})
+    if (
+        people_media.get("people") != plan.get("plannedCounts", {}).get("people")
+        or people_media.get("verifiedPublicPhotos") != people_media.get("people")
+        or people_media.get("withoutPhotoSource")
+        or people_media.get("unverifiedPhotoSource")
+    ):
+        raise RuntimeError("Apply preflight failed: an imported board portrait is not a verified public legacy asset")
     reconciliation = plan.get("episodeReconciliation", {})
     reconciliation_counts = reconciliation.get("counts", {})
     expected_aliases = int(reconciliation_counts.get("duplicate-aic", 0)) + int(reconciliation_counts.get("duplicate-wordpress", 0))

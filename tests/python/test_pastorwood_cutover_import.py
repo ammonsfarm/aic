@@ -238,6 +238,134 @@ class CutoverIdentityTests(unittest.TestCase):
         self.assertEqual(people[0]["roles"], ["board"])
         self.assertEqual(endorsements[0]["attribution"], "John Smith")
 
+    def test_people_and_endorsements_are_extracted_from_rendered_divi_html(self):
+        board = {
+            "id": "159", "type": "page", "slug": "board-members",
+            "content": '''
+                <div class="et_pb_module et_pb_image"><span class="et_pb_image_wrap"><img src="https://www.pastorwood.org/wp-content/uploads/jane.jpg" title="Jane"></span></div>
+                <div class="et_pb_module et_pb_team_member et_pb_team_member_no_image clearfix">
+                  <div class="et_pb_team_member_description">
+                    <h4 class="et_pb_module_header">Jane Doe</h4>
+                    <p class="et_pb_member_position">Chair</p>
+                    <div><p>Serves the ministry faithfully.<br>Lives in Atlanta.</p></div>
+                  </div>
+                </div>
+            ''',
+        }
+        testimonials = {
+            "id": "213", "type": "page", "slug": "endorsements",
+            "content": '''
+                <div class="et_pb_module et_pb_testimonial clearfix">
+                  <div class="et_pb_testimonial_description">
+                    <div class="et_pb_testimonial_content"><p>A sufficiently long rendered endorsement quote for import.</p></div>
+                    <span class="et_pb_testimonial_author">John Smith</span>
+                    <span class="et_pb_testimonial_position">Senior Pastor</span>
+                    <span class="et_pb_testimonial_company"><a href="https://example.org">Example Church</a></span>
+                  </div>
+                </div>
+                <div class="et_pb_module et_pb_testimonial clearfix">
+                  <div class="et_pb_testimonial_description">
+                    <div class="et_pb_testimonial_content"><iframe src="//docs.google.com/viewer?url=https%3A%2F%2Fwww.pastorwood.org%2Fwp-content%2Fuploads%2Frecommendation.pdf&amp;embedded=true"></iframe></div>
+                    <span class="et_pb_testimonial_author">Document Author</span>
+                  </div>
+                </div>
+            ''',
+        }
+        exclusions = []
+        coverage = {}
+
+        people, endorsements = MODULE.build_people_and_endorsements([board, testimonials], exclusions, coverage)
+
+        self.assertEqual(len(people), 1)
+        self.assertEqual(people[0]["name"], "Jane Doe")
+        self.assertEqual(people[0]["title"], "Chair")
+        self.assertEqual(people[0]["biography"], "Serves the ministry faithfully. Lives in Atlanta.")
+        self.assertEqual(people[0]["legacyPhotoUrl"], "/media/legacy/jane.jpg")
+        self.assertEqual(len(endorsements), 1)
+        self.assertEqual(endorsements[0]["attribution"], "John Smith")
+        self.assertEqual(endorsements[0]["organization"], "Example Church")
+        self.assertEqual(exclusions, [{
+            "legacyId": "wp-page:213:endorsement-rendered:2",
+            "attribution": "Document Author",
+            "documentUrl": "https://www.pastorwood.org/wp-content/uploads/recommendation.pdf",
+            "reason": "document-only-no-textual-quote",
+        }])
+        self.assertEqual(coverage["people"]["encountered"], 1)
+        self.assertEqual(coverage["people"]["imported"], 1)
+        self.assertEqual(coverage["endorsements"]["encountered"], 2)
+        self.assertEqual(coverage["endorsements"]["imported"], 1)
+        self.assertEqual(coverage["endorsements"]["excluded"], 1)
+        self.assertEqual(coverage["endorsements"]["blockingExclusions"], [])
+
+    def test_rendered_divi_text_preserves_inline_punctuation_and_block_boundaries(self):
+        _, testimonials = MODULE.divi_rendered_structured_content('''
+            <div class="et_pb_module et_pb_testimonial">
+              <div class="et_pb_testimonial_content"><p>Read <em>Three Questions</em>.</p><p>Second block.</p></div>
+              <span class="et_pb_testimonial_author">Reader</span>
+            </div>
+        ''')
+
+        self.assertEqual(testimonials[0]["quote"], "Read Three Questions. Second block.")
+
+    def test_malformed_rendered_structured_modules_are_blocking_and_never_silent(self):
+        rows = [{
+            "id": "159", "type": "page", "slug": "board-members",
+            "content": '''
+              <div class="et_pb_module et_pb_team_member"><div class="et_pb_team_member_description"><p>Biography without a name.</p></div></div>
+              <div class="et_pb_module et_pb_testimonial"><div class="et_pb_testimonial_content">A sufficiently long quote without attribution.</div></div>
+              <div class="et_pb_module et_pb_testimonial"><div class="et_pb_testimonial_content">Too short.</div><span class="et_pb_testimonial_author">Named Author</span></div>
+            ''',
+        }]
+        exclusions = []
+        coverage = {}
+
+        people, endorsements = MODULE.build_people_and_endorsements(rows, exclusions, coverage)
+
+        self.assertEqual(people, [])
+        self.assertEqual(endorsements, [])
+        self.assertEqual(coverage["people"]["encountered"], 1)
+        self.assertEqual(coverage["people"]["blockingExclusions"][0]["reason"], "missing-name")
+        self.assertEqual(coverage["endorsements"]["encountered"], 2)
+        self.assertEqual(
+            {record["reason"] for record in coverage["endorsements"]["blockingExclusions"]},
+            {"missing-attribution", "insufficient-text-no-document"},
+        )
+        self.assertEqual({record["reason"] for record in exclusions}, {"missing-attribution", "insufficient-text-no-document"})
+
+    def test_apply_preflight_blocks_unresolved_structured_extraction(self):
+        imported_person = {"status": "imported"}
+        malformed_endorsement = {"status": "excluded", "reason": "missing-attribution"}
+        plan = {
+            "episodeAudioCoverage": {
+                "enabled": True, "objects": 0, "aicTrackIds": 0,
+                "missing": [], "orphanObjects": [], "zeroByteObjectIds": [], "invalidObjectIds": [],
+            },
+            "wordpressRestSnapshot": {"consistencyPasses": 2, "sha256": "a" * 64, "restOnlyMediaIds": []},
+            "wordpressRestMediaBackup": {"enabled": True, "missingMediaIds": [], "verifiedFiles": 0},
+            "externalImageBackup": {
+                "enabled": True, "missingSourceUrls": [], "verifiedFiles": 0, "expectedFiles": 0,
+                "verifiedReferences": 0, "expectedReferences": 0,
+            },
+            "episodeAudioDeduplication": {"enabled": True},
+            "redirectIntegrity": {"selfLoops": 0, "reservedSources": 0, "nonexistentMediaTargets": 0},
+            "redirectFailures": [],
+            "plannedCounts": {"people": 1, "endorsements": 0},
+            "structuredContentCoverage": {
+                "people": {
+                    "encountered": 1, "imported": 1, "deduplicated": 0, "excluded": 0,
+                    "blockingExclusions": [], "records": [imported_person],
+                },
+                "endorsements": {
+                    "encountered": 1, "imported": 0, "deduplicated": 0, "excluded": 1,
+                    "blockingExclusions": [malformed_endorsement], "records": [malformed_endorsement],
+                },
+            },
+            "excludedEndorsements": [malformed_endorsement],
+        }
+
+        with self.assertRaisesRegex(RuntimeError, "endorsements structured extraction coverage is incomplete"):
+            MODULE.validate_apply_preflight(plan)
+
 
 class CutoverBoundaryTests(unittest.TestCase):
     def test_external_image_manifest_requires_exact_snapshot_references_and_hashes(self):

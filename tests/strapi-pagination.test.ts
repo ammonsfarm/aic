@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { getPublishedEpisodeBySlug, listAllPublishedEpisodes } from "@/lib/strapi-structured-public";
+import { getPublishedEpisodeBySlug, listAllPublishedEpisodes, listPublishedBoardMembers } from "@/lib/strapi-structured-public";
 
 const originalUrl = process.env.STRAPI_URL;
 
@@ -45,5 +45,21 @@ describe("published Strapi archive pagination", () => {
     expect(result).toHaveLength(300);
     expect(result.at(-1)?.slug).toBe("episode-300");
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("serves imported board portraits only through the verified same-origin legacy route", async () => {
+    process.env.STRAPI_URL = "http://127.0.0.1:1337";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      data: [
+        { documentId: "safe", name: "Safe Person", legacyPhotoUrl: "/media/legacy/2024/safe.jpg" },
+        { documentId: "external", name: "External Person", legacyPhotoUrl: "https://evil.example/tracker.jpg" },
+      ],
+      meta: { pagination: { page: 1, pageSize: 100, pageCount: 1, total: 2 } },
+    }), { status: 200 })));
+
+    const result = await listPublishedBoardMembers();
+
+    expect(result[0].photoUrl).toBe("/media/legacy/2024/safe.jpg");
+    expect(result[1].photoUrl).toBe("");
   });
 });

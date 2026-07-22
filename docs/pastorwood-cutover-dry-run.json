@@ -7948,6 +7948,20 @@
       }
     ]
   },
+  "excludedEndorsements": [
+    {
+      "attribution": "Scott Sauls",
+      "documentUrl": "https://www.pastorwood.org/wp-content/uploads/2015/02/Jim_Wood_Recommendation_Scott_Sauls.pdf",
+      "legacyId": "wp-page:213:endorsement-rendered:1",
+      "reason": "document-only-no-textual-quote"
+    },
+    {
+      "attribution": "Joe Johnson",
+      "documentUrl": "https://www.pastorwood.org/wp-content/uploads/2015/03/Joe_Johnson.pdf",
+      "legacyId": "wp-page:213:endorsement-rendered:5",
+      "reason": "document-only-no-textual-quote"
+    }
+  ],
   "excludedPages": [
     {
       "legacyId": "351",
@@ -8000,7 +8014,7 @@
     "verifiedFiles": 7,
     "verifiedReferences": 14
   },
-  "generatedAt": "2026-07-22T15:45:30.647615+00:00",
+  "generatedAt": "2026-07-22T16:11:02.869930+00:00",
   "matchMethods": {
     "canonical-title": 14,
     "canonical-title-date": 3,
@@ -9539,15 +9553,21 @@
     ]
   },
   "mode": "dry-run",
-  "planFingerprint": "7ab0aa700f0c5c32275c23fe0f2fcb6b2a34b01ff86c41a4e3ac3f8915d5a70a",
+  "peopleMediaCoverage": {
+    "people": 7,
+    "unverifiedPhotoSource": [],
+    "verifiedPublicPhotos": 7,
+    "withoutPhotoSource": []
+  },
+  "planFingerprint": "678a20b1b8af0358f4a687a801c3f06ebdf8f6fe5677cd5b8f8c196369397c81",
   "plannedCounts": {
     "duplicateWordpressSermons": 49,
-    "endorsements": 0,
+    "endorsements": 8,
     "episodeMatches": 1797,
     "episodes": 4247,
     "media": 2964,
     "pages": 13,
-    "people": 0,
+    "people": 7,
     "posts": 133,
     "privateMedia": 195,
     "publicMedia": 2769,
@@ -9644,6 +9664,162 @@
     "wordpressPublishedPages": 21,
     "wordpressPublishedPosts": 133,
     "wordpressPublishedSermons": 2783
+  },
+  "structuredContentCoverage": {
+    "endorsements": {
+      "blockingExclusions": [],
+      "deduplicated": 0,
+      "encountered": 10,
+      "excluded": 2,
+      "imported": 8,
+      "records": [
+        {
+          "legacyId": "wp-page:186:endorsement-rendered:1",
+          "reason": "",
+          "sourceFormat": "divi-rendered-html",
+          "sourcePageId": "186",
+          "sourcePageSlug": "abiding-in-christ",
+          "status": "imported"
+        },
+        {
+          "legacyId": "wp-page:186:endorsement-rendered:2",
+          "reason": "",
+          "sourceFormat": "divi-rendered-html",
+          "sourcePageId": "186",
+          "sourcePageSlug": "abiding-in-christ",
+          "status": "imported"
+        },
+        {
+          "legacyId": "wp-page:186:endorsement-rendered:3",
+          "reason": "",
+          "sourceFormat": "divi-rendered-html",
+          "sourcePageId": "186",
+          "sourcePageSlug": "abiding-in-christ",
+          "status": "imported"
+        },
+        {
+          "legacyId": "wp-page:186:endorsement-rendered:4",
+          "reason": "",
+          "sourceFormat": "divi-rendered-html",
+          "sourcePageId": "186",
+          "sourcePageSlug": "abiding-in-christ",
+          "status": "imported"
+        },
+        {
+          "legacyId": "wp-page:213:endorsement-rendered:1",
+          "reason": "document-only-no-textual-quote",
+          "sourceFormat": "divi-rendered-html",
+          "sourcePageId": "213",
+          "sourcePageSlug": "endorsements",
+          "status": "excluded"
+        },
+        {
+          "legacyId": "wp-page:213:endorsement-rendered:2",
+          "reason": "",
+          "sourceFormat": "divi-rendered-html",
+          "sourcePageId": "213",
+          "sourcePageSlug": "endorsements",
+          "status": "imported"
+        },
+        {
+          "legacyId": "wp-page:213:endorsement-rendered:3",
+          "reason": "",
+          "sourceFormat": "divi-rendered-html",
+          "sourcePageId": "213",
+          "sourcePageSlug": "endorsements",
+          "status": "imported"
+        },
+        {
+          "legacyId": "wp-page:213:endorsement-rendered:4",
+          "reason": "",
+          "sourceFormat": "divi-rendered-html",
+          "sourcePageId": "213",
+          "sourcePageSlug": "endorsements",
+          "status": "imported"
+        },
+        {
+          "legacyId": "wp-page:213:endorsement-rendered:5",
+          "reason": "document-only-no-textual-quote",
+          "sourceFormat": "divi-rendered-html",
+          "sourcePageId": "213",
+          "sourcePageSlug": "endorsements",
+          "status": "excluded"
+        },
+        {
+          "legacyId": "wp-page:1172:endorsement-rendered:1",
+          "reason": "",
+          "sourceFormat": "divi-rendered-html",
+          "sourcePageId": "1172",
+          "sourcePageSlug": "1172-2",
+          "status": "imported"
+        }
+      ]
+    },
+    "people": {
+      "blockingExclusions": [],
+      "deduplicated": 0,
+      "encountered": 7,
+      "excluded": 0,
+      "imported": 7,
+      "records": [
+        {
+          "legacyId": "wp-page:159:board-rendered:1",
+          "reason": "",
+          "sourceFormat": "divi-rendered-html",
+          "sourcePageId": "159",
+          "sourcePageSlug": "board-members",
+          "status": "imported"
+        },
+        {
+          "legacyId": "wp-page:159:board-rendered:2",
+          "reason": "",
+          "sourceFormat": "divi-rendered-html",
+          "sourcePageId": "159",
+          "sourcePageSlug": "board-members",
+          "status": "imported"
+        },
+        {
+          "legacyId": "wp-page:159:board-rendered:3",
+          "reason": "",
+          "sourceFormat": "divi-rendered-html",
+          "sourcePageId": "159",
+          "sourcePageSlug": "board-members",
+          "status": "imported"
+        },
+        {
+          "legacyId": "wp-page:159:board-rendered:4",
+          "reason": "",
+          "sourceFormat": "divi-rendered-html",
+          "sourcePageId": "159",
+          "sourcePageSlug": "board-members",
+          "status": "imported"
+        },
+        {
+          "legacyId": "wp-page:159:board-rendered:5",
+          "reason": "",
+          "sourceFormat": "divi-rendered-html",
+          "sourcePageId": "159",
+          "sourcePageSlug": "board-members",
+          "status": "imported"
+        },
+        {
+          "legacyId": "wp-page:159:board-rendered:6",
+          "reason": "",
+          "sourceFormat": "divi-rendered-html",
+          "sourcePageId": "159",
+          "sourcePageSlug": "board-members",
+          "status": "imported"
+        },
+        {
+          "legacyId": "wp-page:159:board-rendered:7",
+          "reason": "",
+          "sourceFormat": "divi-rendered-html",
+          "sourcePageId": "159",
+          "sourcePageSlug": "board-members",
+          "status": "imported"
+        }
+      ]
+    }
   },
   "unmatchedRedirects": [
     {
