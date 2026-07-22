@@ -1,0 +1,19 @@
+{
+  "collectionName": "components_page_sections_text_sections",
+  "info": {
+    "displayName": "Text Section"
+  },
+  "options": {},
+  "attributes": {
+    "eyebrow": {
+      "type": "string"
+    },
+    "heading": {
+      "type": "string"
+    },
+    "body": {
+      "type": "richtext"
+    }
+  },
+  "config": {}
+}

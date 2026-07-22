@@ -1,0 +1,77 @@
+{
+  "kind": "collectionType",
+  "collectionName": "pages",
+  "info": {
+    "singularName": "page",
+    "pluralName": "pages",
+    "displayName": "Page"
+  },
+  "options": {
+    "draftAndPublish": true
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "title": {
+      "type": "string",
+      "required": true
+    },
+    "slug": {
+      "type": "uid",
+      "required": true
+    },
+    "pageKey": {
+      "type": "string",
+      "required": true,
+      "unique": true
+    },
+    "active": {
+      "type": "boolean",
+      "default": true
+    },
+    "showInNavigation": {
+      "type": "boolean",
+      "default": false
+    },
+    "navigationLabel": {
+      "type": "string"
+    },
+    "navigationOrder": {
+      "type": "integer"
+    },
+    "heroLabel": {
+      "type": "string"
+    },
+    "heroTitle": {
+      "type": "string"
+    },
+    "heroBody": {
+      "type": "string"
+    },
+    "seoTitle": {
+      "type": "string"
+    },
+    "seoDescription": {
+      "type": "string"
+    },
+    "legacyUrl": {
+      "type": "string"
+    },
+    "scheduledFor": {
+      "type": "datetime"
+    },
+    "archiveReason": {
+      "type": "text"
+    },
+    "archivedAt": {
+      "type": "datetime"
+    },
+    "sections": {
+      "type": "dynamiczone",
+      "components": [
+        "page-sections.text-section",
+        "page-sections.image-text-section",
+        "page-sections.cta-section"
+      ]
+    }
+  }
+}

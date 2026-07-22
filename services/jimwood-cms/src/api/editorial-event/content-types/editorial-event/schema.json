@@ -1,0 +1,24 @@
+{
+  "kind": "collectionType",
+  "collectionName": "pastorwood_editorial_events",
+  "info": {
+    "singularName": "editorial-event",
+    "pluralName": "editorial-events",
+    "displayName": "Editorial Audit Event",
+    "description": "Append-only attribution log for content-management actions"
+  },
+  "options": { "draftAndPublish": false },
+  "pluginOptions": {},
+  "attributes": {
+    "entityType": { "type": "string", "required": true },
+    "entityDocumentId": { "type": "string", "required": true },
+    "entityTitle": { "type": "string" },
+    "action": { "type": "string", "required": true },
+    "actorId": { "type": "string", "required": true },
+    "actorEmail": { "type": "email", "required": true },
+    "actorName": { "type": "string" },
+    "note": { "type": "text" },
+    "detail": { "type": "json" },
+    "source": { "type": "string", "default": "aic-content-manager", "required": true }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "kind": "collectionType",
+  "collectionName": "pastorwood_editorial_revisions",
+  "info": {
+    "singularName": "editorial-revision",
+    "pluralName": "editorial-revisions",
+    "displayName": "Editorial Revision",
+    "description": "Immutable snapshots created by the AIC content manager"
+  },
+  "options": { "draftAndPublish": false },
+  "pluginOptions": {},
+  "attributes": {
+    "entityType": {
+      "type": "enumeration",
+      "enum": ["page", "post", "episode", "person", "endorsement", "media-asset", "redirect"],
+      "required": true
+    },
+    "entityDocumentId": { "type": "string", "required": true },
+    "entityTitle": { "type": "string" },
+    "revisionNumber": { "type": "integer", "required": true, "min": 1 },
+    "snapshot": { "type": "json", "required": true },
+    "action": {
+      "type": "enumeration",
+      "enum": ["create", "save", "publish", "unpublish", "archive", "restore", "rollback", "delete", "upload"],
+      "required": true
+    },
+    "actorId": { "type": "string", "required": true },
+    "actorEmail": { "type": "email", "required": true },
+    "actorName": { "type": "string" },
+    "note": { "type": "text" },
+    "source": { "type": "string", "default": "aic-content-manager", "required": true }
+  }
+}

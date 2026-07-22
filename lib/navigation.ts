@@ -42,7 +42,7 @@ export const consoleNav: ConsoleNavItem[] = [
         description: "Review the editorial portal plan and publishing workflow.",
       },
       {
-        href: "/content/pages",
+        href: "/content/site-pages",
         label: "Site pages",
         description: "Edit evergreen public website pages and page sections.",
       },
@@ -57,9 +57,29 @@ export const consoleNav: ConsoleNavItem[] = [
         description: "Upload MP3s, set metadata, and publish archive entries.",
       },
       {
-        href: "/content/newsletters",
-        label: "Newsletters",
-        description: "Draft newsletter archive posts and prepare Mailchimp handoff.",
+        href: "/content/people",
+        label: "People and board",
+        description: "Manage authors, guests, staff, and board members.",
+      },
+      {
+        href: "/content/endorsements",
+        label: "Endorsements",
+        description: "Manage public quotes, attribution, and ordering.",
+      },
+      {
+        href: "/content/media",
+        label: "Media library",
+        description: "Upload private-by-default files with public metadata.",
+      },
+      {
+        href: "/content/redirects",
+        label: "Legacy redirects",
+        description: "Map verified old-site paths to replacement URLs.",
+      },
+      {
+        href: "/content/workflow",
+        label: "Publishing workflow",
+        description: "Review drafts, publication state, revisions, and audit attribution.",
       },
     ],
   },

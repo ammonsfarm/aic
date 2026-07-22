@@ -1,4 +1,5 @@
-import { PastorWoodContentPage, type PastorWoodCmsPage } from "@/components/pastor-wood-site";
+import type { PastorWoodCmsPage } from "@/components/pastor-wood-site";
+import { PastorWoodStructuredEndorsementsPage } from "@/components/pastor-wood-structured-listings";
 import { getStrapiPageByPageKey } from "@/lib/strapi";
 
 async function getPage(): Promise<PastorWoodCmsPage | null> {
@@ -12,5 +13,5 @@ async function getPage(): Promise<PastorWoodCmsPage | null> {
 }
 
 export default async function Page() {
-  return <PastorWoodContentPage page="endorsements" cmsPage={await getPage()} />;
+  return <PastorWoodStructuredEndorsementsPage cmsPage={await getPage()} />;
 }

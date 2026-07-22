@@ -1,0 +1,29 @@
+{
+  "kind": "collectionType",
+  "collectionName": "pastorwood_people",
+  "info": {
+    "singularName": "person",
+    "pluralName": "people",
+    "displayName": "Person",
+    "description": "Authors, speakers, guests, staff, and board members"
+  },
+  "options": { "draftAndPublish": true },
+  "pluginOptions": {},
+  "attributes": {
+    "name": { "type": "string", "required": true },
+    "slug": { "type": "uid", "targetField": "name", "required": true },
+    "title": { "type": "string" },
+    "organization": { "type": "string" },
+    "biography": { "type": "richtext" },
+    "photo": { "type": "media", "multiple": false, "allowedTypes": ["images"] },
+    "email": { "type": "email" },
+    "website": { "type": "string" },
+    "roles": { "type": "json" },
+    "showOnBoard": { "type": "boolean", "default": false },
+    "sortOrder": { "type": "integer", "default": 0 },
+    "active": { "type": "boolean", "default": true },
+    "legacyUrl": { "type": "string" },
+    "archiveReason": { "type": "text" },
+    "archivedAt": { "type": "datetime" }
+  }
+}

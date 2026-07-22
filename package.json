@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "lint": "eslint .",
-    "test": "vitest run && python3 -m unittest discover -s tests/python -p 'test_*.py'",
+    "test": "vitest run && python3 -m unittest discover -s tests/python -p 'test_*.py' && npm run test:structured",
+    "test:structured": "node --test tests/*.test.mjs",
     "deploy:farm": "bash ./scripts/deploy-farm-web.sh"
   },
   "dependencies": {

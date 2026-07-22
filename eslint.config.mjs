@@ -5,7 +5,12 @@ const eslintConfig = [
   ...nextVitals,
   ...nextTypescript,
   {
-    ignores: [".next/**", "node_modules/**"],
+    ignores: [
+      ".next/**",
+      "node_modules/**",
+      "services/jimwood-cms/types/generated/**",
+      "services/jimwood-cms/src/admin/*.example.*",
+    ],
   },
 ];
 

@@ -1,0 +1,25 @@
+{
+  "kind": "collectionType",
+  "collectionName": "pastorwood_endorsements",
+  "info": {
+    "singularName": "endorsement",
+    "pluralName": "endorsements",
+    "displayName": "Endorsement"
+  },
+  "options": { "draftAndPublish": true },
+  "pluginOptions": {},
+  "attributes": {
+    "quote": { "type": "text", "required": true },
+    "attribution": { "type": "string", "required": true },
+    "title": { "type": "string" },
+    "organization": { "type": "string" },
+    "person": { "type": "relation", "relation": "manyToOne", "target": "api::person.person" },
+    "photo": { "type": "media", "multiple": false, "allowedTypes": ["images"] },
+    "sourceUrl": { "type": "string" },
+    "sortOrder": { "type": "integer", "default": 0 },
+    "featured": { "type": "boolean", "default": false },
+    "active": { "type": "boolean", "default": true },
+    "archiveReason": { "type": "text" },
+    "archivedAt": { "type": "datetime" }
+  }
+}
