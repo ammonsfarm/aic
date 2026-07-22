@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import { parseRetryableStage, retryablePipelineStages } from "@/lib/admin-operations";
-import { canGenerateForRole, canMutateForRole, roleLandingPath } from "@/lib/rbac";
+import {
+  canGenerateForRole,
+  canMutateForRole,
+  isResearchUserRole,
+  roleLandingPath,
+  type AicRole,
+} from "@/lib/rbac";
 
 describe("admin operation boundaries", () => {
   it("allows only fixed background stages", () => {
@@ -11,11 +17,20 @@ describe("admin operation boundaries", () => {
     expect(parseRetryableStage({ stage: "daily-ingest" })).toBeNull();
   });
 
-  it("keeps Read Only users out of generation and mutations", () => {
-    expect(canGenerateForRole("Read Only")).toBe(false);
-    expect(canMutateForRole("Read Only")).toBe(false);
-    expect(canGenerateForRole("Research User")).toBe(true);
-    expect(canMutateForRole("Content Manager")).toBe(true);
+  it("allows protected corpus actions only for explicitly privileged roles", () => {
+    const expectations: Array<[AicRole, boolean]> = [
+      ["Admin", true],
+      ["Content Manager", true],
+      ["Research User", true],
+      ["Read Only", false],
+      ["User", false],
+    ];
+
+    for (const [role, allowed] of expectations) {
+      expect(isResearchUserRole(role), `${role} research access`).toBe(allowed);
+      expect(canGenerateForRole(role), `${role} generation access`).toBe(allowed);
+      expect(canMutateForRole(role), `${role} mutation access`).toBe(allowed);
+    }
   });
 
   it("uses reachable role landing pages instead of redirect loops", () => {

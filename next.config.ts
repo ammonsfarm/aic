@@ -1,11 +1,12 @@
 import type { NextConfig } from "next";
 
 import { applicationSecurityHeaders } from "./lib/security-headers";
+import { SERVER_ACTION_BODY_SIZE_LIMIT } from "./lib/structured-editor-upload-limits";
 
 const nextConfig: NextConfig = {
   experimental: {
     serverActions: {
-      bodySizeLimit: "25mb",
+      bodySizeLimit: SERVER_ACTION_BODY_SIZE_LIMIT,
     },
   },
   turbopack: {

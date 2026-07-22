@@ -272,15 +272,15 @@ export function isContentManagerRole(role: AicRole) {
 }
 
 export function isResearchUserRole(role: AicRole) {
-  return role === "Admin" || role === "Content Manager" || role === "Research User" || role === "User";
+  return role === "Admin" || role === "Content Manager" || role === "Research User";
 }
 
 export function canGenerateForRole(role: AicRole) {
-  return role !== "Read Only";
+  return isResearchUserRole(role);
 }
 
 export function canMutateForRole(role: AicRole) {
-  return role !== "Read Only";
+  return isResearchUserRole(role);
 }
 
 export function roleLandingPath(role: AicRole) {
