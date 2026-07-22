@@ -1081,6 +1081,14 @@
   },
   {
     "active": true,
+    "fromPath": "/category/resources/",
+    "notes": "taxonomy-fallback",
+    "sourceUrl": "https://www.pastorwood.org/category/resources/",
+    "statusCode": 301,
+    "toPath": "/written-resources/"
+  },
+  {
+    "active": true,
     "fromPath": "/category/weekly-devotional/",
     "notes": "fixed-page",
     "sourceUrl": "https://www.pastorwood.org/category/weekly-devotional/",

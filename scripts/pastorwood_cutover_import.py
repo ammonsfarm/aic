@@ -1783,6 +1783,8 @@ def redirect_target_for(
         return sermon_slug_targets[final_slug], "published-episode"
     if path.startswith("/category/weekly-devotional") or path.startswith("/tag/"):
         return "/bible-study/", "taxonomy-fallback"
+    if path.startswith("/category/resources"):
+        return "/written-resources/", "taxonomy-fallback"
     if path.startswith("/author/"):
         return "/about-pastor-wood/", "author-fallback"
     if "sitemap" in path:

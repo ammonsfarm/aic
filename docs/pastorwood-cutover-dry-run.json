@@ -8000,7 +8000,7 @@
     "verifiedFiles": 7,
     "verifiedReferences": 14
   },
-  "generatedAt": "2026-07-22T15:26:38.769330+00:00",
+  "generatedAt": "2026-07-22T15:45:30.647615+00:00",
   "matchMethods": {
     "canonical-title": 14,
     "canonical-title-date": 3,
@@ -9539,7 +9539,7 @@
     ]
   },
   "mode": "dry-run",
-  "planFingerprint": "29125733e38085a91569cf41d3de63162d1cefb642a2f238e1065bee92e1d5ff",
+  "planFingerprint": "7ab0aa700f0c5c32275c23fe0f2fcb6b2a34b01ff86c41a4e3ac3f8915d5a70a",
   "plannedCounts": {
     "duplicateWordpressSermons": 49,
     "endorsements": 0,
@@ -9551,7 +9551,7 @@
     "posts": 133,
     "privateMedia": 195,
     "publicMedia": 2769,
-    "redirects": 2922,
+    "redirects": 2923,
     "uniqueWordpressSermonsImported": 937,
     "unmatchedWordpressSermons": 986
   },
@@ -9615,9 +9615,9 @@
   },
   "redirectCoverage": {
     "inputUrls": 7420,
-    "matched": 2922,
+    "matched": 2923,
     "rejected": 0,
-    "unmatched": 4498
+    "unmatched": 4497
   },
   "redirectFailures": [],
   "redirectIntegrity": {
@@ -9631,7 +9631,8 @@
     "public-attachment": 2631,
     "published-episode": 53,
     "published-writing": 135,
-    "sitemap": 2
+    "sitemap": 2,
+    "taxonomy-fallback": 1
   },
   "rejectedMedia": [],
   "sourceCounts": {
@@ -9669,11 +9670,6 @@
       "line": "140",
       "reason": "no-equivalent-public-target",
       "source": "https://www.pastorwood.org/cart/"
-    },
-    {
-      "line": "141",
-      "reason": "no-equivalent-public-target",
-      "source": "https://www.pastorwood.org/category/resources/"
     },
     {
       "line": "143",

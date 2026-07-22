@@ -373,6 +373,11 @@ class CutoverBoundaryTests(unittest.TestCase):
         self.assertEqual(failures, [])
         self.assertEqual(unmatched[0]["reason"], "unmatched-radio-item")
 
+    def test_legacy_resources_category_maps_to_the_public_resources_index(self):
+        target, reason = MODULE.redirect_target_for("/category/resources/", {}, {}, set())
+        self.assertEqual(target, "/written-resources/")
+        self.assertEqual(reason, "taxonomy-fallback")
+
     def test_missing_public_media_never_receives_redirect(self):
         record = MODULE.MediaRecord("1", "Missing", "2024/missing.mp3", "https://www.pastorwood.org/wp-content/uploads/2024/missing.mp3", "audio/mpeg", "public", ("legacy-public-sitemap",), False, None)
         redirects, failures, unmatched = MODULE.build_redirects(
