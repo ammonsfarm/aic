@@ -49,17 +49,21 @@ type StrapiFallbackOptions = {
   timeoutMs?: number;
 };
 
+export type StrapiJsonResult<T> =
+  | { status: "ok"; data: T }
+  | { status: "unavailable" };
+
 function requestUrl(input: RequestInfo | URL) {
   if (typeof input === "string") return input;
   if (input instanceof URL) return input.toString();
   return input.url;
 }
 
-export async function fetchStrapiJsonOrNull<T>(
+export async function fetchStrapiJsonResult<T>(
   input: RequestInfo | URL,
   init: RequestInit,
   { label, timeoutMs }: StrapiFallbackOptions,
-): Promise<T | null> {
+): Promise<StrapiJsonResult<T>> {
   try {
     const response = await fetchWithTimeout(input, init, timeoutMs);
     if (!response.ok) {
@@ -68,18 +72,27 @@ export async function fetchStrapiJsonOrNull<T>(
         `${label} failed with ${response.status}; using the non-Strapi fallback.`,
         details.slice(0, 500),
       );
-      return null;
+      return { status: "unavailable" };
     }
 
     try {
-      return (await response.json()) as T;
+      return { status: "ok", data: (await response.json()) as T };
     } catch (error) {
       console.warn(`${label} returned invalid JSON; using the non-Strapi fallback.`, error);
-      return null;
+      return { status: "unavailable" };
     }
   } catch (error) {
     const description = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
     console.warn(`${label} was unavailable at ${requestUrl(input)}; using the non-Strapi fallback.`, description);
-    return null;
+    return { status: "unavailable" };
   }
+}
+
+export async function fetchStrapiJsonOrNull<T>(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  options: StrapiFallbackOptions,
+): Promise<T | null> {
+  const result = await fetchStrapiJsonResult<T>(input, init, options);
+  return result.status === "ok" ? result.data : null;
 }
