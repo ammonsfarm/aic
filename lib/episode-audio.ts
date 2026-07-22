@@ -3,6 +3,7 @@ import { Readable, Transform, type TransformCallback } from "node:stream";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
+export const PUBLIC_EPISODE_AUDIO_CACHE_CONTROL = "private, no-store";
 
 export function isPublicEpisodeTrackId(value: string) {
   return /^(?:\d+|sa_\d+)$/.test(value);
@@ -122,5 +123,5 @@ export async function episodeAudioResponse(request: Request, trackId: string, ca
 }
 
 export function publicEpisodeAudioResponse(request: Request, trackId: string) {
-  return episodeAudioResponse(request, trackId, "public, max-age=3600, stale-while-revalidate=86400");
+  return episodeAudioResponse(request, trackId, PUBLIC_EPISODE_AUDIO_CACHE_CONTROL);
 }

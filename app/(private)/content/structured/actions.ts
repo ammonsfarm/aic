@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { redirect } from "next/navigation";
 
 import {
@@ -16,7 +16,18 @@ import {
   type StructuredCollectionKey,
   type StructuredFieldDefinition,
 } from "@/lib/structured-content-config";
+import {
+  isReservedLegacyRedirectSource,
+  isSafeLegacyRedirectTarget,
+  normalizeLegacyRequestPath,
+} from "@/lib/legacy-redirects";
 import { requireContentManagerApiUser } from "@/lib/rbac";
+import {
+  STRAPI_PUBLIC_MEDIA_CACHE_TAG,
+  STRAPI_STRUCTURED_CACHE_TAG,
+  strapiPublicMediaCacheTag,
+  strapiStructuredCacheTag,
+} from "@/lib/strapi-cache-tags";
 
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 const MAX_AUDIO_BYTES = 250 * 1024 * 1024;
@@ -159,17 +170,23 @@ async function structuredPayload(
   }
 
   if (key === "redirects") {
-    const fromPath = String(data.fromPath || "");
-    if (!fromPath.startsWith("/") || fromPath.startsWith("//")) {
-      throw new Error("Legacy path must begin with one slash.");
+    const fromPath = normalizeLegacyRequestPath(String(data.fromPath || ""));
+    const toPath = normalizeLegacyRequestPath(String(data.toPath || ""));
+    if (!fromPath || isReservedLegacyRedirectSource(fromPath)) {
+      throw new Error("Legacy path must be a non-reserved site path beginning with one slash.");
     }
-    if (data.toPath === fromPath) {
+    if (!toPath || !isSafeLegacyRedirectTarget(toPath)) {
+      throw new Error("Redirect destination must be a non-reserved path on this site.");
+    }
+    if (toPath.replace(/\/+$/, "").toLowerCase() === fromPath.replace(/\/+$/, "").toLowerCase()) {
       throw new Error("A redirect cannot point to itself.");
     }
     const statusCode = Number(data.statusCode);
     if (![301, 302, 307, 308].includes(statusCode)) {
       throw new Error("Redirect status must be 301, 302, 307, or 308.");
     }
+    data.fromPath = fromPath;
+    data.toPath = toPath;
     data.statusCode = statusCode;
   }
 
@@ -193,6 +210,16 @@ function revalidateStructuredPaths(key: StructuredCollectionKey, documentId?: st
     }
   }
 
+  for (const tag of [
+    STRAPI_STRUCTURED_CACHE_TAG,
+    strapiStructuredCacheTag(key),
+    STRAPI_PUBLIC_MEDIA_CACHE_TAG,
+    ...(documentId ? [strapiPublicMediaCacheTag(documentId)] : []),
+  ]) {
+    revalidateTag(tag, { expire: 0 });
+  }
+  revalidatePath("/sitemap.xml");
+
   const publicPaths: Partial<Record<StructuredCollectionKey, string[]>> = {
     posts: ["/bible-study", "/written-resources", "/writings"],
     episodes: ["/radio"],
@@ -201,6 +228,12 @@ function revalidateStructuredPaths(key: StructuredCollectionKey, documentId?: st
   };
   for (const path of publicPaths[key] || []) {
     revalidatePath(path);
+  }
+  if (key === "posts") {
+    revalidatePath("/writings/[slug]", "page");
+  }
+  if (key === "episodes") {
+    revalidatePath("/radio/[[...slug]]", "page");
   }
 }
 

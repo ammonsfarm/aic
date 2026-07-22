@@ -34,7 +34,10 @@ async function serve(request: Request, { params }: Context) {
     const length = range?.length ?? stats.size;
     const headers = new Headers({
       "Accept-Ranges": "bytes",
-      "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
+      // Authorization can be revoked by unpublishing or archiving the owning
+      // Strapi entry, so intermediaries must not serve a previously authorized
+      // response after that transition.
+      "Cache-Control": "private, no-store",
       "Content-Length": String(length),
       "Content-Type": media.mime,
       "X-Content-Type-Options": "nosniff",

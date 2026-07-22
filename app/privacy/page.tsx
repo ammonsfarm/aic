@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import { TopRail } from "@/components/top-rail";
+import { publicMetadata } from "@/lib/public-seo";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = publicMetadata({
   title: "Privacy Policy | Pastor Wood Sermon Search GPT",
   description: "Privacy Policy for Pastor Wood Sermon Search GPT.",
-};
+  path: "/privacy/",
+});
 
 const bulletItems = [
   "The search query or question you submit",

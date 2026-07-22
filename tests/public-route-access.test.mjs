@@ -28,3 +28,11 @@ test("RAG and episode APIs are not added to the public API allowlist", () => {
   assert.doesNotMatch(proxy, /api\/episodes/);
   assert.doesNotMatch(proxy, /api\/rag/);
 });
+
+test("unsubscribe is public while unknown signed-out paths fall through to a real Next 404", () => {
+  assert.match(proxy, /"\/api\/public\/subscriptions\(\.\*\)"/);
+  assert.match(proxy, /"\/unsubscribe\(\.\*\)"/);
+  assert.match(proxy, /Unknown signed-out paths belong to Next's routing layer/);
+  assert.match(proxy, /if \(isKnownPrivatePath\(request\.nextUrl\.pathname\)\) \{\s*return redirectToLogin\(request\);\s*\}/);
+  assert.doesNotMatch(routeAccess, /"missing-page"/);
+});

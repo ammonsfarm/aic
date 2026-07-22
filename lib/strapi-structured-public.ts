@@ -1,6 +1,7 @@
 import "server-only";
 
 import { cmsMediaPublicUrl } from "@/lib/cms-media-url";
+import { STRAPI_STRUCTURED_CACHE_TAG, strapiStructuredCacheTag } from "@/lib/strapi-cache-tags";
 import type { StructuredCollectionKey } from "@/lib/structured-content-config";
 import { STRUCTURED_COLLECTIONS } from "@/lib/structured-content-config";
 
@@ -157,7 +158,7 @@ async function publishedCollectionPage(
       },
       next: {
         revalidate: 300,
-        tags: ["strapi-structured", `strapi-structured-${key}`],
+        tags: [STRAPI_STRUCTURED_CACHE_TAG, strapiStructuredCacheTag(key)],
       },
       signal: AbortSignal.timeout(8_000),
     });

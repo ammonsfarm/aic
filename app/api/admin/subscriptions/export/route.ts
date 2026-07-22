@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { queryRows } from "@/lib/db";
+import { subscriptionUnsubscribeUrl } from "@/lib/public-subscriptions";
 import { isForbiddenError, requireContentManagerApiUser } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
@@ -48,7 +49,7 @@ export async function GET(request: Request) {
       `,
       [actor.email, JSON.stringify({ status: status || "all", rowCount: rows.length })],
     );
-    const header = ["email", "status", "consent_version", "consent_at", "source_path", "created_at", "updated_at"];
+    const header = ["email", "status", "consent_version", "consent_at", "source_path", "created_at", "updated_at", "unsubscribe_url"];
     const csv = [
       header.join(","),
       ...rows.map((row) => [
@@ -59,6 +60,7 @@ export async function GET(request: Request) {
         row.source_path,
         row.created_at,
         row.updated_at,
+        subscriptionUnsubscribeUrl(row.email),
       ].map(csvCell).join(",")),
     ].join("\r\n") + "\r\n";
     const date = new Date().toISOString().slice(0, 10);

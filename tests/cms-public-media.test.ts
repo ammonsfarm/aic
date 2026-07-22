@@ -41,6 +41,7 @@ describe("same-origin CMS media boundary", () => {
     vi.mocked(authorizedPublishedCmsMedia).mockResolvedValueOnce({ documentId: "publicDoc", url: "/uploads/public.jpg", mime: "image/jpeg", size: 12 });
     const publicResponse = await GET(new Request("https://www.pastorwood.org/media/cms/publicDoc/public.jpg"), { params: Promise.resolve({ documentId: "publicDoc", filename: "public.jpg" }) });
     expect(publicResponse.status).toBe(200);
+    expect(publicResponse.headers.get("cache-control")).toBe("private, no-store");
     expect(await publicResponse.text()).toBe("public-bytes");
 
     vi.mocked(authorizedPublishedCmsMedia).mockResolvedValueOnce(null);

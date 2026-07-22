@@ -2,6 +2,7 @@ import "server-only";
 
 import { STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag } from "@/lib/strapi";
 import { fetchStrapiJsonOrNull } from "@/lib/strapi-request";
+import { safeCmsHref } from "@/lib/cms-html";
 
 export const STRAPI_SITE_SETTINGS_CACHE_TAG = "strapi:site-settings";
 
@@ -87,7 +88,7 @@ function normalizeNavigationItem(item: unknown): StrapiNavigationItem | null {
   const label = getString(source.label);
   const explicitUrl = getString(source.url);
   const linkedPageHref = pageHref(source.page);
-  const href = linkedPageHref || explicitUrl;
+  const href = safeCmsHref(linkedPageHref || explicitUrl);
 
   if (!label || !href) {
     return null;
@@ -99,7 +100,7 @@ function normalizeNavigationItem(item: unknown): StrapiNavigationItem | null {
     href,
     order: getNumber(source.order),
     active: getBoolean(source.active, true),
-    external: href.startsWith("http"),
+    external: href.startsWith("https://") || href.startsWith("mailto:") || href.startsWith("tel:"),
   };
 }
 

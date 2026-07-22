@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { safeCmsHref } from "@/lib/cms-html";
 import { requireContentManagerApiUser } from "@/lib/rbac";
 import { STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag } from "@/lib/strapi";
+import { STRAPI_PUBLIC_MEDIA_CACHE_TAG } from "@/lib/strapi-cache-tags";
 import { STRAPI_SITE_SETTINGS_CACHE_TAG } from "@/lib/strapi-site-settings";
 import {
   unpublishManagedSiteSettings,
@@ -118,10 +119,12 @@ function revalidateSiteSettingsEditor() {
 }
 
 function revalidatePublishedSiteSettings() {
-  revalidateTag(STRAPI_SITE_SETTINGS_CACHE_TAG, "max");
-  revalidateTag(STRAPI_PAGES_CACHE_TAG, "max");
-  revalidateTag(strapiPageCacheTag("site-settings"), "max");
+  revalidateTag(STRAPI_SITE_SETTINGS_CACHE_TAG, { expire: 0 });
+  revalidateTag(STRAPI_PAGES_CACHE_TAG, { expire: 0 });
+  revalidateTag(STRAPI_PUBLIC_MEDIA_CACHE_TAG, { expire: 0 });
+  revalidateTag(strapiPageCacheTag("site-settings"), { expire: 0 });
   revalidatePath("/", "layout");
+  revalidatePath("/sitemap.xml", "page");
 }
 
 export async function saveSiteSettingsAction(formData: FormData) {

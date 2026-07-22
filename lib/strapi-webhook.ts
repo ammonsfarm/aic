@@ -1,4 +1,6 @@
 const PUBLICATION_EVENTS = new Set([
+  "entry.create",
+  "entry.update",
   "entry.publish",
   "entry.unpublish",
   "entry.delete",

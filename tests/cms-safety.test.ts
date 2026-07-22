@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { safeCmsHref, sanitizeCmsHtml } from "@/lib/cms-html";
+import { safeCmsHref, safeCmsImageSrc, sanitizeCmsHtml } from "@/lib/cms-html";
+import { safeExternalDonationUrl } from "@/lib/public-donation";
 import {
   assertAllowedPageSlug,
   assertUniquePageSlug,
@@ -68,7 +69,28 @@ describe("CMS HTML sanitizer", () => {
 
   it("allows safe CTA destinations and rejects executable ones", () => {
     expect(safeCmsHref("/donate")).toBe("/donate");
+    expect(safeCmsHref("https://wvr.org/books")).toBe("https://wvr.org/books");
     expect(safeCmsHref("javascript:alert(1)")).toBe("");
+    expect(safeCmsHref("data:text/html,bad")).toBe("");
+    expect(safeCmsHref("//evil.example/path")).toBe("");
+    expect(safeCmsHref("http://evil.example/path")).toBe("");
+    expect(sanitizeCmsHtml('<a href="http://evil.example/path">insecure</a>')).not.toContain("href");
+    expect(sanitizeCmsHtml('<a href="/radio/">radio</a>')).toContain('href="/radio/"');
+  });
+
+  it("preserves only same-origin routed or bundled images", () => {
+    for (const source of ["/media/legacy/2019/photo.jpg", "/media/cms/doc/photo.jpg", "/images/pastor.jpg"]) {
+      expect(safeCmsImageSrc(source)).toBe(source);
+      expect(sanitizeCmsHtml(`<p>Before</p><img src="${source}" alt="Pastor Jim"><p>After</p>`)).toContain(`src="${source}"`);
+    }
+    expect(sanitizeCmsHtml('<img src="https://gallery.mailchimp.com/tracker.jpg"><img src="javascript:alert(1)">')).not.toContain("img");
+  });
+
+  it("restricts external donation destinations to approved hosts and path", () => {
+    expect(safeExternalDonationUrl("https://www.pastorwood.org/donations/givewp-donation-form/")).toContain("pastorwood.org/donations/");
+    expect(safeExternalDonationUrl("https://www.pastorwood.org/not-donations/phish")).toBeNull();
+    expect(safeExternalDonationUrl("https://evil.example/donations/give")).toBeNull();
+    expect(safeExternalDonationUrl("//evil.example/donations/give")).toBeNull();
   });
 });
 
@@ -100,9 +122,11 @@ describe("private-route, RBAC, and security policy", () => {
     expect(headers.get("Referrer-Policy")).toBe("strict-origin-when-cross-origin");
   });
 
-  it("invalidates public caches only for publication lifecycle events", () => {
-    expect(isPublicStrapiChange({ event: "entry.update" })).toBe(false);
+  it("invalidates public caches for every public content mutation", () => {
+    expect(isPublicStrapiChange({ event: "entry.update" })).toBe(true);
+    expect(isPublicStrapiChange({ event: "entry.create" })).toBe(true);
     expect(isPublicStrapiChange({ event: "entry.publish" })).toBe(true);
     expect(isPublicStrapiChange({ event: "entry.unpublish" })).toBe(true);
+    expect(isPublicStrapiChange({ event: "entry.delete" })).toBe(true);
   });
 });

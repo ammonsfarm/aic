@@ -1,4 +1,5 @@
 import redirectManifest from "@/data/legacy-redirects.json";
+import { STRAPI_STRUCTURED_CACHE_TAG, strapiStructuredCacheTag } from "@/lib/strapi-cache-tags";
 
 export type LegacyRedirect = {
   fromPath: string;
@@ -28,7 +29,8 @@ const reservedTargets = [
 
 function isReservedPath(value: string) {
   const path = normalizePath(value);
-  return Boolean(path && reservedTargets.some((prefix) => path === `${prefix}/` || path.startsWith(`${prefix}/`)));
+  const lowerPath = path.toLowerCase();
+  return Boolean(path && reservedTargets.some((prefix) => lowerPath === `${prefix}/` || lowerPath.startsWith(`${prefix}/`)));
 }
 
 function normalizePath(value: string) {
@@ -50,7 +52,8 @@ function normalizePath(value: string) {
 export function isSafeLegacyRedirectTarget(value: string) {
   const target = normalizePath(value);
   if (!target || target.startsWith("//")) return false;
-  return !reservedTargets.some((prefix) => target === prefix || target.startsWith(`${prefix}/`));
+  const lowerTarget = target.toLowerCase();
+  return !reservedTargets.some((prefix) => lowerTarget === prefix || lowerTarget.startsWith(`${prefix}/`));
 }
 
 const redirectMap = new Map<string, LegacyRedirect>();
@@ -71,6 +74,81 @@ export function resolveLegacyRedirect(pathname: string): LegacyRedirect | null {
     return null;
   }
   return redirect;
+}
+
+function strapiRedirectOrigin() {
+  return (process.env.STRAPI_PUBLIC_URL?.trim() || process.env.STRAPI_URL?.trim() || "").replace(/\/+$/, "");
+}
+
+function managedRedirect(value: unknown, source: string): LegacyRedirect | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  const attributes = raw.attributes && typeof raw.attributes === "object"
+    ? raw.attributes as Record<string, unknown>
+    : {};
+  const entry = { ...attributes, ...raw };
+  if (entry.active !== true || (typeof entry.archivedAt === "string" && entry.archivedAt.trim())) return null;
+  const fromPath = normalizePath(typeof entry.fromPath === "string" ? entry.fromPath : "");
+  const toPath = normalizePath(typeof entry.toPath === "string" ? entry.toPath : "");
+  const statusCode = Number(entry.statusCode);
+  if (
+    !fromPath
+    || fromPath.toLowerCase() !== source.toLowerCase()
+    || isReservedPath(fromPath)
+    || !toPath
+    || !isSafeLegacyRedirectTarget(toPath)
+    || ![301, 302, 307, 308].includes(statusCode)
+    || fromPath.replace(/\/+$/, "").toLowerCase() === toPath.replace(/\/+$/, "").toLowerCase()
+  ) {
+    return null;
+  }
+  return {
+    fromPath,
+    toPath,
+    statusCode: statusCode as LegacyRedirect["statusCode"],
+    active: true,
+    notes: typeof entry.notes === "string" ? entry.notes : undefined,
+    sourceUrl: typeof entry.sourceUrl === "string" ? entry.sourceUrl : undefined,
+  };
+}
+
+/**
+ * Resolve the content-manager redirect first. A successful empty/inactive result
+ * is authoritative; the generated manifest is used only when Strapi is absent
+ * or unavailable, so an editor can disable or delete a redirect immediately.
+ */
+export async function resolvePublicLegacyRedirect(pathname: string): Promise<LegacyRedirect | null> {
+  const source = normalizePath(pathname);
+  if (!source || isReservedPath(source)) return null;
+  const fallback = resolveLegacyRedirect(source);
+  const origin = strapiRedirectOrigin();
+  if (!origin) return fallback;
+
+  const url = new URL("/api/redirects", origin);
+  url.searchParams.set("pagination[pageSize]", "2");
+  url.searchParams.set("filters[fromPath][$eq]", source);
+  const token = process.env.STRAPI_READ_TOKEN?.trim() || process.env.STRAPI_API_TOKEN?.trim() || "";
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      next: {
+        revalidate: 300,
+        tags: [STRAPI_STRUCTURED_CACHE_TAG, strapiStructuredCacheTag("redirects")],
+      },
+      signal: AbortSignal.timeout(4_000),
+    });
+    if (!response.ok) return fallback;
+    const payload = await response.json() as { data?: unknown[] };
+    if (!Array.isArray(payload.data)) return fallback;
+    if (payload.data.length !== 1) return null;
+    return managedRedirect(payload.data[0], source);
+  } catch (error) {
+    console.error("Managed legacy redirect lookup failed; using the generated fallback.", error);
+    return fallback;
+  }
 }
 
 export function legacyRedirectCount() {

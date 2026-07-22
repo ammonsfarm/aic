@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const notFound = vi.fn(() => {
-  throw new Error("NEXT_NOT_FOUND");
-});
-const getPublishedEpisodeBySlug = vi.fn();
+const { notFound, getPublishedEpisodeBySlug } = vi.hoisted(() => ({
+  notFound: vi.fn(() => {
+    throw new Error("NEXT_NOT_FOUND");
+  }),
+  getPublishedEpisodeBySlug: vi.fn(),
+}));
 
 vi.mock("next/navigation", () => ({ notFound }));
 vi.mock("@/components/pastor-wood-site", () => ({}));

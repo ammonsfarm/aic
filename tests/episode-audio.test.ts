@@ -2,9 +2,13 @@ import { EventEmitter } from "node:events";
 
 import { describe, expect, it } from "vitest";
 
-import { isPublicEpisodeTrackId, parseEpisodeAudioRange, terminateChildOnAbort } from "@/lib/episode-audio";
+import { isPublicEpisodeTrackId, parseEpisodeAudioRange, PUBLIC_EPISODE_AUDIO_CACHE_CONTROL, terminateChildOnAbort } from "@/lib/episode-audio";
 
 describe("public episode audio boundary", () => {
+  it("does not let intermediaries retain audio after an episode is unpublished", () => {
+    expect(PUBLIC_EPISODE_AUDIO_CACHE_CONTROL).toBe("private, no-store");
+  });
+
   it("accepts only canonical numeric and SermonAudio track IDs", () => {
     expect(isPublicEpisodeTrackId("1003386838")).toBe(true);
     expect(isPublicEpisodeTrackId("sa_99151132260")).toBe(true);

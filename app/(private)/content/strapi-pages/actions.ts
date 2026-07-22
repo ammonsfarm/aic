@@ -18,6 +18,7 @@ import {
 } from "@/lib/cms-page-validation";
 import { requireContentManagerApiUser } from "@/lib/rbac";
 import { STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag } from "@/lib/strapi";
+import { STRAPI_PUBLIC_MEDIA_CACHE_TAG } from "@/lib/strapi-cache-tags";
 import { safeCmsHref } from "@/lib/cms-html";
 import { fetchWithTimeout, strapiUploadTimeoutMs } from "@/lib/strapi-request";
 
@@ -263,14 +264,16 @@ function revalidatePublishedPage(
   input: ManagedStrapiPageInput,
   previous?: { pageKey: string; slug: string },
 ) {
-  revalidateTag(STRAPI_PAGES_CACHE_TAG, "max");
-  revalidateTag(strapiPageCacheTag(input.pageKey), "max");
-  revalidateTag(strapiPageCacheTag(input.slug), "max");
+  revalidateTag(STRAPI_PAGES_CACHE_TAG, { expire: 0 });
+  revalidateTag(STRAPI_PUBLIC_MEDIA_CACHE_TAG, { expire: 0 });
+  revalidateTag(strapiPageCacheTag(input.pageKey), { expire: 0 });
+  revalidateTag(strapiPageCacheTag(input.slug), { expire: 0 });
   revalidatePath(publicPathFor(input.pageKey, input.slug), "page");
+  revalidatePath("/sitemap.xml", "page");
 
   if (previous) {
-    revalidateTag(strapiPageCacheTag(previous.pageKey), "max");
-    revalidateTag(strapiPageCacheTag(previous.slug), "max");
+    revalidateTag(strapiPageCacheTag(previous.pageKey), { expire: 0 });
+    revalidateTag(strapiPageCacheTag(previous.slug), { expire: 0 });
     revalidatePath(publicPathFor(previous.pageKey, previous.slug), "page");
   }
 }

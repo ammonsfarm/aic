@@ -54,6 +54,18 @@ test("editor mutations are role guarded and cover the full lifecycle", async () 
     assert.match(actions, new RegExp(operation));
   }
   assert.match(actions, /Deletion confirmation must exactly match/);
+  assert.match(actions, /revalidateTag/);
+  assert.match(actions, /STRAPI_PUBLIC_MEDIA_CACHE_TAG/);
+  assert.match(actions, /strapiStructuredCacheTag\(key\)/);
+  assert.match(actions, /revalidatePath\("\/sitemap\.xml"\)/);
+});
+
+test("redirect edits reject external, reserved, and self-referential targets", async () => {
+  const actions = await source("app/(private)/content/structured/actions.ts");
+  assert.match(actions, /isReservedLegacyRedirectSource/);
+  assert.match(actions, /isSafeLegacyRedirectTarget/);
+  assert.match(actions, /Redirect destination must be a non-reserved path on this site/);
+  assert.match(actions, /A redirect cannot point to itself/);
 });
 
 test("media upload is bounded and private visibility is part of the editor contract", async () => {

@@ -3,8 +3,15 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { NextRequest, NextResponse } from "next/server";
 
 import { STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag } from "@/lib/strapi";
+import {
+  STRAPI_PUBLIC_MEDIA_CACHE_TAG,
+  STRAPI_STRUCTURED_CACHE_TAG,
+  strapiPublicMediaCacheTag,
+  strapiStructuredCacheTag,
+} from "@/lib/strapi-cache-tags";
 import { STRAPI_SITE_SETTINGS_CACHE_TAG } from "@/lib/strapi-site-settings";
 import { isPublicStrapiChange, strapiWebhookEvent } from "@/lib/strapi-webhook";
+import { STRUCTURED_COLLECTION_KEYS } from "@/lib/structured-content-config";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -12,6 +19,7 @@ export const runtime = "nodejs";
 const PAGE_PATH_BY_KEY: Record<string, string> = {
   about: "/about-pastor-wood",
   "about-pastor-wood": "/about-pastor-wood",
+  "abiding-in-christ": "/abiding-in-christ",
   "bible-study": "/bible-study",
   "board-members": "/board-members",
   contact: "/contact",
@@ -19,11 +27,21 @@ const PAGE_PATH_BY_KEY: Record<string, string> = {
   "donor-dashboard": "/donor-dashboard",
   endorsements: "/endorsements",
   home: "/",
+  privacy: "/privacy",
   "privacy-terms-conditions": "/privacy-terms-conditions",
   "written-resources": "/written-resources",
 };
 
 const KNOWN_STRAPI_PAGE_PATHS = [...new Set(Object.values(PAGE_PATH_BY_KEY))];
+const STRUCTURED_PUBLIC_PATHS = [
+  "/bible-study",
+  "/board-members",
+  "/endorsements",
+  "/radio",
+  "/written-resources",
+  "/writings",
+  "/sitemap.xml",
+];
 
 function textValue(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -79,10 +97,12 @@ function collectIdentifiers(payload: unknown) {
 
   const pageKeys = new Set<string>();
   const slugs = new Set<string>();
+  const documentIds = new Set<string>();
 
   for (const record of records) {
     const pageKey = normalizeIdentifier(record.pageKey);
     const slug = normalizeIdentifier(record.slug);
+    const documentId = textValue(record.documentId);
 
     if (pageKey) {
       pageKeys.add(pageKey);
@@ -91,9 +111,12 @@ function collectIdentifiers(payload: unknown) {
     if (slug) {
       slugs.add(slug);
     }
+    if (documentId) {
+      documentIds.add(documentId);
+    }
   }
 
-  return { pageKeys, slugs };
+  return { pageKeys, slugs, documentIds };
 }
 
 function publicPathForIdentifier(identifier: string) {
@@ -139,13 +162,22 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       revalidated: false,
       event: strapiWebhookEvent(payload) || "unknown",
-      reason: "Only publish, unpublish, and delete events invalidate the public cache.",
+      reason: "Only public content create, update, publish, unpublish, and delete events invalidate the public cache.",
     });
   }
 
-  const { pageKeys, slugs } = collectIdentifiers(payload);
-  const tags = new Set([STRAPI_PAGES_CACHE_TAG, STRAPI_SITE_SETTINGS_CACHE_TAG]);
+  const { pageKeys, slugs, documentIds } = collectIdentifiers(payload);
+  const tags = new Set([
+    STRAPI_PAGES_CACHE_TAG,
+    STRAPI_SITE_SETTINGS_CACHE_TAG,
+    STRAPI_STRUCTURED_CACHE_TAG,
+    STRAPI_PUBLIC_MEDIA_CACHE_TAG,
+    ...STRUCTURED_COLLECTION_KEYS.map(strapiStructuredCacheTag),
+  ]);
   const paths = pathsToRevalidate(pageKeys, slugs);
+  for (const path of STRUCTURED_PUBLIC_PATHS) {
+    paths.add(path);
+  }
 
   for (const pageKey of pageKeys) {
     tags.add(strapiPageCacheTag(pageKey));
@@ -155,13 +187,19 @@ export async function POST(request: NextRequest) {
     tags.add(strapiPageCacheTag(slug));
   }
 
+  for (const documentId of documentIds) {
+    tags.add(strapiPublicMediaCacheTag(documentId));
+  }
+
   for (const tag of tags) {
-    revalidateTag(tag, "max");
+    revalidateTag(tag, { expire: 0 });
   }
 
   for (const path of paths) {
     revalidatePath(path, "page");
   }
+  revalidatePath("/writings/[slug]", "page");
+  revalidatePath("/radio/[[...slug]]", "page");
 
   return NextResponse.json({
     revalidated: true,

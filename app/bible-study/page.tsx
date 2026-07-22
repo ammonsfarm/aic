@@ -1,15 +1,25 @@
 import type { PastorWoodCmsPage } from "@/components/pastor-wood-site";
 import { PastorWoodStructuredPostsPage } from "@/components/pastor-wood-structured-listings";
+import { publicCmsPageMetadata } from "@/lib/public-seo";
 import { getStrapiPageByPageKey } from "@/lib/strapi";
 
 async function getDevotionalPage(): Promise<PastorWoodCmsPage | null> {
   try {
     const page = await getStrapiPageByPageKey("bible-study");
-    return page ? { heroTitle: page.heroTitle, heroBody: page.heroBody, sections: page.sections } : null;
+    return page?.active ? page : null;
   } catch (error) {
     console.error("Strapi lookup failed for bible-study", error);
     return null;
   }
+}
+
+export async function generateMetadata() {
+  return publicCmsPageMetadata({
+    page: await getDevotionalPage(),
+    fallbackTitle: "Weekly Devotional",
+    fallbackDescription: "Read weekly devotionals and Bible teaching from Pastor Jim Wood.",
+    path: "/bible-study/",
+  });
 }
 
 export default async function Page({ searchParams }: { searchParams: Promise<{ page?: string }> }) {

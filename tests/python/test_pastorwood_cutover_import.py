@@ -1,4 +1,6 @@
 import importlib.util
+import hashlib
+import json
 import sys
 import tempfile
 import unittest
@@ -30,6 +32,27 @@ class CutoverIdentityTests(unittest.TestCase):
         self.assertNotIn("et_pb", cleaned)
         self.assertNotIn("script", cleaned)
         self.assertNotIn("onclick", cleaned)
+
+    def test_legacy_content_cleanup_preserves_authored_bracketed_copy(self):
+        authored = "Though [Jesus] was God's Son. [Jesus said,] obey. [do this thing] and compare [2:6]."
+        raw = f'[et_pb_text admin_label="Body"]<p>{authored}</p>[/et_pb_text]'
+
+        self.assertIn(authored, MODULE.clean_legacy_content(raw))
+        self.assertIn("[Jesus]", MODULE.strip_markup(raw))
+        self.assertIn("[Jesus said,]", MODULE.strip_markup(raw))
+        self.assertIn("[do this thing]", MODULE.strip_markup(raw))
+        self.assertIn("[2:6]", MODULE.strip_markup(raw))
+
+    def test_legacy_content_cleanup_rewrites_only_verified_external_images(self):
+        source = "https://gallery.mailchimp.com/example/image.jpg?one=1&two=2"
+        public_path = "/media/legacy/pastorwood-import/external-images/image.jpg"
+        raw = f'<p><img src="{source.replace("&", "&amp;")}"><img src="https://images.example/unverified.jpg"></p>'
+
+        cleaned = MODULE.clean_legacy_content(raw, {source: public_path})
+
+        self.assertIn(public_path, cleaned)
+        self.assertNotIn("gallery.mailchimp.com", cleaned)
+        self.assertIn("https://images.example/unverified.jpg", cleaned)
 
     def test_page_import_excludes_operational_and_contentless_pages(self):
         pages, excluded = MODULE.build_pages([
@@ -68,6 +91,75 @@ class CutoverIdentityTests(unittest.TestCase):
         self.assertEqual({episode["trackId"] for episode in episodes}, {"canonical", "wp-sermon:12"})
         self.assertEqual(matches, [])
         self.assertEqual(reconciliation[0]["status"], "imported-unique")
+
+    def test_episode_audio_sha256_dedupes_renamed_cross_set_and_residual_replays(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "sermons").mkdir()
+            payload = (b"verified identical sermon audio" * 10000)
+            (root / "sermons" / "canonical.mp3").write_bytes(payload)
+            (root / "sermons" / "renamed.mp3").write_bytes(payload)
+            (root / "sermons" / "replay.mp3").write_bytes(payload)
+            sermons = [
+                {"id": "1", "type": "wpfc_sermon", "title": "Canonical Program", "slug": "canonical", "date": "2024-01-01", "meta": {"sermon_audio": "/wp-content/uploads/sermons/canonical.mp3"}},
+                {"id": "2", "type": "wpfc_sermon", "title": "Renamed Replay", "slug": "renamed", "date": "2024-02-01", "meta": {"sermon_audio": "/wp-content/uploads/sermons/renamed.mp3"}},
+                {"id": "3", "type": "wpfc_sermon", "title": "Another Replay", "slug": "replay", "date": "2024-03-01", "meta": {"sermon_audio": "/wp-content/uploads/sermons/replay.mp3"}},
+            ]
+            aic = [{"trackId": "100", "title": "Canonical Program", "publishDate": "2024-01-01", "sourceFile": "100.mp3", "detail": ""}]
+            reconciliation = []
+            report = {}
+
+            episodes, matches = MODULE.build_episodes(sermons, aic, reconciliation, root, True, report)
+
+            self.assertEqual([(match.aic_track_id, match.wp_sermon_id) for match in matches], [("100", "1")])
+            self.assertEqual([episode["trackId"] for episode in episodes], ["100"])
+            duplicates = {row["wpSermonId"]: row for row in reconciliation}
+            self.assertEqual(duplicates["2"]["reason"], "aic-audio-content-sha256")
+            self.assertEqual(duplicates["3"]["reason"], "aic-audio-content-sha256")
+            self.assertRegex(duplicates["2"]["audioContentSha256"], r"^[a-f0-9]{64}$")
+            self.assertEqual(report["fullHashedPaths"], 3)
+
+    def test_baseline_episode_identity_is_preserved_when_rest_copy_changes_title(self):
+        aic = [
+            {"trackId": "100", "title": "Original Program", "publishDate": "2024-01-01", "sourceFile": "100.mp3", "detail": ""},
+            {"trackId": "200", "title": "Changed Program", "publishDate": "2024-01-01", "sourceFile": "200.mp3", "detail": ""},
+        ]
+        baseline = [{"id": "10", "type": "wpfc_sermon", "title": "Original Program", "slug": "original", "date": "2024-01-01", "meta": {}}]
+        merged = [{"id": "10", "type": "wpfc_sermon", "title": "Changed Program", "slug": "changed", "date": "2024-01-01", "meta": {}}]
+
+        _episodes, matches = MODULE.build_episodes(merged, aic, baseline_wp_content=baseline)
+
+        self.assertEqual([(match.aic_track_id, match.wp_sermon_id) for match in matches], [("100", "10")])
+
+    def test_rest_only_explicit_bestof_replay_aliases_to_existing_aic_episode(self):
+        aic = [{"trackId": "100", "title": "Faithful Life", "publishDate": "2024-01-01", "sourceFile": "100.mp3", "detail": ""}]
+        baseline = [{"id": "10", "type": "wpfc_sermon", "title": "Faithful Life", "slug": "faithful-life", "date": "2024-01-01", "meta": {}}]
+        merged = [
+            *baseline,
+            {"id": "11", "type": "wpfc_sermon", "title": "Faithful Life", "slug": "faithful-life-bestof", "date": "2025-01-01", "meta": {"sermon_audio": "/wp-content/uploads/2025/faithful-life-bestof.mp3"}},
+        ]
+        reconciliation = []
+
+        episodes, _matches = MODULE.build_episodes(merged, aic, reconciliation, baseline_wp_content=baseline)
+
+        self.assertEqual([episode["trackId"] for episode in episodes], ["100"])
+        self.assertEqual(reconciliation[0]["wpSermonId"], "11")
+        self.assertEqual(reconciliation[0]["reason"], "explicit-bestof-canonical-title")
+        self.assertEqual(reconciliation[0]["canonicalTrackId"], "100")
+
+    def test_wordpress_rest_merge_preserves_database_only_plugin_meta(self):
+        database_content = [{"id": 1, "type": "post", "title": "Old", "meta": {"_aioseo_title": "SEO", "shared": "db"}}]
+        rest_content = [{"id": 1, "type": "post", "title": "Current", "meta": {"shared": "rest"}}, {"id": 2, "type": "post", "title": "New", "meta": {}}]
+        database_media = [{"id": 10, "title": "Old media", "meta": {"_wp_attachment_image_alt": "Alt", "shared": "db"}}]
+        rest_media = [{"id": 10, "title": "Current media", "meta": {"shared": "rest"}}, {"id": 11, "title": "New media", "meta": {}}]
+
+        content, media, report = MODULE.merge_wordpress_sources(database_content, database_media, rest_content, rest_media)
+
+        self.assertEqual(content[0]["title"], "Current")
+        self.assertEqual(content[0]["meta"], {"_aioseo_title": "SEO", "shared": "rest"})
+        self.assertEqual(media[0]["meta"], {"_wp_attachment_image_alt": "Alt", "shared": "rest"})
+        self.assertEqual(report["restOnlyContentCounts"], {"post": 1})
+        self.assertEqual(report["restOnlyMediaIds"], ["11"])
 
     def test_extra_wordpress_copy_of_aic_episode_is_reported_not_imported(self):
         aic = [{"trackId": "canonical", "title": "Same Episode", "publishDate": "2024-04-05", "sourceFile": "canonical.json", "detail": ""}]
@@ -148,6 +240,54 @@ class CutoverIdentityTests(unittest.TestCase):
 
 
 class CutoverBoundaryTests(unittest.TestCase):
+    def test_external_image_manifest_requires_exact_snapshot_references_and_hashes(self):
+        source_url = "https://gallery.mailchimp.com/example/image.jpg"
+        snapshot_sha256 = "a" * 64
+        payload = b"verified legacy image"
+        digest = hashlib.sha256(payload).hexdigest()
+        relative_path = f"pastorwood-import/external-images/{hashlib.sha256(source_url.encode('utf-8')).hexdigest()}.jpg"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_path = root / relative_path
+            source_path.parent.mkdir(parents=True)
+            source_path.write_bytes(payload)
+            manifest_path = root / "external-images.json"
+            manifest_path.write_text(json.dumps({
+                "schemaVersion": 1,
+                "snapshotSha256": snapshot_sha256,
+                "destinationRoot": str(MODULE.DEFAULT_RESTRICTED_MEDIA_ROOT),
+                "fileCount": 1,
+                "referenceCount": 1,
+                "totalBytes": len(payload),
+                "records": [{
+                    "sourceUrl": source_url,
+                    "relativePath": relative_path,
+                    "publicPath": f"/media/legacy/{relative_path}",
+                    "contentType": "image/jpeg",
+                    "sizeBytes": len(payload),
+                    "sha256": digest,
+                    "references": ["posts:7"],
+                }],
+            }), encoding="utf-8")
+
+            evidence, paths, records = MODULE.verify_external_image_backup_manifest(
+                manifest_path, snapshot_sha256, {source_url: {"posts:7"}}, root,
+            )
+
+        self.assertEqual(evidence["verifiedFiles"], 1)
+        self.assertEqual(paths[source_url], f"/media/legacy/{relative_path}")
+        self.assertEqual(records[0].visibility, "public")
+
+    def test_radio_taxonomy_archive_never_maps_to_an_episode_detail(self):
+        target, reason = MODULE.redirect_target_for(
+            "/radio/topics/covenant-community-church-galatians-2/",
+            {},
+            {"covenant-community-church-galatians-2": "/radio/episode/"},
+            set(),
+        )
+        self.assertIsNone(target)
+        self.assertEqual(reason, "radio-taxonomy-archive")
+
     def test_media_path_rejects_traversal_and_private_operational_trees(self):
         bad_paths = [
             "../secret.txt",

@@ -9,6 +9,7 @@ export const revalidate = 3600;
 
 const RESERVED_PUBLIC_SLUGS = new Set([
   "about-pastor-wood",
+  "abiding-in-christ",
   "api",
   "archive",
   "bible-study",

@@ -229,7 +229,15 @@ function EpisodeCard({ episode }: { episode: PublishedEpisode }) {
   );
 }
 
-export async function PastorWoodStructuredRadioPage({ slug = [], page = 1 }: { slug?: string[]; page?: number }) {
+export async function PastorWoodStructuredRadioPage({
+  slug = [],
+  page = 1,
+  cmsPage,
+}: {
+  slug?: string[];
+  page?: number;
+  cmsPage?: PastorWoodCmsPage | null;
+}) {
   const requestedSlug = slug.join("/");
   const episode = requestedSlug ? await getPublishedEpisodeBySlug(requestedSlug) : null;
   const result = requestedSlug ? null : await listPublishedEpisodesPage(page, 24);
@@ -242,15 +250,15 @@ export async function PastorWoodStructuredRadioPage({ slug = [], page = 1 }: { s
   const Shell = hooks.PastorWoodShell;
   const Hero = hooks.PageHero;
   if (!Shell || !Hero || !episodes.length) {
-    return StructuredUnavailable({ cmsPage: null, eyebrow: "Radio Archive", title: "Radio Show Listings", body: "Listen to Abiding in Christ broadcasts." });
+    return StructuredUnavailable({ cmsPage, eyebrow: "Radio Archive", title: "Radio Show Listings", body: "Listen to Abiding in Christ broadcasts." });
   }
 
   return (
     <Shell siteSettings={await shellSettings()}>
       <Hero
         eyebrow="Radio Archive"
-        title={episode?.title || "Radio Show Listings"}
-        body={episode?.summary || "Listen to recent Abiding in Christ broadcasts."}
+        title={episode?.title || cmsPage?.heroTitle || "Radio Show Listings"}
+        body={episode?.summary || cmsPage?.heroBody || "Listen to recent Abiding in Christ broadcasts."}
       />
       <section className="pw-section pw-radio-layout">
         <div className="pw-audio-list">

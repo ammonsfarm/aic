@@ -1,21 +1,25 @@
 import { PastorWoodContentPage, type PastorWoodCmsPage } from "@/components/pastor-wood-site";
 import { getPublishedContentPage } from "@/lib/content-pages";
+import { publicCmsPageMetadata } from "@/lib/public-seo";
 import { getStrapiPageByPageKey } from "@/lib/strapi";
 
 async function getAboutStrapiPage(): Promise<PastorWoodCmsPage | null> {
   try {
     const page = await getStrapiPageByPageKey("about");
-    return page
-      ? {
-          heroTitle: page.heroTitle,
-          heroBody: page.heroBody,
-          sections: page.sections,
-        }
-      : null;
+    return page?.active ? page : null;
   } catch (error) {
     console.error("Strapi lookup failed for about", error);
     return null;
   }
+}
+
+export async function generateMetadata() {
+  return publicCmsPageMetadata({
+    page: await getAboutStrapiPage(),
+    fallbackTitle: "About Pastor Jim Wood",
+    fallbackDescription: "Learn about Pastor Jim Wood, founder of Wears Valley Ranch and host of Abiding in Christ.",
+    path: "/about-pastor-wood/",
+  });
 }
 
 async function getAboutCmsPage() {

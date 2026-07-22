@@ -5,7 +5,14 @@ export function safeExternalDonationUrl(value: string | undefined | null) {
   if (!candidate) return null;
   try {
     const parsed = new URL(candidate);
-    if (parsed.protocol !== "https:" || parsed.username || parsed.password) return null;
+    const configuredHosts = (process.env.PASTORWOOD_DONATION_ALLOWED_HOSTS || "")
+      .split(",")
+      .map((host) => host.trim().toLowerCase())
+      .filter(Boolean);
+    const canonicalHost = ["pastorwood.org", "www.pastorwood.org"].includes(parsed.hostname.toLowerCase());
+    const explicitlyAllowed = configuredHosts.includes(parsed.hostname.toLowerCase());
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password || (!canonicalHost && !explicitlyAllowed)) return null;
+    if (canonicalHost && !parsed.pathname.startsWith("/donations/")) return null;
     return parsed.toString();
   } catch {
     return null;

@@ -29,6 +29,17 @@ create table if not exists public_subscription_attempts (
     check (length(email_hash) = 64)
 );
 
+create table if not exists public_subscription_events (
+    id bigserial primary key,
+    subscription_id bigint not null references public_subscriptions(id) on delete cascade,
+    event_type text not null,
+    actor_type text not null,
+    metadata jsonb not null default '{}'::jsonb,
+    created_at timestamptz not null default now(),
+    check (event_type in ('consent-captured', 'resubscribe-blocked-suppressed', 'unsubscribed', 'unsubscribe-confirmed-suppressed', 'admin-suppressed')),
+    check (actor_type in ('public-form', 'signed-link', 'content-manager'))
+);
+
 create index if not exists idx_public_subscriptions_status_created
     on public_subscriptions(status, created_at desc);
 
@@ -37,5 +48,8 @@ create index if not exists idx_public_subscription_attempts_ip_created
 
 create index if not exists idx_public_subscription_attempts_email_created
     on public_subscription_attempts(email_hash, created_at desc);
+
+create index if not exists idx_public_subscription_events_subscription_created
+    on public_subscription_events(subscription_id, created_at desc);
 
 commit;

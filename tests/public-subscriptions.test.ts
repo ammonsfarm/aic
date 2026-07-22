@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   readSubscriptionJson,
+  subscriptionUnsubscribeToken,
   SubscriptionBodyTooLargeError,
   validateSubscriptionPayload,
+  verifySubscriptionUnsubscribeToken,
 } from "@/lib/public-subscriptions";
 import { SUBSCRIPTION_CONSENT_VERSION } from "@/lib/public-subscription-contract";
 
@@ -19,6 +21,14 @@ function validPayload(startedAt: number) {
 }
 
 describe("public subscription boundary", () => {
+  it("uses tamper-evident signed unsubscribe tokens", () => {
+    process.env.SUBSCRIPTION_UNSUBSCRIBE_SECRET = "test-only-unsubscribe-secret";
+    const token = subscriptionUnsubscribeToken("Listener@Example.com");
+    expect(verifySubscriptionUnsubscribeToken(token)).toBe("listener@example.com");
+    expect(verifySubscriptionUnsubscribeToken(`${token.slice(0, -1)}x`)).toBeNull();
+    expect(verifySubscriptionUnsubscribeToken("javascript:alert(1)")).toBeNull();
+  });
+
   it("accepts a legitimate immediate autofill submission", () => {
     const now = Date.now();
     const result = validateSubscriptionPayload(validPayload(now), now);

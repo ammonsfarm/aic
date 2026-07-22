@@ -12,6 +12,7 @@ const originalSite = "https://www.pastorwood.org";
 const routes = {
   home: "/",
   about: "/about-pastor-wood/",
+  abiding: "/abiding-in-christ/",
   endorsements: "/endorsements/",
   board: "/board-members/",
   radio: "/radio/",
@@ -44,7 +45,7 @@ const primaryLinks = [
 
 const footerAffiliateLinks = [
   { label: "Wears Valley Ranch", href: "https://wvr.org/" },
-  { label: "Covenant Community Church", href: "http://www.cccwearsvalley.org/" },
+  { label: "Covenant Community Church", href: "https://www.cccwearsvalley.org/" },
   { label: "About Pastor Wood", href: routes.about },
   { label: "Board Members", href: routes.board },
   { label: "Privacy, Terms & Conditions", href: routes.privacy },
@@ -60,20 +61,22 @@ const footerResourceLinks = [
 ];
 
 function settingsLinks(items: StrapiSiteSettings["topNavigation"] | undefined, fallback: Array<{ label: string; href: string }>) {
-  return items?.length ? items.map((item) => ({ label: item.label, href: item.href })) : fallback;
+  const source = items?.length ? items : fallback;
+  return source.flatMap((item) => {
+    const href = safeCmsHref(item.href);
+    return item.label.trim() && href ? [{ label: item.label.trim(), href }] : [];
+  });
 }
 
-type PageKey = "about" | "endorsements" | "board" | "devotional" | "written" | "contact" | "donate" | "privacy" | "donorDashboard";
-
-function isExternalHref(href: string) {
-  return href.startsWith("http") || href.startsWith("mailto:") || href.startsWith("tel:");
-}
+type PageKey = "about" | "abiding" | "endorsements" | "board" | "devotional" | "written" | "contact" | "donate" | "privacy" | "donorDashboard";
 
 function SmartLink({ href, className, children }: { href: string; className?: string; children: React.ReactNode }) {
-  if (isExternalHref(href)) {
-    return <a className={className} href={href} target={href.startsWith("http") ? "_blank" : undefined} rel={href.startsWith("http") ? "noreferrer" : undefined}>{children}</a>;
+  const safeHref = safeCmsHref(href);
+  if (!safeHref) return null;
+  if (safeHref.startsWith("https://") || safeHref.startsWith("mailto:") || safeHref.startsWith("tel:")) {
+    return <a className={className} href={safeHref} target={safeHref.startsWith("https://") ? "_blank" : undefined} rel="noreferrer noopener">{children}</a>;
   }
-  return <Link className={className} href={href}>{children}</Link>;
+  return <Link className={className} href={safeHref}>{children}</Link>;
 }
 
 function initials(name: string) {
@@ -96,7 +99,8 @@ function PersonPhoto({ name, image, compact = false }: { name: string; image?: s
 function PastorWoodNav({ siteSettings }: { siteSettings?: StrapiSiteSettings | null }) {
   const links = settingsLinks(siteSettings?.topNavigation, navLinks);
   const donateLabel = siteSettings?.donateButtonLabel || "Donate";
-  const donateHref = siteSettings?.donateButtonUrl || routes.donate;
+  const requestedDonateHref = safeCmsHref(siteSettings?.donateButtonUrl || "");
+  const donateHref = requestedDonateHref.startsWith("/") ? requestedDonateHref : getPublicDonationUrl(requestedDonateHref) || routes.donate;
   return (
     <header className="pw-nav">
       <Link className="pw-brand pw-brand--wordmark" href={routes.home} aria-label="Pastor Wood home">
@@ -111,15 +115,15 @@ function PastorWoodNav({ siteSettings }: { siteSettings?: StrapiSiteSettings | n
         </span>
       </Link>
       <nav className="pw-nav__links" aria-label="Primary navigation">
-        {links.map((item) => <Link key={item.label} href={item.href}>{item.label}</Link>)}
+        {links.map((item) => <SmartLink key={item.label} href={item.href}>{item.label}</SmartLink>)}
       </nav>
       <details className="pw-mobile-nav">
         <summary>Menu</summary>
         <nav aria-label="Mobile navigation">
-          {links.map((item) => <Link key={item.label} href={item.href}>{item.label}</Link>)}
+          {links.map((item) => <SmartLink key={item.label} href={item.href}>{item.label}</SmartLink>)}
         </nav>
       </details>
-      {siteSettings?.showDonateButton !== false ? <Link className="pw-nav__cta" href={donateHref}>{donateLabel}</Link> : null}
+      {siteSettings?.showDonateButton !== false ? <SmartLink className="pw-nav__cta" href={donateHref}>{donateLabel}</SmartLink> : null}
     </header>
   );
 }
@@ -171,9 +175,11 @@ function EndorsementFigure({ item }: { item: { name: string; title: string; quot
 function PastorWoodHome({
   siteSettings,
   endorsements = [],
+  cmsPage,
 }: {
   siteSettings?: StrapiSiteSettings | null;
   endorsements?: PublishedEndorsement[];
+  cmsPage?: PastorWoodCmsPage | null;
 }) {
   return (
     <PastorWoodShell siteSettings={siteSettings}>
@@ -182,9 +188,9 @@ function PastorWoodHome({
           <Image src="/images/pastorwood/smoky-mountain-church.png" alt="" width={1792} height={1024} priority />
         </div>
         <div className="pw-hero__content">
-          <p className="pw-kicker">Radio, Books, Conferences, Preaching</p>
-          <h1>Welcome to Abiding in Christ</h1>
-          <p className="pw-hero__lead">A ministry of Jim Wood.</p>
+          <p className="pw-kicker">{cmsPage?.heroLabel || "Radio, Books, Conferences, Preaching"}</p>
+          <h1>{cmsPage?.heroTitle || "Welcome to Abiding in Christ"}</h1>
+          <p className="pw-hero__lead">{cmsPage?.heroBody || "A ministry of Jim Wood."}</p>
           <div className="pw-hero__actions">
             <Link className="pw-button pw-button--primary" href={routes.radio}>Listen to Abiding in Christ Radio</Link>
             <Link className="pw-button pw-button--light" href={routes.contact}>Speaking / Contact Us</Link>
@@ -194,48 +200,61 @@ function PastorWoodHome({
 
       <LinkBand siteSettings={siteSettings} />
 
-      <section className="pw-section pw-bio" id="bio">
-        <div className="pw-bio__portrait"><Image src="/images/pastor-wood.jpg" alt="Pastor Jim Wood" width={768} height={960} priority /></div>
-        <div className="pw-bio__copy">
-          <p className="pw-kicker">Brief Bio</p>
-          <h2>About Pastor Wood</h2>
-          <p>Pastor Jim Wood is passionate about sharing the gospel. He wrote his first sermon at nine, began preaching at fifteen and has been preaching and teaching the Bible, whenever possible, for over fifty years.</p>
-          <p>Jim is the Founder of Wears Valley Ranch, a home and school for children from families in crisis. Jim also hosts a radio program, Abiding in Christ, which airs M-F on Sirius/XM Family Talk, Channel 131.</p>
-          <p>He and his wife Susan have been married for 50 years and have 7 children and 15 grandchildren.</p>
-          <div className="pw-inline-links"><Link href={routes.about}>About Pastor Wood</Link><a href="https://wvr.org/" target="_blank" rel="noreferrer">Wears Valley Ranch</a></div>
-        </div>
-      </section>
+      {cmsPage ? (
+        cmsPage.sections?.length ? (
+          <CmsPageSections sections={cmsPage.sections} />
+        ) : (
+          <section className="pw-section pw-content-unavailable" role="status">
+            <h2>More ministry information is coming soon.</h2>
+            <p>Listen to current broadcasts or contact the ministry using the links on this page.</p>
+          </section>
+        )
+      ) : (
+        <>
+          <section className="pw-section pw-bio" id="bio">
+            <div className="pw-bio__portrait"><Image src="/images/pastor-wood.jpg" alt="Pastor Jim Wood" width={768} height={960} priority /></div>
+            <div className="pw-bio__copy">
+              <p className="pw-kicker">Brief Bio</p>
+              <h2>About Pastor Wood</h2>
+              <p>Pastor Jim Wood is passionate about sharing the gospel. He wrote his first sermon at nine, began preaching at fifteen and has been preaching and teaching the Bible, whenever possible, for over fifty years.</p>
+              <p>Jim is the Founder of Wears Valley Ranch, a home and school for children from families in crisis. Jim also hosts a radio program, Abiding in Christ, which airs M-F on Sirius/XM Family Talk, Channel 131.</p>
+              <p>He and his wife Susan have been married for 50 years and have 7 children and 15 grandchildren.</p>
+              <div className="pw-inline-links"><Link href={routes.about}>About Pastor Wood</Link><a href="https://wvr.org/" target="_blank" rel="noreferrer">Wears Valley Ranch</a></div>
+            </div>
+          </section>
 
-      <section className="pw-section pw-listen" id="listen">
-        <div className="pw-section__intro">
-          <p className="pw-kicker">Listen</p>
-          <h2>Listen to Abiding in Christ Radio</h2>
-          <p>Whether interviewing guests about current events or preaching directly from the Bible, Pastor Wood encourages his listeners to follow Jesus Christ in whole-hearted obedience.</p>
-        </div>
-        <div className="pw-listen__grid">
-          <a className="pw-listen-card" href="https://podcasts.apple.com/us/podcast/abiding-in-christ-w-jim-wood/id375149712" target="_blank" rel="noreferrer"><strong>Apple Podcasts</strong><span>Listen to Abiding in Christ Radio on Apple Podcasts.</span></a>
-          <Link className="pw-listen-card" href={routes.radio}><strong>Radio Show Listings</strong><span>Find current Abiding in Christ radio broadcast information and listings.</span></Link>
-          <a className="pw-listen-card" href="https://familytalktoday.com/programguidedaily/" target="_blank" rel="noreferrer"><strong>SiriusXM Family Talk 131</strong><span>M-F 8:30 PM ET / 5:30 PM PT.</span></a>
-          <a className="pw-listen-card" href="https://www.facebook.com/PastorJimWood/" target="_blank" rel="noreferrer"><strong>Stay Connected</strong><span>Follow Pastor Jim Wood on Facebook.</span></a>
-        </div>
-      </section>
+          <section className="pw-section pw-listen" id="listen">
+            <div className="pw-section__intro">
+              <p className="pw-kicker">Listen</p>
+              <h2>Listen to Abiding in Christ Radio</h2>
+              <p>Whether interviewing guests about current events or preaching directly from the Bible, Pastor Wood encourages his listeners to follow Jesus Christ in whole-hearted obedience.</p>
+            </div>
+            <div className="pw-listen__grid">
+              <a className="pw-listen-card" href="https://podcasts.apple.com/us/podcast/abiding-in-christ-w-jim-wood/id375149712" target="_blank" rel="noreferrer"><strong>Apple Podcasts</strong><span>Listen to Abiding in Christ Radio on Apple Podcasts.</span></a>
+              <Link className="pw-listen-card" href={routes.radio}><strong>Radio Show Listings</strong><span>Find current Abiding in Christ radio broadcast information and listings.</span></Link>
+              <a className="pw-listen-card" href="https://familytalktoday.com/programguidedaily/" target="_blank" rel="noreferrer"><strong>SiriusXM Family Talk 131</strong><span>M-F 8:30 PM ET / 5:30 PM PT.</span></a>
+              <a className="pw-listen-card" href="https://www.facebook.com/PastorJimWood/" target="_blank" rel="noreferrer"><strong>Stay Connected</strong><span>Follow Pastor Jim Wood on Facebook.</span></a>
+            </div>
+          </section>
 
-      <section className="pw-section pw-book">
-        <div><p className="pw-kicker">Books / Resources</p><h2>Books</h2><p>Find Pastor Wood&apos;s books and related ministry resources through the Wears Valley Ranch bookstore.</p></div>
-        <a className="pw-button pw-button--primary" href="https://wvr.org/bookstore/" target="_blank" rel="noreferrer">Visit Bookstore</a>
-      </section>
+          <section className="pw-section pw-book">
+            <div><p className="pw-kicker">Books / Resources</p><h2>Books</h2><p>Find Pastor Wood&apos;s books and related ministry resources through the Wears Valley Ranch bookstore.</p></div>
+            <a className="pw-button pw-button--primary" href="https://wvr.org/bookstore/" target="_blank" rel="noreferrer">Visit Bookstore</a>
+          </section>
 
-      <section className="pw-section" id="endorsements">
-        <div className="pw-section__intro"><p className="pw-kicker">Endorsements</p><h2>Endorsements for Pastor Wood and Abiding in Christ</h2></div>
-        {endorsements.length ? (
-          <div className="pw-endorsement-grid">
-            {endorsements.slice(0, 4).map((item) => (
-              <EndorsementFigure key={item.documentId} item={{ name: item.attribution, title: [item.title, item.organization].filter(Boolean).join(", "), quote: item.quote, image: item.photoUrl }} />
-            ))}
-          </div>
-        ) : <p className="pw-content-unavailable" role="status">Endorsements are temporarily unavailable while the content service reconnects.</p>}
-        <Link className="pw-text-link" href={routes.endorsements}>More Endorsements</Link>
-      </section>
+          <section className="pw-section" id="endorsements">
+            <div className="pw-section__intro"><p className="pw-kicker">Endorsements</p><h2>Endorsements for Pastor Wood and Abiding in Christ</h2></div>
+            {endorsements.length ? (
+              <div className="pw-endorsement-grid">
+                {endorsements.slice(0, 4).map((item) => (
+                  <EndorsementFigure key={item.documentId} item={{ name: item.attribution, title: [item.title, item.organization].filter(Boolean).join(", "), quote: item.quote, image: item.photoUrl }} />
+                ))}
+              </div>
+            ) : <p className="pw-content-unavailable" role="status">Endorsements are temporarily unavailable while the content service reconnects.</p>}
+            <Link className="pw-text-link" href={routes.endorsements}>More Endorsements</Link>
+          </section>
+        </>
+      )}
 
       <ContactSection />
       <DevotionalSignup />
@@ -243,12 +262,12 @@ function PastorWoodHome({
   );
 }
 
-export async function PastorWoodSite() {
+export async function PastorWoodSite({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null } = {}) {
   const [siteSettings, endorsements] = await Promise.all([
     getStrapiSiteSettings(),
     listPublishedEndorsements(),
   ]);
-  return <PastorWoodHome siteSettings={siteSettings} endorsements={endorsements.filter((item) => item.featured)} />;
+  return <PastorWoodHome siteSettings={siteSettings} endorsements={endorsements.filter((item) => item.featured)} cmsPage={cmsPage} />;
 }
 
 export function PastorWoodSitePreview({ siteSettings }: { siteSettings: StrapiSiteSettings }) {
@@ -309,6 +328,8 @@ export type PastorWoodCmsPage = {
   heroLabel?: string;
   heroTitle?: string;
   heroBody?: string;
+  seoTitle?: string;
+  seoDescription?: string;
   sections?: PastorWoodCmsSection[];
 };
 
@@ -390,6 +411,28 @@ function AboutPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
   );
 }
 
+function AbidingInChristPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
+  const heroTitle = cmsPage?.heroTitle || "Abiding in Christ";
+  const heroBody = cmsPage?.heroBody || "Bible teaching and conversations intended to encourage whole-hearted obedience to Jesus Christ.";
+
+  return (
+    <>
+      <PageHero eyebrow={cmsPage?.heroLabel || "Radio Ministry"} title={heroTitle} body={heroBody} />
+      {cmsPage?.sections?.length ? (
+        <CmsPageSections sections={cmsPage.sections} />
+      ) : (
+        <section className="pw-section pw-story-section">
+          <div>
+            <h2>Listen to Abiding in Christ</h2>
+            <p>Browse the public radio archive for recent programs, Bible teaching, and interviews from Jim Wood.</p>
+            <div className="pw-inline-links"><Link href={routes.radio}>Browse radio programs</Link></div>
+          </div>
+        </section>
+      )}
+    </>
+  );
+}
+
 function EndorsementsPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
   const heroTitle = cmsPage?.heroTitle || "Additional Endorsements for Pastor Wood";
   const heroBody = cmsPage?.heroBody || "Public endorsements from ministry leaders and friends of the work.";
@@ -465,24 +508,29 @@ function DonatePage({ cmsPage, donorDashboard = false, siteSettings }: { cmsPage
   );
 }
 
+function SubscriptionPrivacyNotice() {
+  return (
+    <section className="pw-section pw-policy-copy" aria-labelledby="subscription-privacy-notice">
+      <h2 id="subscription-privacy-notice">Weekly devotional subscriptions</h2>
+      <p>When you subscribe, we store your email address, the consent wording and version you accepted, the time of consent, and the page where you subscribed. We also store one-way keyed hashes derived from the requesting IP address and browser identifier to limit abuse; the raw values are not stored by the subscription form.</p>
+      <h2>How the information is used</h2>
+      <p>Subscription information is used to manage the Abiding in Christ devotional list. Authorized content managers can export the active list for delivery through the ministry&apos;s approved email provider. Suppressed addresses remain suppressed if a later signup is attempted.</p>
+      <h2>Other websites and giving</h2>
+      <p>Links to giving, Apple Podcasts, Wears Valley Ranch, and other organizations open their websites. Their privacy practices apply once you leave this site. This website does not collect payment-card information.</p>
+      <h2>Questions or removal requests</h2>
+      <p>Contact <a href="mailto:Radio@pastorwood.org">Radio@pastorwood.org</a> or call <a href="tel:18664122433">(866) 412-2433</a> to ask about this notice or request removal from the devotional list.</p>
+    </section>
+  );
+}
+
 function PrivacyPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
   const heroTitle = cmsPage?.heroTitle || "Privacy, Terms & Conditions";
   const heroBody = cmsPage?.heroBody || "How Abiding in Christ handles information submitted through this website.";
   return (
     <>
       <PageHero eyebrow="Privacy" title={heroTitle} body={heroBody} />
-      {cmsPage?.sections?.length ? <CmsPageSections sections={cmsPage.sections} /> : (
-        <section className="pw-section pw-policy-copy">
-          <h2>Weekly devotional subscriptions</h2>
-          <p>When you subscribe, we store your email address, the consent wording and version you accepted, the time of consent, and the page where you subscribed. We also store one-way keyed hashes derived from the requesting IP address and browser identifier to limit abuse; the raw values are not stored by the subscription form.</p>
-          <h2>How the information is used</h2>
-          <p>Subscription information is used to manage the Abiding in Christ devotional list. Authorized content managers can export the active list for delivery through the ministry&apos;s approved email provider. Suppressed addresses remain suppressed if a later signup is attempted.</p>
-          <h2>Other websites and giving</h2>
-          <p>Links to giving, Apple Podcasts, Wears Valley Ranch, and other organizations open their websites. Their privacy practices apply once you leave this site. This website does not collect payment-card information.</p>
-          <h2>Questions or removal requests</h2>
-          <p>Contact <a href="mailto:Radio@pastorwood.org">Radio@pastorwood.org</a> or call <a href="tel:18664122433">(866) 412-2433</a> to ask about this notice or request removal from the devotional list.</p>
-        </section>
-      )}
+      {cmsPage?.sections?.length ? <CmsPageSections sections={cmsPage.sections} /> : null}
+      <SubscriptionPrivacyNotice />
     </>
   );
 }
@@ -505,6 +553,7 @@ export async function PastorWoodContentPage({ page, cmsPage }: { page: PageKey; 
   const siteSettings = await getStrapiSiteSettings();
   const content = {
     about: <AboutPage cmsPage={cmsPage} />,
+    abiding: <AbidingInChristPage cmsPage={cmsPage} />,
     endorsements: <EndorsementsPage cmsPage={cmsPage} />,
     board: <BoardPage cmsPage={cmsPage} />,
     devotional: <DevotionalPage cmsPage={cmsPage} />,
@@ -518,7 +567,7 @@ export async function PastorWoodContentPage({ page, cmsPage }: { page: PageKey; 
   return <PastorWoodShell siteSettings={siteSettings}>{content}</PastorWoodShell>;
 }
 
-export async function PastorWoodRadioPage({ slug: _slug = [] }: { slug?: string[] }) {
+export async function PastorWoodRadioPage(_props: { slug?: string[] }) {
   const siteSettings = await getStrapiSiteSettings();
   return (
     <PastorWoodShell siteSettings={siteSettings}>

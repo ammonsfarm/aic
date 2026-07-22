@@ -1,21 +1,25 @@
 import { PastorWoodContentPage, type PastorWoodCmsPage } from "@/components/pastor-wood-site";
 import { getPublishedContentPage } from "@/lib/content-pages";
+import { publicCmsPageMetadata } from "@/lib/public-seo";
 import { getStrapiPageByPageKey } from "@/lib/strapi";
 
 async function getContactStrapiPage(): Promise<PastorWoodCmsPage | null> {
   try {
     const page = await getStrapiPageByPageKey("contact");
-    return page
-      ? {
-          heroTitle: page.heroTitle,
-          heroBody: page.heroBody,
-          sections: page.sections,
-        }
-      : null;
+    return page?.active ? page : null;
   } catch (error) {
     console.error("Strapi lookup failed for contact", error);
     return null;
   }
+}
+
+export async function generateMetadata() {
+  return publicCmsPageMetadata({
+    page: await getContactStrapiPage(),
+    fallbackTitle: "Contact Pastor Wood",
+    fallbackDescription: "Contact the Abiding in Christ ministry office or invite Pastor Jim Wood to speak.",
+    path: "/contact/",
+  });
 }
 
 async function getContactCmsPage() {

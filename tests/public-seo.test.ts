@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { isPublicIndexingEnabled, publicSiteOrigin } from "@/lib/public-seo";
+import { isPublicIndexingEnabled, publicCmsPageMetadata, publicSiteOrigin } from "@/lib/public-seo";
 
 const originalOrigin = process.env.PASTORWOOD_PUBLIC_URL;
 const originalFlag = process.env.PASTORWOOD_ALLOW_INDEXING;
@@ -24,5 +24,25 @@ describe("public indexing gate", () => {
     expect(isPublicIndexingEnabled()).toBe(true);
     process.env.PASTORWOOD_PUBLIC_URL = "https://aic.ammonsfarm.org";
     expect(isPublicIndexingEnabled()).toBe(false);
+  });
+
+  it("uses published CMS SEO with a canonical public URL and safe text fallbacks", () => {
+    process.env.PASTORWOOD_PUBLIC_URL = "https://www.pastorwood.org";
+    const metadata = publicCmsPageMetadata({
+      page: {
+        title: "Page title",
+        heroTitle: "Hero title",
+        heroBody: "<p>Hero &amp; description</p>",
+        seoTitle: "CMS SEO title",
+      },
+      fallbackTitle: "Fallback title",
+      fallbackDescription: "Fallback description",
+      path: "/about-pastor-wood/",
+      absoluteTitle: true,
+    });
+
+    expect(metadata.title).toEqual({ absolute: "CMS SEO title" });
+    expect(metadata.description).toBe("Hero & description");
+    expect(metadata.alternates).toEqual({ canonical: "https://www.pastorwood.org/about-pastor-wood/" });
   });
 });

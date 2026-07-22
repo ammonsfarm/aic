@@ -574,6 +574,7 @@ export interface ApiEndorsementEndorsement extends Struct.CollectionTypeSchema {
     createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
       Schema.Attribute.Private;
     featured: Schema.Attribute.Boolean & Schema.Attribute.DefaultTo<false>;
+    legacyId: Schema.Attribute.String & Schema.Attribute.Unique;
     locale: Schema.Attribute.String & Schema.Attribute.Private;
     localizations: Schema.Attribute.Relation<
       'oneToMany',
@@ -609,6 +610,7 @@ export interface ApiEpisodeEpisode extends Struct.CollectionTypeSchema {
     archivedAt: Schema.Attribute.DateTime;
     archiveReason: Schema.Attribute.Text;
     audio: Schema.Attribute.Media<'audios'>;
+    canonicalUrl: Schema.Attribute.String;
     createdAt: Schema.Attribute.DateTime;
     createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
       Schema.Attribute.Private;
@@ -634,6 +636,7 @@ export interface ApiEpisodeEpisode extends Struct.CollectionTypeSchema {
       ['not-requested', 'queued', 'running', 'completed', 'failed', 'skipped']
     > &
       Schema.Attribute.DefaultTo<'not-requested'>;
+    legacyId: Schema.Attribute.String & Schema.Attribute.Unique;
     legacyUrl: Schema.Attribute.String;
     locale: Schema.Attribute.String & Schema.Attribute.Private;
     localizations: Schema.Attribute.Relation<
@@ -651,6 +654,7 @@ export interface ApiEpisodeEpisode extends Struct.CollectionTypeSchema {
     >;
     seo: Schema.Attribute.Component<'seo.metadata', false>;
     slug: Schema.Attribute.UID<'title'> & Schema.Attribute.Required;
+    sourceFingerprint: Schema.Attribute.String;
     summary: Schema.Attribute.Text;
     title: Schema.Attribute.String & Schema.Attribute.Required;
     trackId: Schema.Attribute.String & Schema.Attribute.Unique;
@@ -665,6 +669,7 @@ export interface ApiEpisodeEpisode extends Struct.CollectionTypeSchema {
       ['not-requested', 'queued', 'running', 'completed', 'failed', 'skipped']
     > &
       Schema.Attribute.DefaultTo<'not-requested'>;
+    wpSermonId: Schema.Attribute.String;
   };
 }
 
@@ -683,8 +688,7 @@ export interface ApiMediaAssetMediaAsset extends Struct.CollectionTypeSchema {
     altText: Schema.Attribute.String;
     archivedAt: Schema.Attribute.DateTime;
     archiveReason: Schema.Attribute.Text;
-    asset: Schema.Attribute.Media<'images' | 'files' | 'videos' | 'audios'> &
-      Schema.Attribute.Required;
+    asset: Schema.Attribute.Media<'images' | 'files' | 'videos' | 'audios'>;
     assetType: Schema.Attribute.Enumeration<
       ['image', 'audio', 'video', 'document', 'download', 'other']
     > &
@@ -696,6 +700,7 @@ export interface ApiMediaAssetMediaAsset extends Struct.CollectionTypeSchema {
     createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
       Schema.Attribute.Private;
     credit: Schema.Attribute.String;
+    fileSizeBytes: Schema.Attribute.BigInteger;
     legacyAttachmentId: Schema.Attribute.String & Schema.Attribute.Unique;
     legacyRelativePath: Schema.Attribute.String;
     locale: Schema.Attribute.String & Schema.Attribute.Private;
@@ -704,6 +709,8 @@ export interface ApiMediaAssetMediaAsset extends Struct.CollectionTypeSchema {
       'api::media-asset.media-asset'
     > &
       Schema.Attribute.Private;
+    mimeType: Schema.Attribute.String;
+    publicPath: Schema.Attribute.String;
     publishedAt: Schema.Attribute.DateTime;
     rights: Schema.Attribute.String;
     slug: Schema.Attribute.UID<'title'> & Schema.Attribute.Required;
@@ -736,12 +743,14 @@ export interface ApiPagePage extends Struct.CollectionTypeSchema {
     active: Schema.Attribute.Boolean & Schema.Attribute.DefaultTo<true>;
     archivedAt: Schema.Attribute.DateTime;
     archiveReason: Schema.Attribute.Text;
+    canonicalUrl: Schema.Attribute.String;
     createdAt: Schema.Attribute.DateTime;
     createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
       Schema.Attribute.Private;
     heroBody: Schema.Attribute.String;
     heroLabel: Schema.Attribute.String;
     heroTitle: Schema.Attribute.String;
+    legacyId: Schema.Attribute.String & Schema.Attribute.Unique;
     legacyUrl: Schema.Attribute.String;
     locale: Schema.Attribute.String & Schema.Attribute.Private;
     localizations: Schema.Attribute.Relation<'oneToMany', 'api::page.page'> &
@@ -792,6 +801,8 @@ export interface ApiPersonPerson extends Struct.CollectionTypeSchema {
     createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
       Schema.Attribute.Private;
     email: Schema.Attribute.Email;
+    legacyId: Schema.Attribute.String & Schema.Attribute.Unique;
+    legacyPhotoUrl: Schema.Attribute.String;
     legacyUrl: Schema.Attribute.String;
     locale: Schema.Attribute.String & Schema.Attribute.Private;
     localizations: Schema.Attribute.Relation<
@@ -831,6 +842,7 @@ export interface ApiPostPost extends Struct.CollectionTypeSchema {
     archiveReason: Schema.Attribute.Text;
     author: Schema.Attribute.Relation<'manyToOne', 'api::person.person'>;
     body: Schema.Attribute.RichText & Schema.Attribute.Required;
+    canonicalUrl: Schema.Attribute.String;
     contentType: Schema.Attribute.Enumeration<
       [
         'devotional',
@@ -846,7 +858,7 @@ export interface ApiPostPost extends Struct.CollectionTypeSchema {
     createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
       Schema.Attribute.Private;
     featuredImage: Schema.Attribute.Media<'images'>;
-    legacyId: Schema.Attribute.String;
+    legacyId: Schema.Attribute.String & Schema.Attribute.Unique;
     legacyUrl: Schema.Attribute.String;
     locale: Schema.Attribute.String & Schema.Attribute.Private;
     localizations: Schema.Attribute.Relation<'oneToMany', 'api::post.post'> &
@@ -861,6 +873,7 @@ export interface ApiPostPost extends Struct.CollectionTypeSchema {
     >;
     seo: Schema.Attribute.Component<'seo.metadata', false>;
     slug: Schema.Attribute.UID<'title'> & Schema.Attribute.Required;
+    sourceFingerprint: Schema.Attribute.String;
     summary: Schema.Attribute.Text;
     title: Schema.Attribute.String & Schema.Attribute.Required;
     topics: Schema.Attribute.JSON;
@@ -899,6 +912,7 @@ export interface ApiRedirectRedirect extends Struct.CollectionTypeSchema {
       Schema.Attribute.Private;
     notes: Schema.Attribute.Text;
     publishedAt: Schema.Attribute.DateTime;
+    sourceUrl: Schema.Attribute.String;
     statusCode: Schema.Attribute.Integer &
       Schema.Attribute.Required &
       Schema.Attribute.SetMinMax<
@@ -953,6 +967,8 @@ export interface ApiSiteSettingSiteSetting extends Struct.SingleTypeSchema {
     siteName: Schema.Attribute.String &
       Schema.Attribute.Required &
       Schema.Attribute.DefaultTo<'Abiding in Christ'>;
+    subscriptionEnabled: Schema.Attribute.Boolean &
+      Schema.Attribute.DefaultTo<true>;
     topNavigation: Schema.Attribute.Component<
       'navigation.navigation-item',
       true

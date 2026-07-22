@@ -3,6 +3,7 @@ import "server-only";
 import path from "node:path";
 
 import { fetchStrapiJsonOrNull } from "@/lib/strapi-request";
+import { STRAPI_PUBLIC_MEDIA_CACHE_TAG, strapiPublicMediaCacheTag } from "@/lib/strapi-cache-tags";
 
 type MediaNode = { documentId: string; url: string; mime: string; size: number | null };
 
@@ -68,7 +69,7 @@ export async function authorizedPublishedCmsMedia(documentId: string) {
   for (const url of queries) {
     const payload = await fetchStrapiJsonOrNull<unknown>(url, {
       headers,
-      next: { revalidate: 300, tags: ["strapi-public-media", `strapi-public-media-${documentId}`] },
+      next: { revalidate: 300, tags: [STRAPI_PUBLIC_MEDIA_CACHE_TAG, strapiPublicMediaCacheTag(documentId)] },
     }, { label: "Published Strapi media authorization" });
     const media = findMediaNode(payload, documentId);
     if (media) return media;

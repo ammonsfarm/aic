@@ -1,12 +1,12 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse, type NextRequest } from "next/server";
 
-import { resolveLegacyRedirect } from "@/lib/legacy-redirects";
+import { resolvePublicLegacyRedirect } from "@/lib/legacy-redirects";
 import { getStrapiPageBySlug } from "@/lib/strapi";
 import { isKnownPrivatePath, singleSegmentSlug } from "@/lib/route-access";
 
 const isApiRoute = createRouteMatcher(["/api(.*)"]);
-const isPublicApiRoute = createRouteMatcher(["/api/revalidate/strapi", "/api/public/subscriptions"]);
+const isPublicApiRoute = createRouteMatcher(["/api/revalidate/strapi", "/api/public/subscriptions(.*)"]);
 const isPublicPageRoute = createRouteMatcher([
   "/",
   "/about-pastor-wood(.*)",
@@ -22,6 +22,7 @@ const isPublicPageRoute = createRouteMatcher([
   "/board-members(.*)",
   "/privacy(.*)",
   "/privacy-terms-conditions(.*)",
+  "/unsubscribe(.*)",
   "/media(.*)",
   "/wp-content/uploads(.*)",
 ]);
@@ -38,7 +39,7 @@ export default clerkMiddleware(async (auth, request) => {
     return NextResponse.json({ error: "Authentication required" }, { status: 401 });
   }
 
-  const legacyRedirect = resolveLegacyRedirect(request.nextUrl.pathname);
+  const legacyRedirect = await resolvePublicLegacyRedirect(request.nextUrl.pathname);
   if (legacyRedirect) {
     const target = new URL(legacyRedirect.toPath, request.url);
     return NextResponse.redirect(target, legacyRedirect.statusCode);
@@ -63,7 +64,9 @@ export default clerkMiddleware(async (auth, request) => {
     }
   }
 
-  return redirectToLogin(request);
+  // Unknown signed-out paths belong to Next's routing layer so they can render
+  // a real 404. Only explicit private route families auth-redirect above.
+  return;
 });
 
 function redirectToLogin(request: NextRequest) {

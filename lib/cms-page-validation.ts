@@ -1,5 +1,6 @@
 export const RESERVED_PAGE_SLUGS = new Set([
   "about-pastor-wood",
+  "abiding-in-christ",
   "admin",
   "api",
   "archive",
