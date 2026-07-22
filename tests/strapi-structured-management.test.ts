@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  deleteStructuredFile,
   getStructuredInventorySummary,
   listStructuredEntriesPage,
   transitionStructuredEntry,
@@ -93,5 +94,19 @@ describe("structured Strapi inventory", () => {
       note: "Permanent deletion",
       expectedTitle: "Exact current title",
     });
+  });
+
+  it("can remove a rejected unattached upload through the scoped upload API", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ id: 41, name: "rejected-logo.png" }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await deleteStructuredFile(41);
+
+    const [url, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    expect(url.pathname).toBe("/api/upload/files/41");
+    expect(init.method).toBe("DELETE");
+    expect(new Headers(init.headers).get("authorization")).toBe("Bearer test-token");
   });
 });

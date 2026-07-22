@@ -68,6 +68,12 @@ export default async function SiteSettingsDraftPreview() {
           showDonateButton: settings.showDonateButton,
           donateButtonLabel: settings.donateButtonLabel,
           donateButtonUrl: settings.donateButtonUrl,
+          headerLogo: settings.headerLogo?.previewUrl ? {
+            url: settings.headerLogo.previewUrl,
+            alternativeText: settings.headerLogo.alternativeText,
+            name: settings.headerLogo.name,
+          } : null,
+          subscriptionEnabled: settings.subscriptionEnabled,
         }}
       />
     </>

@@ -497,6 +497,7 @@ export interface ApiEditorialRevisionEditorialRevision
   attributes: {
     action: Schema.Attribute.Enumeration<
       [
+        'baseline',
         'create',
         'save',
         'publish',
@@ -526,6 +527,7 @@ export interface ApiEditorialRevisionEditorialRevision
         'endorsement',
         'media-asset',
         'redirect',
+        'site-setting',
       ]
     > &
       Schema.Attribute.Required;

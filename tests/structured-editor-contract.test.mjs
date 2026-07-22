@@ -122,6 +122,74 @@ test("site pages use the same revisioned workflow and enforce immutable identity
   assert.doesNotMatch(siteSettingsManagement, /pagination\[pageSize\].*100/);
 });
 
+test("global site settings use attributed revisions, rollback, and an idempotent first-install path", async () => {
+  const actions = await source("app/(private)/content/site-settings/actions.ts");
+  for (const operation of [
+    "createManagedSiteSettingsWithWorkflow",
+    "updateManagedSiteSettingsWithWorkflow",
+    "saveAndTransitionManagedSiteSettings",
+    "rollbackManagedSiteSettings",
+    "requireContentManagerApiUser",
+  ]) {
+    assert.match(actions, new RegExp(operation));
+  }
+  assert.doesNotMatch(actions, /unpublishManagedSiteSettings/);
+  assert.match(actions, /MAX_HEADER_LOGO_BYTES/);
+  assert.match(actions, /subscriptionEnabled/);
+  assert.match(actions, /expectedUpdatedAt/);
+  assert.match(actions, /cleanupRejectedHeaderLogo/);
+  assert.match(actions, /deleteStructuredFile/);
+  const saveAction = actions.slice(actions.indexOf("export async function saveSiteSettingsAction"));
+  assert.ok(
+    saveAction.indexOf("Unsupported site-settings publication action") < saveAction.indexOf("await parseSiteSettingsInput"),
+    "publication actions must be validated before an upload can occur",
+  );
+
+  const management = await source("lib/strapi-site-settings-management.ts");
+  assert.match(management, /\/api\/editorial\/site-setting/);
+  assert.match(management, /listManagedSiteSettingsRevisions/);
+  assert.match(management, /headerLogoId/);
+  assert.match(management, /subscriptionEnabled/);
+  assert.match(management, /relationValue: documentId \|\| id/);
+
+  const editor = await source("app/(private)/content/site-settings/page.tsx");
+  assert.match(editor, /Initialize site settings/);
+  assert.match(editor, /Revision history/);
+  assert.match(editor, /rollbackSiteSettingsAction/);
+  assert.match(editor, /headerLogoFile/);
+  assert.match(editor, /subscriptionEnabled/);
+  assert.match(editor, /name="expectedUpdatedAt"/);
+  assert.match(editor, /value=\{page\.documentId\}/);
+  assert.doesNotMatch(editor, /value=\{page\.id \?\? page\.documentId\}/);
+
+  const workflow = await source("services/jimwood-cms/src/api/editorial-workflow/controllers/editorial-workflow.ts");
+  assert.match(workflow, /'site-setting':/);
+  assert.match(workflow, /api::site-setting\.site-setting/);
+  assert.match(workflow, /entityType === 'site-setting' \? 'singleton' : ''/);
+  assert.match(workflow, /strapi\.db\.query\(model\.uid as never\)\.findOne\(\)/);
+  assert.match(workflow, /Site settings have already been initialized\./);
+  assert.match(workflow, /action === 'baseline'/);
+  assert.match(workflow, /adoptedExisting: true/);
+  assert.match(workflow, /Site settings changed after this editor was loaded/);
+  assert.match(workflow, /Site settings data is required for an atomic publication transition/);
+  const revisions = JSON.parse(await source("services/jimwood-cms/src/api/editorial-revision/content-types/editorial-revision/schema.json"));
+  assert.ok(revisions.attributes.entityType.enum.includes("site-setting"));
+  assert.ok(revisions.attributes.action.enum.includes("baseline"));
+
+  const seed = await source("scripts/seed-strapi-site-settings.mjs");
+  assert.match(seed, /site-settings-baseline-adopted/);
+  assert.match(seed, /site-settings-already-audited/);
+  assert.match(seed, /\/baseline/);
+  assert.match(seed, /findPageDocumentId/);
+  assert.match(seed, /payload\.data\?\.\[0\]\?\.documentId/);
+  assert.match(seed, /\/api\/editorial\/site-setting/);
+  assert.match(await source("scripts/deploy-farm-web.sh"), /seed-strapi-site-settings\.mjs/);
+
+  const listings = await source("components/pastor-wood-structured-listings.tsx");
+  assert.match(listings, /showDevotionalSignup: mode === "devotional"/);
+  assert.match(listings, /showDevotionalSignup && settings\?\.subscriptionEnabled !== false/);
+});
+
 test("media upload is bounded and private visibility is part of the editor contract", async () => {
   const actions = await source("app/(private)/content/structured/actions.ts");
   assert.match(actions, /MAX_IMAGE_BYTES/);

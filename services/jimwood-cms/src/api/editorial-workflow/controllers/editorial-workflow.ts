@@ -1,9 +1,13 @@
+import type { Core } from '@strapi/strapi';
+
 import {
   snapshotForRevision,
   writableSnapshot as buildWritableSnapshot,
   type AttributeSchema,
   type SnapshotSchemaResolver,
 } from './editorial-snapshot';
+
+declare const strapi: Core.Strapi;
 
 type Actor = {
   id: string;
@@ -17,6 +21,7 @@ type WorkflowBody = {
   note?: string;
   revisionDocumentId?: string;
   expectedTitle?: string;
+  expectedUpdatedAt?: string;
 };
 
 type DocumentRecord = Record<string, unknown>;
@@ -52,10 +57,21 @@ const entityModels = {
   endorsement: { uid: 'api::endorsement.endorsement', titleField: 'attribution', publishable: true },
   'media-asset': { uid: 'api::media-asset.media-asset', titleField: 'title', publishable: true },
   redirect: { uid: 'api::redirect.redirect', titleField: 'fromPath', publishable: false },
+  'site-setting': {
+    uid: 'api::site-setting.site-setting',
+    titleField: 'siteName',
+    publishable: true,
+    populate: {
+      headerLogo: true,
+      topNavigation: { populate: { page: true } },
+      footerNavigation: { populate: { page: true } },
+      utilityNavigation: { populate: { page: true } },
+    },
+  },
 } as const;
 
 type EntityType = keyof typeof entityModels;
-type EditorialAction = 'create' | 'save' | 'publish' | 'unpublish' | 'archive' | 'restore' | 'rollback' | 'delete' | 'upload';
+type EditorialAction = 'baseline' | 'create' | 'save' | 'publish' | 'unpublish' | 'archive' | 'restore' | 'rollback' | 'delete' | 'upload';
 
 const revisionUid = 'api::editorial-revision.editorial-revision';
 const eventUid = 'api::editorial-event.editorial-event';
@@ -100,6 +116,10 @@ function writableSnapshot(uid: string, snapshot: Record<string, unknown>) {
   return buildWritableSnapshot(uid, snapshot, snapshotSchemaResolver);
 }
 
+function editorialPopulate(model: (typeof entityModels)[EntityType]) {
+  return 'populate' in model ? model.populate : '*';
+}
+
 async function withEditorialTransaction<T>(
   entityType: EntityType,
   documentId: string,
@@ -117,11 +137,11 @@ async function withEditorialTransaction<T>(
   });
 }
 
-async function findDraft(uid: string, documentId: string) {
-  return documents(uid).findOne({
+async function findDraft(model: (typeof entityModels)[EntityType], documentId: string) {
+  return documents(model.uid).findOne({
     documentId,
     status: 'draft',
-    populate: '*',
+    populate: editorialPopulate(model),
   });
 }
 
@@ -187,6 +207,20 @@ function requestBody(ctx: EditorialContext): WorkflowBody {
   return candidate && typeof candidate === 'object' ? candidate as WorkflowBody : {};
 }
 
+function siteSettingsVersionMatches(
+  ctx: EditorialContext,
+  current: DocumentRecord,
+  input: WorkflowBody,
+) {
+  const expectedUpdatedAt = typeof input.expectedUpdatedAt === 'string' ? input.expectedUpdatedAt.trim() : '';
+  const currentUpdatedAt = typeof current.updatedAt === 'string' ? current.updatedAt : '';
+  if (!expectedUpdatedAt || !currentUpdatedAt || expectedUpdatedAt !== currentUpdatedAt) {
+    ctx.badRequest('Site settings changed after this editor was loaded. Reload before saving.');
+    return false;
+  }
+  return true;
+}
+
 const editorialWorkflowController = {
   async create(ctx: EditorialContext) {
     const entityType = ctx.params.entityType as EntityType;
@@ -201,11 +235,17 @@ const editorialWorkflowController = {
       return ctx.badRequest('Content data is required.');
     }
 
-    return withEditorialTransaction(entityType, '', async () => {
+    return withEditorialTransaction(entityType, entityType === 'site-setting' ? 'singleton' : '', async () => {
+      if (entityType === 'site-setting') {
+        const existing = await strapi.db.query(model.uid as never).findOne();
+        if (existing) {
+          return ctx.badRequest('Site settings have already been initialized.');
+        }
+      }
       const created = await documents(model.uid).create({
         data: input.data,
         status: 'draft',
-        populate: '*',
+        populate: editorialPopulate(model),
       });
       const documentId = String(created.documentId);
       await recordAction(entityType, model, documentId, created, 'create', actor, input.note);
@@ -229,23 +269,27 @@ const editorialWorkflowController = {
     }
 
     return withEditorialTransaction(entityType, documentId, async () => {
-      if (entityType === 'page') {
-        const current = await findDraft(model.uid, documentId);
+      if (entityType === 'page' || entityType === 'site-setting') {
+        const current = await findDraft(model, documentId);
         if (!current) {
           return ctx.notFound('Content item was not found.');
         }
-        const requestedPageKey = input.data?.pageKey;
-        if (typeof requestedPageKey === 'string' && requestedPageKey !== current.pageKey) {
-          return ctx.badRequest('Page identity cannot be changed after creation.');
+        if (entityType === 'page') {
+          const requestedPageKey = input.data?.pageKey;
+          if (typeof requestedPageKey === 'string' && requestedPageKey !== current.pageKey) {
+            return ctx.badRequest('Page identity cannot be changed after creation.');
+          }
+          input.data!.pageKey = current.pageKey;
+        } else if (!siteSettingsVersionMatches(ctx, current, input)) {
+          return;
         }
-        input.data!.pageKey = current.pageKey;
       }
 
       const updated = await documents(model.uid).update({
         documentId,
         data: input.data,
         status: 'draft',
-        populate: '*',
+        populate: editorialPopulate(model),
       });
       await recordAction(entityType, model, documentId, updated, 'save', actor, input.note);
       ctx.body = { data: updated };
@@ -268,9 +312,45 @@ const editorialWorkflowController = {
     }
 
     return withEditorialTransaction(entityType, documentId, async () => {
-      const current = await findDraft(model.uid, documentId);
+      let current = await findDraft(model, documentId);
       if (!current) {
         return ctx.notFound('Content item was not found.');
+      }
+
+      if (action === 'baseline') {
+        if (entityType !== 'site-setting') {
+          return ctx.badRequest('Baseline adoption is only available for site settings.');
+        }
+        const existingRevisions = await documents(revisionUid).findMany({
+          filters: { entityType, entityDocumentId: documentId },
+          limit: 1,
+        });
+        const adopted = existingRevisions.length === 0;
+        if (adopted) {
+          await recordAction(entityType, model, documentId, current, action, actor, input.note, {
+            adoptedExisting: true,
+          });
+        }
+        ctx.body = { data: current, adopted };
+        return;
+      }
+
+      if (entityType === 'site-setting' && (action === 'publish' || action === 'unpublish')) {
+        if (!input.data || typeof input.data !== 'object') {
+          return ctx.badRequest('Site settings data is required for an atomic publication transition.');
+        }
+        if (!siteSettingsVersionMatches(ctx, current, input)) {
+          return;
+        }
+        current = await documents(model.uid).update({
+          documentId,
+          data: input.data,
+          status: 'draft',
+          populate: editorialPopulate(model),
+        });
+        await recordAction(entityType, model, documentId, current, 'save', actor, input.note);
+      } else if (entityType === 'site-setting' && action === 'rollback' && !siteSettingsVersionMatches(ctx, current, input)) {
+        return;
       }
 
       if (action === 'publish') {
@@ -280,7 +360,7 @@ const editorialWorkflowController = {
         if (current.archivedAt) {
           return ctx.badRequest('Archived content must be restored before it can be published.');
         }
-        const result = await documents(model.uid).publish({ documentId, populate: '*' });
+        const result = await documents(model.uid).publish({ documentId, populate: editorialPopulate(model) });
         const published = result.entries?.[0] || current;
         await recordAction(entityType, model, documentId, published, action, actor, input.note);
         ctx.body = { data: published };
@@ -291,8 +371,8 @@ const editorialWorkflowController = {
         if (!model.publishable) {
           return ctx.badRequest('This content type does not use draft publishing.');
         }
-        await documents(model.uid).unpublish({ documentId, populate: '*' });
-        const draft = (await findDraft(model.uid, documentId)) || current;
+        await documents(model.uid).unpublish({ documentId, populate: editorialPopulate(model) });
+        const draft = (await findDraft(model, documentId)) || current;
         await recordAction(entityType, model, documentId, draft, action, actor, input.note);
         ctx.body = { data: draft };
         return;
@@ -306,9 +386,9 @@ const editorialWorkflowController = {
         if (contentTypeAttributes(model.uid).active) {
           data.active = false;
         }
-        const archived = await documents(model.uid).update({ documentId, data, status: 'draft', populate: '*' });
+        const archived = await documents(model.uid).update({ documentId, data, status: 'draft', populate: editorialPopulate(model) });
         if (model.publishable) {
-          await documents(model.uid).unpublish({ documentId, populate: '*' });
+          await documents(model.uid).unpublish({ documentId, populate: editorialPopulate(model) });
         }
         await recordAction(entityType, model, documentId, archived, action, actor, input.note);
         ctx.body = { data: archived };
@@ -320,7 +400,7 @@ const editorialWorkflowController = {
         if (contentTypeAttributes(model.uid).active) {
           data.active = true;
         }
-        const restored = await documents(model.uid).update({ documentId, data, status: 'draft', populate: '*' });
+        const restored = await documents(model.uid).update({ documentId, data, status: 'draft', populate: editorialPopulate(model) });
         await recordAction(entityType, model, documentId, restored, action, actor, input.note);
         ctx.body = { data: restored };
         return;
@@ -340,7 +420,7 @@ const editorialWorkflowController = {
         if (entityType === 'page') {
           data.pageKey = current.pageKey;
         }
-        const restored = await documents(model.uid).update({ documentId, data, status: 'draft', populate: '*' });
+        const restored = await documents(model.uid).update({ documentId, data, status: 'draft', populate: editorialPopulate(model) });
         await recordAction(
           entityType,
           model,

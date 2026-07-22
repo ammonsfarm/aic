@@ -1,5 +1,6 @@
 import "server-only";
 
+import { cmsMediaPublicUrl } from "@/lib/cms-media-url";
 import { STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag } from "@/lib/strapi";
 import { fetchStrapiJsonOrNull } from "@/lib/strapi-request";
 import { safeCmsHref } from "@/lib/cms-html";
@@ -25,6 +26,12 @@ export type StrapiSiteSettings = {
   showDonateButton: boolean;
   donateButtonLabel: string;
   donateButtonUrl: string;
+  headerLogo: {
+    url: string;
+    alternativeText: string;
+    name: string;
+  } | null;
+  subscriptionEnabled: boolean;
 };
 
 type StrapiEntity<T> = {
@@ -117,6 +124,8 @@ function normalizeNavigation(items: unknown) {
 function normalizeSettings(entity: StrapiEntity<StrapiSiteSettings>): StrapiSiteSettings | null {
   const source = asRecord(entity.attributes ?? entity);
   const siteName = getString(source.siteName) || "Abiding in Christ";
+  const headerLogoSource = asRecord(asRecord(source.headerLogo).attributes ?? source.headerLogo);
+  const headerLogoUrl = cmsMediaPublicUrl(source.headerLogo);
 
   return {
     siteName,
@@ -128,6 +137,12 @@ function normalizeSettings(entity: StrapiEntity<StrapiSiteSettings>): StrapiSite
     showDonateButton: getBoolean(source.showDonateButton, true),
     donateButtonLabel: getString(source.donateButtonLabel) || "Donate",
     donateButtonUrl: getString(source.donateButtonUrl) || "/donate/",
+    headerLogo: headerLogoUrl ? {
+      url: headerLogoUrl,
+      alternativeText: getString(headerLogoSource.alternativeText),
+      name: getString(headerLogoSource.name),
+    } : null,
+    subscriptionEnabled: getBoolean(source.subscriptionEnabled, true),
   };
 }
 
@@ -144,6 +159,7 @@ export async function getStrapiSiteSettings(): Promise<StrapiSiteSettings | null
   url.searchParams.set("populate[topNavigation][populate]", "page");
   url.searchParams.set("populate[footerNavigation][populate]", "page");
   url.searchParams.set("populate[utilityNavigation][populate]", "page");
+  url.searchParams.set("populate[headerLogo]", "*");
 
   const payload = await fetchStrapiJsonOrNull<StrapiSingleResponse<StrapiSiteSettings>>(
     url,

@@ -6,7 +6,9 @@ import {
   updateManagedStrapiPage,
   type ManagedStrapiPageInput,
 } from "@/lib/strapi-management";
-import { updateManagedSiteSettings } from "@/lib/strapi-site-settings-management";
+import {
+  saveAndTransitionManagedSiteSettings,
+} from "@/lib/strapi-site-settings-management";
 
 const input: ManagedStrapiPageInput = {
   pageKey: "about",
@@ -107,8 +109,8 @@ describe("Strapi publication semantics", () => {
     expect(page.publicationStatus).toBe("draft");
   });
 
-  it("publishes site settings only with an explicit published status", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
+  it("saves and publishes site settings in one attributed, version-fenced request", async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(
       new Response(
         JSON.stringify({
           data: {
@@ -123,12 +125,24 @@ describe("Strapi publication semantics", () => {
         }),
         { status: 200 },
       ),
-    );
+    ));
     vi.stubGlobal("fetch", fetchMock);
 
-    await updateManagedSiteSettings({
+    const user = {
+      clerkUserId: "user-1",
+      email: "editor@example.test",
+      name: "Editor",
+      role: "Content Manager" as const,
+    };
+    await saveAndTransitionManagedSiteSettings("site-settings-1", "publish", {
       siteName: "Abiding in Christ",
-      topNavigation: [],
+      topNavigation: [{
+        label: "About",
+        url: "/about-pastor-wood/",
+        pageDocumentId: "page-about",
+        order: 10,
+        active: true,
+      }],
       footerNavigation: [],
       utilityNavigation: [],
       footerText: "A Ministry of Jim Wood",
@@ -136,11 +150,23 @@ describe("Strapi publication semantics", () => {
       showDonateButton: true,
       donateButtonLabel: "Donate",
       donateButtonUrl: "/donate",
-    }, "published");
+      headerLogoId: 17,
+      subscriptionEnabled: true,
+    }, user, "2026-07-22T11:59:00.000Z", "Publish global settings");
 
-    const [url, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
-    expect(url.pathname).toBe("/api/site-setting");
-    expect(url.searchParams.get("status")).toBe("published");
-    expect(init.method).toBe("PUT");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [publishUrl, publishInit] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    expect(publishUrl.pathname).toBe("/api/editorial/site-setting/site-settings-1/publish");
+    expect(publishInit.method).toBe("POST");
+    expect(JSON.parse(String(publishInit.body))).toMatchObject({
+      data: {
+        headerLogo: 17,
+        subscriptionEnabled: true,
+        topNavigation: [{ page: "page-about" }],
+      },
+      actor: { id: "user-1", email: "editor@example.test" },
+      expectedUpdatedAt: "2026-07-22T11:59:00.000Z",
+      note: "Publish global settings",
+    });
   });
 });

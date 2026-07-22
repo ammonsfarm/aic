@@ -3,11 +3,17 @@ import Link from "next/link";
 import type { ManagedStrapiPage } from "@/lib/strapi-management";
 import {
   getManagedSiteSettings,
+  listManagedSiteSettingsRevisions,
   listSiteSettingsPageOptions,
   type ManagedNavigationItem,
   type ManagedSiteSettings,
+  type ManagedSiteSettingsRevision,
 } from "@/lib/strapi-site-settings-management";
-import { saveSiteSettingsAction } from "./actions";
+import {
+  initializeSiteSettingsAction,
+  rollbackSiteSettingsAction,
+  saveSiteSettingsAction,
+} from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -94,7 +100,7 @@ function NavigationItemFields({
           <select name={`${prefix}PageDocumentId`} defaultValue={item.pageDocumentId}>
             <option value="">No linked page</option>
             {pages.map((page) => (
-              <option key={page.documentId} value={page.id ?? page.documentId}>
+              <option key={page.documentId} value={page.documentId}>
                 {pageOptionLabel(page)}
               </option>
             ))}
@@ -153,7 +159,7 @@ function NewNavigationItemFields({
           <select name={`${prefix}PageDocumentId`} defaultValue="">
             <option value="">No linked page</option>
             {pages.map((page) => (
-              <option key={page.documentId} value={page.id ?? page.documentId}>
+              <option key={page.documentId} value={page.documentId}>
                 {pageOptionLabel(page)}
               </option>
             ))}
@@ -205,12 +211,24 @@ function NavigationGroupEditor({
 async function getEditorData() {
   try {
     const [settings, pages] = await Promise.all([getManagedSiteSettings(), listSiteSettingsPageOptions()]);
-    return { settings, pages, error: null as string | null };
+    let revisions: ManagedSiteSettingsRevision[] = [];
+    let revisionsError = "";
+    if (settings) {
+      try {
+        revisions = await listManagedSiteSettingsRevisions(settings.documentId);
+      } catch (error) {
+        console.error("Site settings revision lookup failed", error);
+        revisionsError = error instanceof Error ? error.message : "Revision history could not be loaded.";
+      }
+    }
+    return { settings, pages, revisions, revisionsError, error: null as string | null };
   } catch (error) {
     console.error("Site settings lookup failed", error);
     return {
       settings: null,
       pages: [] as ManagedStrapiPage[],
+      revisions: [] as ManagedSiteSettingsRevision[],
+      revisionsError: "",
       error: error instanceof Error ? error.message : "Site settings could not be loaded.",
     };
   }
@@ -218,14 +236,19 @@ async function getEditorData() {
 
 export default async function SiteSettingsPage({ searchParams }: { searchParams: Promise<{ state?: string }> }) {
   const { state } = await searchParams;
-  const { settings, pages, error } = await getEditorData();
+  const { settings, pages, revisions, revisionsError, error } = await getEditorData();
 
   if (!settings) {
     return (
       <div className="stack">
         <section className="notice-card">
-          <strong>Could not load site settings</strong>
-          <p>{error ?? "The site settings record was not returned."}</p>
+          <strong>{error ? "Could not load site settings" : "Initialize site settings"}</strong>
+          <p>{error ?? "Create the first revisioned settings record before editing global navigation, branding, and subscriptions."}</p>
+          {!error ? (
+            <form action={initializeSiteSettingsAction}>
+              <button className="button" type="submit">Initialize site settings</button>
+            </form>
+          ) : null}
           <Link className="button button--ghost" href="/content">Back to content portal</Link>
         </section>
       </div>
@@ -254,24 +277,28 @@ export default async function SiteSettingsPage({ searchParams }: { searchParams:
           </span>
           <span>
             <strong>{settings.showDonateButton ? "Visible" : "Hidden"}</strong>
+            Donate button
+          </span>
           <span>
             <strong>{settings.publicationStatus === "published" ? "Published" : "Draft only"}</strong>
             Publish state
-          </span>
-            Donate button
           </span>
         </div>
       </section>
 
       {state ? (
         <section className="notice-card notice-card--success" role="status">
-          <strong>{state === "published" ? "Published" : state === "unpublished" ? "Unpublished" : "Draft saved"}</strong>
+          <strong>{state === "published" ? "Published" : state === "unpublished" ? "Unpublished" : state === "rolled-back" ? "Revision restored" : state === "initialized" ? "Initialized" : "Draft saved"}</strong>
           <p>
             {state === "published"
               ? "The latest site settings are now public."
               : state === "unpublished"
                 ? "The public settings were removed; the draft remains available."
-                : "The draft was saved. The public site was not changed."}
+                : state === "rolled-back"
+                  ? "The selected revision is now the current draft. Review it before publishing."
+                  : state === "initialized"
+                    ? "The first audited site-settings draft is ready to edit."
+                    : "The draft was saved. The public site was not changed."}
           </p>
         </section>
       ) : null}
@@ -290,6 +317,7 @@ export default async function SiteSettingsPage({ searchParams }: { searchParams:
         </div>
 
         <form className="editor-form" action={saveSiteSettingsAction}>
+          <input type="hidden" name="expectedUpdatedAt" value={settings.updatedAt} />
           <div className="editor-grid editor-grid--three">
             <label>
               <span>Site name</span>
@@ -305,10 +333,43 @@ export default async function SiteSettingsPage({ searchParams }: { searchParams:
             </label>
           </div>
 
+          <fieldset className="section-editor">
+            <legend>Header logo</legend>
+            {settings.headerLogo?.previewUrl ? (
+              <div className="media-preview-row">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={settings.headerLogo.previewUrl}
+                  alt={settings.headerLogo.alternativeText || "Current header logo preview"}
+                />
+                <p className="muted-copy">
+                  Current file: <strong>{settings.headerLogo.name || "Header logo"}</strong>. Upload a replacement only when the public wordmark should change.
+                </p>
+              </div>
+            ) : <p className="muted-copy">The built-in Abiding in Christ wordmark is currently used.</p>}
+            <div className="editor-grid editor-grid--two">
+              <label>
+                <span>{settings.headerLogo ? "Replace logo" : "Upload logo"}</span>
+                <input name="headerLogoFile" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" />
+                <small>JPEG, PNG, WebP, GIF, or AVIF; 15 MB maximum. Leave blank to keep the current logo.</small>
+              </label>
+              {settings.headerLogo ? (
+                <label className="checkbox-row checkbox-row--form">
+                  <input name="removeHeaderLogo" type="checkbox" />
+                  <span>Remove custom logo and use the built-in wordmark</span>
+                </label>
+              ) : null}
+            </div>
+          </fieldset>
+
           <div className="checkbox-grid">
             <label className="checkbox-row">
               <input name="showDonateButton" type="checkbox" defaultChecked={settings.showDonateButton} />
               <span>Show donate button</span>
+            </label>
+            <label className="checkbox-row">
+              <input name="subscriptionEnabled" type="checkbox" defaultChecked={settings.subscriptionEnabled} />
+              <span>Show weekly devotional subscription forms</span>
             </label>
           </div>
 
@@ -326,6 +387,12 @@ export default async function SiteSettingsPage({ searchParams }: { searchParams:
             <NavigationGroupEditor key={group.name} group={group} settings={settings} pages={pages} />
           ))}
 
+          <label>
+            <span>Change note</span>
+            <input name="changeNote" maxLength={1000} placeholder="Optional reason for this revision" />
+            <small>Saved with the immutable revision and audit history.</small>
+          </label>
+
           <div className="editor-form__actions">
             <button className="button button--ghost" type="submit" name="publicationAction" value="draft">Save draft</button>
             <button className="button" type="submit" name="publicationAction" value="publish">Publish</button>
@@ -334,6 +401,41 @@ export default async function SiteSettingsPage({ searchParams }: { searchParams:
             <span className="muted-copy">Last updated {formatDate(settings.updatedAt)}</span>
           </div>
         </form>
+      </section>
+
+      <section className="data-card">
+        <div className="data-card__header">
+          <div><p className="eyebrow">Revision history</p><h2>Audit trail and rollback</h2></div>
+          <span className="status-pill">{revisions.length} revisions</span>
+        </div>
+        {revisionsError ? (
+          <div className="editor-form"><p role="alert">{revisionsError}</p></div>
+        ) : (
+          <div className="responsive-table" role="region" aria-label="Site settings revision history">
+            <table>
+              <thead><tr><th>Revision</th><th>Action</th><th>Editor</th><th>Note</th><th>Created</th><th aria-label="Actions" /></tr></thead>
+              <tbody>
+                {revisions.map((revision) => (
+                  <tr key={revision.documentId}>
+                    <td>#{revision.revisionNumber}</td>
+                    <td>{revision.action}</td>
+                    <td>{revision.actorName || revision.actorEmail}</td>
+                    <td>{revision.note || "—"}</td>
+                    <td>{formatDate(revision.createdAt)}</td>
+                    <td>
+                      <form action={rollbackSiteSettingsAction.bind(null, settings.documentId, revision.documentId)}>
+                        <input type="hidden" name="rollbackNote" value={`Restore site settings revision ${revision.revisionNumber}.`} />
+                        <input type="hidden" name="expectedUpdatedAt" value={settings.updatedAt} />
+                        <button className="button button--ghost" type="submit">Restore as draft</button>
+                      </form>
+                    </td>
+                  </tr>
+                ))}
+                {!revisions.length ? <tr><td colSpan={6}><span className="muted-copy">No revision records yet.</span></td></tr> : null}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
     </div>
   );

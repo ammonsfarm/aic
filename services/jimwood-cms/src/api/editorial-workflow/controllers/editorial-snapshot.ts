@@ -58,6 +58,23 @@ function mediaReference(value: unknown): unknown {
   return value;
 }
 
+function relationReference(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(relationReference).filter((item) => item !== null && item !== undefined);
+  }
+  if (value && typeof value === 'object') {
+    const relation = value as Record<string, unknown>;
+    if (typeof relation.documentId === 'string' && relation.documentId) {
+      return {
+        documentId: relation.documentId,
+        ...(typeof relation.__type === 'string' && relation.__type ? { __type: relation.__type } : {}),
+      };
+    }
+    return Object.prototype.hasOwnProperty.call(relation, 'id') ? relation.id : null;
+  }
+  return value;
+}
+
 function writableComponent(
   uid: string,
   value: unknown,
@@ -69,7 +86,7 @@ function writableComponent(
   const source = value as Record<string, unknown>;
   const data: Record<string, unknown> = {};
   for (const [name, attribute] of Object.entries(resolver.componentTypeAttributes(uid))) {
-    if (!(name in source) || ['relation', 'password'].includes(attribute.type || '')) {
+    if (!(name in source) || attribute.type === 'password') {
       continue;
     }
     data[name] = writableAttribute(attribute, source[name], resolver);
@@ -105,6 +122,9 @@ function writableAttribute(
   if (attribute.type === 'media') {
     return mediaReference(value);
   }
+  if (attribute.type === 'relation') {
+    return relationReference(value);
+  }
   if (attribute.type === 'component' && attribute.component) {
     if (attribute.repeatable) {
       return Array.isArray(value)
@@ -128,7 +148,7 @@ export function writableSnapshot(
   const data: Record<string, unknown> = {};
 
   for (const [name, attribute] of Object.entries(attributes)) {
-    if (!(name in snapshot) || ['relation', 'password'].includes(attribute.type || '')) {
+    if (!(name in snapshot) || attribute.type === 'password') {
       continue;
     }
     data[name] = writableAttribute(attribute, snapshot[name], resolver);

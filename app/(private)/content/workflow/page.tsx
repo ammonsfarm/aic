@@ -28,6 +28,9 @@ function formatDate(value: string | undefined) {
 }
 
 function eventHref(event: StructuredAuditEvent) {
+  if (event.entityType === "site-setting") {
+    return "/content/site-settings";
+  }
   const key = STRUCTURED_COLLECTION_KEYS.find(
     (candidate) => STRUCTURED_COLLECTIONS[candidate].entityType === event.entityType,
   );

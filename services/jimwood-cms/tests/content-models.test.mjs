@@ -64,6 +64,8 @@ test("revision and audit collections are append-only through API and database li
   const revision = await schema("editorial-revision");
   assert.deepEqual(revision.indexes[0].columns, ["entity_type", "entity_document_id", "revision_number"]);
   assert.equal(revision.indexes[0].type, "unique");
+  assert.ok(revision.attributes.entityType.enum.includes("site-setting"));
+  assert.ok(revision.attributes.action.enum.includes("baseline"));
 });
 
 test("editorial workflow exposes create, update, transition, and revision reads", async () => {
@@ -85,6 +87,15 @@ test("editorial workflow exposes create, update, transition, and revision reads"
   assert.match(controller, /expectedTitle !== currentTitle/);
   assert.match(controller, /Deletion confirmation no longer matches/);
   assert.match(controller, /snapshotForRevision/);
+  assert.match(controller, /'site-setting'/);
+  assert.match(controller, /api::site-setting\.site-setting/);
+  assert.match(controller, /entityType === 'site-setting' \? 'singleton' : ''/);
+  assert.match(controller, /strapi\.db\.query\(model\.uid as never\)\.findOne\(\)/);
+  assert.match(controller, /Site settings have already been initialized\./);
+  assert.match(controller, /action === 'baseline'/);
+  assert.match(controller, /adoptedExisting: true/);
+  assert.match(controller, /siteSettingsVersionMatches/);
+  assert.match(controller, /atomic publication transition/);
   const snapshot = await text("src/api/editorial-workflow/controllers/editorial-snapshot.ts");
   assert.match(snapshot, /writableDynamicZone/);
   assert.match(snapshot, /mediaReference/);

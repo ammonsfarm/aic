@@ -8,6 +8,7 @@ const eslintConfig = [
     ignores: [
       ".next/**",
       "node_modules/**",
+      "services/jimwood-cms/dist/**",
       "services/jimwood-cms/types/generated/**",
       "services/jimwood-cms/src/admin/*.example.*",
     ],

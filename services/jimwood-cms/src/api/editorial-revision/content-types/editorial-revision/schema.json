@@ -19,7 +19,7 @@
   "attributes": {
     "entityType": {
       "type": "enumeration",
-      "enum": ["page", "post", "episode", "person", "endorsement", "media-asset", "redirect"],
+      "enum": ["page", "post", "episode", "person", "endorsement", "media-asset", "redirect", "site-setting"],
       "required": true
     },
     "entityDocumentId": { "type": "string", "required": true },
@@ -28,7 +28,7 @@
     "snapshot": { "type": "json", "required": true },
     "action": {
       "type": "enumeration",
-      "enum": ["create", "save", "publish", "unpublish", "archive", "restore", "rollback", "delete", "upload"],
+      "enum": ["baseline", "create", "save", "publish", "unpublish", "archive", "restore", "rollback", "delete", "upload"],
       "required": true
     },
     "actorId": { "type": "string", "required": true },
