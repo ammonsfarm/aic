@@ -14,6 +14,7 @@ type TranscriptSegment = {
 
 type TranscriptReaderProps = {
   audioUrl: string;
+  canEditTranscript: boolean;
   segments: TranscriptSegment[];
   trackId: string;
 };
@@ -167,7 +168,7 @@ function SegmentText({
   );
 }
 
-export function TranscriptReader({ audioUrl, segments, trackId }: TranscriptReaderProps) {
+export function TranscriptReader({ audioUrl, canEditTranscript, segments, trackId }: TranscriptReaderProps) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [followAudio, setFollowAudio] = useState(true);
@@ -224,6 +225,10 @@ export function TranscriptReader({ audioUrl, segments, trackId }: TranscriptRead
   };
 
   const startEditing = (segment: TranscriptSegment) => {
+    if (!canEditTranscript) {
+      return;
+    }
+
     setEditingSegmentId(segment.segmentId);
     setDraftText(normalizedSegmentText(segment.text));
     setEditError(null);
@@ -236,6 +241,11 @@ export function TranscriptReader({ audioUrl, segments, trackId }: TranscriptRead
   };
 
   const saveEdit = async (segment: TranscriptSegment) => {
+    if (!canEditTranscript) {
+      setEditError("Your role cannot submit transcript corrections.");
+      return;
+    }
+
     const editedText = normalizedSegmentText(draftText);
     const originalText = normalizedSegmentText(segment.text);
 
@@ -300,21 +310,23 @@ export function TranscriptReader({ audioUrl, segments, trackId }: TranscriptRead
           />
           Follow audio
         </label>
-        <button
-          type="button"
-          className={`button ${editMode ? "button--primary" : "button--ghost"} transcript-reader__edit-toggle`}
-          aria-pressed={editMode}
-          onClick={() => {
-            setEditMode((value) => !value);
-            cancelEditing();
-          }}
-        >
-          {editMode ? "Done editing" : "Edit transcript"}
-        </button>
+        {canEditTranscript ? (
+          <button
+            type="button"
+            className={`button ${editMode ? "button--primary" : "button--ghost"} transcript-reader__edit-toggle`}
+            aria-pressed={editMode}
+            onClick={() => {
+              setEditMode((value) => !value);
+              cancelEditing();
+            }}
+          >
+            {editMode ? "Done editing" : "Edit transcript"}
+          </button>
+        ) : null}
       </div>
 
       <div ref={transcriptViewportRef} className="transcript-reader__layout">
-        {editMode ? (
+        {canEditTranscript && editMode ? (
           <div className="transcript-reader__edit-note" role="status">
             Corrections are queued for review, transcript-table updates, and re-vectorization.
           </div>
@@ -325,7 +337,7 @@ export function TranscriptReader({ audioUrl, segments, trackId }: TranscriptRead
               {paragraph.segments.map((segment, index) => {
                 const isActive = activeIndex === segment.segmentIndex;
                 const canSeek = segment.startSeconds !== null && Boolean(audioUrl);
-                const isEditing = editingSegmentId === segment.segmentId;
+                const isEditing = canEditTranscript && editingSegmentId === segment.segmentId;
                 const queuedEditId = queuedEdits[segment.segmentId];
 
                 return (
@@ -385,7 +397,7 @@ export function TranscriptReader({ audioUrl, segments, trackId }: TranscriptRead
                         >
                           <SegmentText segment={segment} isActive={isActive} currentTime={currentTime} />
                         </span>
-                        {editMode ? (
+                        {canEditTranscript && editMode ? (
                           <span className="reader-segment-tools">
                             {queuedEditId ? (
                               <span className="reader-segment-status">Queued</span>

@@ -5,6 +5,7 @@ import { RoutePanel } from "@/components/route-panel";
 import { RagChatWidget } from "@/components/rag-chat-widget";
 import { TranscriptReader } from "@/components/transcript-reader";
 import { getEpisodeDetail } from "@/lib/podcast-data";
+import { canMutateForRole, requireSignedInAppUser } from "@/lib/rbac";
 
 function formatDate(value: string | null) {
   if (!value) {
@@ -28,6 +29,7 @@ export default async function EpisodeDetailPage({
   params: Promise<{ trackId: string }>;
 }) {
   const { trackId } = await params;
+  const appUser = await requireSignedInAppUser();
   const detail = await getEpisodeDetail(trackId);
 
   if (!detail) {
@@ -150,6 +152,7 @@ export default async function EpisodeDetailPage({
             <h3>Audio Player</h3>
             <TranscriptReader
               audioUrl={detail.episode.audioUrl}
+              canEditTranscript={canMutateForRole(appUser.role)}
               segments={detail.transcript}
               trackId={detail.episode.trackId}
             />

@@ -24,15 +24,17 @@ import {
 } from "@/lib/legacy-redirects";
 import { requireContentManagerApiUser } from "@/lib/rbac";
 import {
+  MAX_AUDIO_BYTES,
+  MAX_IMAGE_BYTES,
+  MAX_OTHER_BYTES,
+} from "@/lib/structured-editor-upload-limits";
+import {
   STRAPI_PUBLIC_MEDIA_CACHE_TAG,
   STRAPI_STRUCTURED_CACHE_TAG,
   strapiPublicMediaCacheTag,
   strapiStructuredCacheTag,
 } from "@/lib/strapi-cache-tags";
 
-const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
-const MAX_AUDIO_BYTES = 250 * 1024 * 1024;
-const MAX_OTHER_BYTES = 50 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"]);
 const BLOCKED_ACTIVE_CONTENT_TYPES = new Set(["image/svg+xml", "text/html", "application/xhtml+xml", "application/xml", "text/xml", "text/javascript", "application/javascript"]);
 
