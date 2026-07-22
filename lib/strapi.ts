@@ -1,5 +1,7 @@
 import "server-only";
 
+import { fetchStrapiJsonOrNull } from "@/lib/strapi-request";
+
 export type StrapiMedia = {
   id?: number;
   url: string;
@@ -159,22 +161,22 @@ function normalizePage(entity: StrapiEntity<StrapiPage>): StrapiPage | null {
 async function fetchStrapiPages(url: URL, tags: string[]): Promise<StrapiPage | null> {
   const token = strapiApiToken();
   const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
-
-  const response = await fetch(url, {
-    headers,
-    next: {
-      revalidate: strapiPageRevalidateSeconds(),
-      tags,
+  const payload = await fetchStrapiJsonOrNull<StrapiListResponse<StrapiPage>>(
+    url,
+    {
+      headers,
+      next: {
+        revalidate: strapiPageRevalidateSeconds(),
+        tags,
+      },
     },
-  });
+    { label: "Strapi page request" },
+  );
 
-  if (!response.ok) {
-    const details = await response.text().catch(() => "");
-    console.warn(`Strapi page request failed with ${response.status}. Falling back.`, details.slice(0, 500));
+  if (!payload) {
     return null;
   }
 
-  const payload = (await response.json()) as StrapiListResponse<StrapiPage>;
   const entity = payload.data?.[0];
   return entity ? normalizePage(entity) : null;
 }

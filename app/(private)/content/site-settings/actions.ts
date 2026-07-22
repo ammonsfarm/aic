@@ -3,10 +3,12 @@
 import { revalidatePath, revalidateTag } from "next/cache";
 import { redirect } from "next/navigation";
 
+import { safeCmsHref } from "@/lib/cms-html";
 import { requireContentManagerApiUser } from "@/lib/rbac";
 import { STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag } from "@/lib/strapi";
 import { STRAPI_SITE_SETTINGS_CACHE_TAG } from "@/lib/strapi-site-settings";
 import {
+  unpublishManagedSiteSettings,
   updateManagedSiteSettings,
   type ManagedNavigationItemInput,
   type ManagedSiteSettingsInput,
@@ -38,11 +40,15 @@ function parseNavigationItem(formData: FormData, prefix: string): ManagedNavigat
   }
 
   const label = formString(formData, `${prefix}Label`);
-  const url = formString(formData, `${prefix}Url`);
+  const requestedUrl = formString(formData, `${prefix}Url`);
+  const url = safeCmsHref(requestedUrl);
   const pageDocumentId = formString(formData, `${prefix}PageDocumentId`);
 
   if (!label && !url && !pageDocumentId) {
     return null;
+  }
+  if (requestedUrl && !url) {
+    throw new Error(`Navigation URL “${requestedUrl}” is not allowed.`);
   }
 
   if (!label) {
@@ -88,6 +94,12 @@ function parseSiteSettingsInput(formData: FormData): ManagedSiteSettingsInput {
     throw new Error("Site name is required.");
   }
 
+  const requestedDonateUrl = formString(formData, "donateButtonUrl");
+  const donateButtonUrl = safeCmsHref(requestedDonateUrl);
+  if (requestedDonateUrl && !donateButtonUrl) {
+    throw new Error("Donate button URL is not allowed.");
+  }
+
   return {
     siteName,
     topNavigation: parseNavigationGroup(formData, "topNavigation"),
@@ -97,22 +109,39 @@ function parseSiteSettingsInput(formData: FormData): ManagedSiteSettingsInput {
     copyrightText: formString(formData, "copyrightText"),
     showDonateButton: formBoolean(formData, "showDonateButton"),
     donateButtonLabel: formString(formData, "donateButtonLabel"),
-    donateButtonUrl: formString(formData, "donateButtonUrl"),
+    donateButtonUrl,
   };
 }
 
-function revalidateSiteSettings() {
+function revalidateSiteSettingsEditor() {
+  revalidatePath("/content/site-settings");
+}
+
+function revalidatePublishedSiteSettings() {
   revalidateTag(STRAPI_SITE_SETTINGS_CACHE_TAG, "max");
   revalidateTag(STRAPI_PAGES_CACHE_TAG, "max");
   revalidateTag(strapiPageCacheTag("site-settings"), "max");
   revalidatePath("/", "layout");
-  revalidatePath("/content/site-settings");
 }
 
 export async function saveSiteSettingsAction(formData: FormData) {
   await requireContentManagerApiUser();
   const input = parseSiteSettingsInput(formData);
-  await updateManagedSiteSettings(input);
-  revalidateSiteSettings();
-  redirect("/content/site-settings?saved=1");
+  const action = formString(formData, "publicationAction");
+
+  if (action === "unpublish") {
+    await updateManagedSiteSettings(input, "draft");
+    await unpublishManagedSiteSettings();
+    revalidateSiteSettingsEditor();
+    revalidatePublishedSiteSettings();
+    redirect("/content/site-settings?state=unpublished");
+  }
+
+  const status = action === "publish" ? "published" : "draft";
+  await updateManagedSiteSettings(input, status);
+  revalidateSiteSettingsEditor();
+  if (status === "published") {
+    revalidatePublishedSiteSettings();
+  }
+  redirect(`/content/site-settings?state=${status === "published" ? "published" : "draft-saved"}`);
 }

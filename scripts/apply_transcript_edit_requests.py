@@ -170,12 +170,13 @@ def apply_edit(conn: psycopg.Connection, edit: dict) -> tuple[int, list[str]]:
               status = 'applied',
               applied_at = now(),
               updated_at = now(),
-              needs_revectorization = true,
+              needs_revectorization = %s,
               processing_error = %s
             where id = %s
             """,
             (
-                "" if chunk_updates else "Applied readable transcript edit, but no matching RAG chunk text was found.",
+                bool(affected_chunks),
+                "" if affected_chunks else "Applied readable transcript edit, but no matching RAG chunk text was found.",
                 edit["id"],
             ),
         )

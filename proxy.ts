@@ -1,7 +1,8 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 
 import { getStrapiPageBySlug } from "@/lib/strapi";
+import { isKnownPrivatePath, singleSegmentSlug } from "@/lib/route-access";
 
 const isApiRoute = createRouteMatcher(["/api(.*)"]);
 const isPublicApiRoute = createRouteMatcher(["/api/revalidate/strapi"]);
@@ -25,7 +26,7 @@ const isPublicPageRoute = createRouteMatcher([
 
 export default clerkMiddleware(async (auth, request) => {
   const { userId } = await auth();
-  const singleSegmentSlug = request.nextUrl.pathname.match(/^\/([^/]+)\/?$/)?.[1];
+  const cmsSlug = singleSegmentSlug(request.nextUrl.pathname);
 
   if (isApiRoute(request)) {
     if (isPublicApiRoute(request) || userId) {
@@ -39,22 +40,30 @@ export default clerkMiddleware(async (auth, request) => {
     return;
   }
 
-  if (singleSegmentSlug) {
-    const cmsPage = await getStrapiPageBySlug(singleSegmentSlug);
+  if (userId) {
+    return;
+  }
+
+  if (isKnownPrivatePath(request.nextUrl.pathname)) {
+    return redirectToLogin(request);
+  }
+
+  if (cmsSlug) {
+    const cmsPage = await getStrapiPageBySlug(cmsSlug);
     if (cmsPage?.active) {
       return;
     }
   }
 
-  if (userId) {
-    return;
-  }
+  return redirectToLogin(request);
+});
 
+function redirectToLogin(request: NextRequest) {
   const signInUrl = new URL("/login", request.url);
   signInUrl.searchParams.set("redirect_url", `${request.nextUrl.pathname}${request.nextUrl.search}`);
 
   return NextResponse.redirect(signInUrl);
-});
+}
 
 export const config = {
   matcher: [

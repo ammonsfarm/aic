@@ -17,7 +17,7 @@ STRAPI_PAGE_REVALIDATE_SECONDS=3600
 
 ## Strapi Webhook
 
-Configure a Strapi webhook for page publish/update events:
+Configure a Strapi webhook for entry publish, unpublish, and delete events:
 
 ```text
 POST https://pastorwood.org/api/revalidate/strapi
@@ -25,7 +25,7 @@ Authorization: Bearer <STRAPI_REVALIDATE_SECRET>
 Content-Type: application/json
 ```
 
-The webhook may send the normal Strapi event payload. If the payload contains `entry.pageKey` or `entry.slug`, the AIC app revalidates that public page and the related Strapi cache tags. If the payload is generic, the AIC app revalidates all known Strapi-backed Pastor Wood public pages.
+The webhook must send the normal Strapi `event` value. Draft create/update events are acknowledged without invalidating public caches. For publication lifecycle events, `entry.pageKey` or `entry.slug` narrows revalidation to that public page. A generic publication payload revalidates all known Strapi-backed Pastor Wood public pages.
 
 ## Behavior
 
