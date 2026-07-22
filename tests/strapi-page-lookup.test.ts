@@ -34,7 +34,17 @@ describe("dynamic CMS page lookup semantics", () => {
     process.env.STRAPI_URL = "http://127.0.0.1:1337";
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
-    for (const payload of [null, [], "invalid", { meta: {} }, { data: [null] }]) {
+    for (const payload of [
+      null,
+      [],
+      "invalid",
+      { meta: {} },
+      { data: [null] },
+      { data: [{ pageKey: "unknown-page" }] },
+      { data: [{ pageKey: "unknown-page", slug: "unknown-page" }] },
+      { data: [{ pageKey: "unknown-page", title: "Unknown page" }] },
+      { data: [{ slug: "unknown-page", title: "Unknown page" }] },
+    ]) {
       vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify(payload), { status: 200 })));
       await expect(getStrapiPageBySlugResult("unknown-page")).resolves.toEqual({ status: "unavailable" });
     }

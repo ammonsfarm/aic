@@ -143,7 +143,7 @@ function normalizePage(entity: StrapiEntity<StrapiPage>): StrapiPage | null {
   const slug = getString(source.slug);
   const title = getString(source.title);
 
-  if (!pageKey && !slug && !title) {
+  if (!pageKey || !slug || !title) {
     return null;
   }
 
