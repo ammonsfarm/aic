@@ -545,7 +545,7 @@ export async function listMatchedPodtracEpisodes({
        pe.match_notes,
        pe.track_id,
        coalesce(e.title, pe.matched_episode_title, pe.track_id) as episode_title,
-       coalesce(e.publish_date, pe.matched_episode_publish_date, '') as episode_publish_date
+       coalesce(e.publish_date::text, nullif(pe.matched_episode_publish_date, ''), '') as episode_publish_date
      from podtrac_episodes pe
      left join episodes e on e.track_id = pe.track_id
      where pe.track_id is not null

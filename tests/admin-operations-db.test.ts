@@ -136,6 +136,7 @@ describe("admin operation database workflows", () => {
     const [sql, params] = mocks.queryRows.mock.calls[0];
     expect(String(sql)).toContain("pe.match_status = 'matched'");
     expect(String(sql)).toContain("pe.track_id is not null");
+    expect(String(sql)).toContain("coalesce(e.publish_date::text, nullif(pe.matched_episode_publish_date, ''), '')");
     expect(params).toEqual(["Archive", 20]);
   });
 
