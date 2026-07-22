@@ -13,7 +13,7 @@ type StrapiPageSlugResponse = {
   meta?: { pagination?: { pageCount?: number } };
 };
 
-const PAGE_SIZE = 250;
+const PAGE_SIZE = 100;
 
 function strapiBaseUrl() {
   return (process.env.STRAPI_PUBLIC_URL?.trim() || process.env.STRAPI_URL?.trim() || "").replace(/\/+$/, "");

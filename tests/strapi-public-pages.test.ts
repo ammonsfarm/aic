@@ -20,17 +20,23 @@ describe("published CMS page sitemap enumeration", () => {
       expect(url.searchParams.get("filters[archivedAt][$null]")).toBe("true");
       expect(url.searchParams.get("status")).toBe("published");
       expect(url.searchParams.get("fields[0]")).toBe("slug");
+      expect(url.searchParams.get("pagination[pageSize]")).toBe("100");
       const page = Number(url.searchParams.get("pagination[page]"));
       return new Response(JSON.stringify({
         data: page === 1
-          ? [{ slug: "Zulu" }, { attributes: { slug: "alpha" } }]
-          : [{ slug: "middle" }, { slug: "alpha" }],
-        meta: { pagination: { page, pageSize: 250, pageCount: 2, total: 4 } },
+          ? Array.from({ length: 100 }, (_, index) => index === 0
+              ? { attributes: { slug: "page-1" } }
+              : { slug: `page-${index + 1}` })
+          : [{ slug: "page-101" }],
+        meta: { pagination: { page, pageSize: 100, pageCount: 2, total: 101 } },
       }), { status: 200 });
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(listAllPublishedPageSlugs()).resolves.toEqual(["alpha", "middle", "zulu"]);
+    const slugs = await listAllPublishedPageSlugs();
+
+    expect(slugs).toHaveLength(101);
+    expect(slugs).toContain("page-101");
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
