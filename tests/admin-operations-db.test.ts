@@ -9,7 +9,12 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("@/lib/db", () => ({ queryRows: mocks.queryRows, getPool: mocks.getPool }));
 
-import { listMatchedPodtracEpisodes, queuePipelineRetry, reconcilePodtracEpisode } from "@/lib/admin-operations";
+import {
+  listMatchedPodtracEpisodes,
+  listUnmatchedPodtracEpisodes,
+  queuePipelineRetry,
+  reconcilePodtracEpisode,
+} from "@/lib/admin-operations";
 
 describe("admin operation database workflows", () => {
   beforeEach(() => {
@@ -138,6 +143,17 @@ describe("admin operation database workflows", () => {
     expect(String(sql)).toContain("pe.track_id is not null");
     expect(String(sql)).toContain("coalesce(e.publish_date::text, nullif(pe.matched_episode_publish_date, ''), '')");
     expect(params).toEqual(["Archive", 20]);
+  });
+
+  it("normalizes archive publish dates before unmatched candidate text checks", async () => {
+    mocks.queryRows.mockResolvedValueOnce([]);
+
+    await expect(listUnmatchedPodtracEpisodes({ limit: 20 })).resolves.toEqual([]);
+    const [sql] = mocks.queryRows.mock.calls[0];
+    expect(String(sql)).toContain("e.publish_date::text as publish_date");
+    expect(String(sql)).toContain("e.publish_date::text ~");
+    expect(String(sql)).not.toContain("and e.publish_date ~");
+    expect(String(sql)).not.toContain("when e.publish_date ~");
   });
 
   it("removes a bad Podtrac match and records the unmatch in both audit trails", async () => {

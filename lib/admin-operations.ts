@@ -497,17 +497,17 @@ export async function listUnmatchedPodtracEpisodes({
          select
            e.track_id,
            e.title,
-           e.publish_date,
+           e.publish_date::text as publish_date,
            round(similarity(lower(e.title), lower(pe.title))::numeric, 4)::float8 as score
          from episodes e
          where similarity(lower(e.title), lower(pe.title)) >= 0.2
             or (
               pe.publish_date is not null
-              and e.publish_date ~ '^\\d{4}-\\d{2}-\\d{2}$'
+              and e.publish_date::text ~ '^\\d{4}-\\d{2}-\\d{2}$'
               and abs((e.publish_date::date - pe.publish_date)) <= 10
             )
          order by similarity(lower(e.title), lower(pe.title)) desc,
-                  case when e.publish_date ~ '^\\d{4}-\\d{2}-\\d{2}$' then abs((e.publish_date::date - pe.publish_date)) end asc nulls last
+                  case when e.publish_date::text ~ '^\\d{4}-\\d{2}-\\d{2}$' then abs((e.publish_date::date - pe.publish_date)) end asc nulls last
          limit 5
        ) candidate
      ) c on true
