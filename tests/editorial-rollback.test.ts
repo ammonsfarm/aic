@@ -21,6 +21,14 @@ const contentTypes = {
       sections: { type: "dynamiczone" },
     },
   },
+  "api::site-setting.site-setting": {
+    attributes: {
+      siteName: { type: "string" },
+      headerLogo: { type: "media" },
+      topNavigation: { type: "component", component: "navigation.navigation-item", repeatable: true },
+      subscriptionEnabled: { type: "boolean" },
+    },
+  },
 };
 
 const components = {
@@ -35,6 +43,14 @@ const components = {
       heading: { type: "string" },
       image: { type: "media" },
       imageSide: { type: "enumeration" },
+    },
+  },
+  "navigation.navigation-item": {
+    attributes: {
+      label: { type: "string" },
+      url: { type: "string" },
+      page: { type: "relation" },
+      active: { type: "boolean" },
     },
   },
 };
@@ -97,6 +113,35 @@ describe("editorial rollback snapshots", () => {
         heading: "Pastor Wood",
         image: 41,
         imageSide: "right",
+      }],
+    });
+  });
+
+  it("restores site-settings media, flags, and linked navigation pages", () => {
+    const snapshot = snapshotForRevision({
+      id: 12,
+      documentId: "site-setting-1",
+      siteName: "Abiding in Christ",
+      headerLogo: { id: 61, documentId: "upload-61", url: "/uploads/logo.png" },
+      subscriptionEnabled: false,
+      topNavigation: [{
+        id: 71,
+        label: "About",
+        url: "/about-pastor-wood/",
+        page: { id: 81, documentId: "page-about", title: "About" },
+        active: true,
+      }],
+    });
+
+    expect(writableSnapshot("api::site-setting.site-setting", snapshot, resolver)).toEqual({
+      siteName: "Abiding in Christ",
+      headerLogo: 61,
+      subscriptionEnabled: false,
+      topNavigation: [{
+        label: "About",
+        url: "/about-pastor-wood/",
+        page: { documentId: "page-about" },
+        active: true,
       }],
     });
   });

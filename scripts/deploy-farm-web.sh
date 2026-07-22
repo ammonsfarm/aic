@@ -55,6 +55,8 @@ if [ "${INSTALL_STRAPI_SERVICE}" = "1" ]; then
   echo "Provisioning and installing private Strapi service..."
   sudo bash ops/strapi/provision-strapi.sh
   sudo bash ops/strapi/install-strapi-service.sh
+  echo "Ensuring the first audited site-settings draft exists..."
+  node scripts/seed-strapi-site-settings.mjs
 fi
 
 echo "Building Next.js app..."

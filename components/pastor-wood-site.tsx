@@ -101,17 +101,23 @@ function PastorWoodNav({ siteSettings }: { siteSettings?: StrapiSiteSettings | n
   const donateLabel = siteSettings?.donateButtonLabel || "Donate";
   const requestedDonateHref = safeCmsHref(siteSettings?.donateButtonUrl || "");
   const donateHref = requestedDonateHref.startsWith("/") ? requestedDonateHref : getPublicDonationUrl(requestedDonateHref) || routes.donate;
+  const headerLogo = siteSettings?.headerLogo;
   return (
     <header className="pw-nav">
       <Link className="pw-brand pw-brand--wordmark" href={routes.home} aria-label="Pastor Wood home">
         <span className="pw-brand-wordmark" aria-hidden="true">
-          <Image
-            src="/images/pastorwood/deep-forest-wide-transparent-nav.webp"
-            alt="Abiding in Christ"
-            width={640}
-            height={360}
-            priority
-          />
+          {headerLogo ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={headerLogo.url} alt="" />
+          ) : (
+            <Image
+              src="/images/pastorwood/deep-forest-wide-transparent-nav.webp"
+              alt=""
+              width={640}
+              height={360}
+              priority
+            />
+          )}
         </span>
       </Link>
       <nav className="pw-nav__links" aria-label="Primary navigation">
@@ -267,7 +273,7 @@ function PastorWoodHome({
       )}
 
       <ContactSection />
-      <DevotionalSignup />
+      {siteSettings?.subscriptionEnabled !== false ? <DevotionalSignup /> : null}
     </PastorWoodShell>
   );
 }
@@ -308,11 +314,11 @@ function ContactSection() {
   );
 }
 
-function DevotionalSignup() {
+export function DevotionalSignup({ sourcePath = "/" }: { sourcePath?: string }) {
   return (
     <section className="pw-section pw-devotional">
       <div><p className="pw-kicker">Subscribe To Our Weekly Devotional</p><h2>Join our mailing list to receive encouragement as you walk with Christ.</h2></div>
-      <DevotionalSignupForm sourcePath="/" />
+      <DevotionalSignupForm sourcePath={sourcePath} />
     </section>
   );
 }
@@ -465,14 +471,14 @@ function BoardPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
   );
 }
 
-function DevotionalPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
+function DevotionalPage({ cmsPage, siteSettings }: { cmsPage?: PastorWoodCmsPage | null; siteSettings?: StrapiSiteSettings | null }) {
   const heroTitle = cmsPage?.heroTitle || "Weekly Devotional";
   const heroBody = cmsPage?.heroBody || "Recent devotional posts from Pastor Wood.";
   return (
     <>
       <PageHero eyebrow="Weekly Devotional" title={heroTitle} body={heroBody} />
       <section className="pw-section pw-content-unavailable" role="status"><h2>Content temporarily unavailable</h2><p>The public content service could not return devotionals. Please try again shortly.</p></section>
-      <DevotionalSignup />
+      {siteSettings?.subscriptionEnabled !== false ? <DevotionalSignup sourcePath="/bible-study/" /> : null}
     </>
   );
 }
@@ -566,7 +572,7 @@ export async function PastorWoodContentPage({ page, cmsPage }: { page: PageKey; 
     abiding: <AbidingInChristPage cmsPage={cmsPage} />,
     endorsements: <EndorsementsPage cmsPage={cmsPage} />,
     board: <BoardPage cmsPage={cmsPage} />,
-    devotional: <DevotionalPage cmsPage={cmsPage} />,
+    devotional: <DevotionalPage cmsPage={cmsPage} siteSettings={siteSettings} />,
     written: <WrittenResourcesPage cmsPage={cmsPage} />,
     contact: <ContactPage cmsPage={cmsPage} />,
     donate: <DonatePage cmsPage={cmsPage} siteSettings={siteSettings} />,

@@ -499,6 +499,18 @@ export async function uploadStructuredFile(file: File) {
   return uploaded;
 }
 
+export async function deleteStructuredFile(fileId: number) {
+  if (!Number.isInteger(fileId) || fileId <= 0) {
+    throw new Error("A valid Strapi media identifier is required for cleanup.");
+  }
+
+  await strapiRequest(
+    `/api/upload/files/${fileId}`,
+    { method: "DELETE" },
+    { allowNotFound: true },
+  );
+}
+
 export type StructuredAuditEvent = {
   documentId: string;
   entityType: string;

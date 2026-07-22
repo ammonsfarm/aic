@@ -24,6 +24,7 @@ type PastorWoodHooks = {
     title: string;
     body: string;
   }) => React.ReactNode;
+  DevotionalSignup?: (props: { sourcePath?: string }) => React.ReactNode;
 };
 
 const hooks = PastorWoodModule as unknown as PastorWoodHooks;
@@ -51,22 +52,29 @@ async function StructuredUnavailable({
   eyebrow,
   title,
   body,
+  showDevotionalSignup = false,
 }: {
   cmsPage?: PastorWoodCmsPage | null;
   eyebrow: string;
   title: string;
   body: string;
+  showDevotionalSignup?: boolean;
 }) {
   const Shell = hooks.PastorWoodShell;
   const Hero = hooks.PageHero;
   if (!Shell || !Hero) return null;
+  const settings = await shellSettings();
+  const Signup = hooks.DevotionalSignup;
   return (
-    <Shell siteSettings={await shellSettings()}>
+    <Shell siteSettings={settings}>
       <Hero eyebrow={eyebrow} title={cmsPage?.heroTitle || title} body={cmsPage?.heroBody || body} />
       <section className="pw-section pw-content-unavailable" role="status">
         <h2>Content temporarily unavailable</h2>
         <p>The public content service could not return this listing. Please try again shortly.</p>
       </section>
+      {showDevotionalSignup && settings?.subscriptionEnabled !== false && Signup
+        ? <Signup sourcePath="/bible-study/" />
+        : null}
     </Shell>
   );
 }
@@ -178,11 +186,14 @@ export async function PastorWoodStructuredPostsPage({
       eyebrow: mode === "devotional" ? "Weekly Devotional" : "Written Resources",
       title: mode === "devotional" ? "Weekly Devotional" : "Written Resources from Pastor Jim Wood",
       body: mode === "devotional" ? "Recent devotional posts from Pastor Wood." : "Resources intended to encourage faithful Christian living.",
+      showDevotionalSignup: mode === "devotional",
     });
   }
 
+  const settings = await shellSettings();
+  const Signup = hooks.DevotionalSignup;
   return (
-    <Shell siteSettings={await shellSettings()}>
+    <Shell siteSettings={settings}>
       <Hero
         eyebrow={mode === "devotional" ? "Weekly Devotional" : "Written Resources"}
         title={
@@ -211,6 +222,9 @@ export async function PastorWoodStructuredPostsPage({
         </div>
         <PublicPagination basePath={mode === "devotional" ? "/bible-study/" : "/written-resources/"} page={result.page} pageCount={result.pageCount} />
       </section>
+      {mode === "devotional" && settings?.subscriptionEnabled !== false && Signup
+        ? <Signup sourcePath="/bible-study/" />
+        : null}
     </Shell>
   );
 }
