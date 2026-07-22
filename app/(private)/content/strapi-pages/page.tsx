@@ -62,7 +62,7 @@ async function getPages(page: number, search: string) {
     return {
       pages: [] as ManagedStrapiPage[],
       pagination: { page, pageSize: 50, pageCount: 0, total: 0 } as ManagedStrapiPagePagination,
-      summary: { total: 0, active: 0, published: 0 } as ManagedStrapiPageSummary,
+      summary: { total: 0, active: 0, draft: 0, published: 0, archived: 0 } as ManagedStrapiPageSummary,
       error: error instanceof Error ? error.message : "Pages could not be loaded.",
     };
   }

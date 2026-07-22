@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   assertManagedStrapiPageSlugAvailable,
+  getManagedStrapiPageSummary,
   listManagedStrapiPages,
   listManagedStrapiPagesPage,
 } from "@/lib/strapi-management";
@@ -36,6 +37,29 @@ afterEach(() => {
 });
 
 describe("managed Strapi page inventory", () => {
+  it("reports draft, published, and archived page state for the shared workflow dashboard", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(payload([], 8, 1, 1))
+      .mockResolvedValueOnce(payload([], 7, 1, 1))
+      .mockResolvedValueOnce(payload([], 2, 1, 1))
+      .mockResolvedValueOnce(payload([], 5, 1, 1));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getManagedStrapiPageSummary()).resolves.toEqual({
+      total: 8,
+      active: 7,
+      draft: 1,
+      published: 5,
+      archived: 2,
+    });
+    const archivedUrl = fetchMock.mock.calls[2][0] as URL;
+    const publishedUrl = fetchMock.mock.calls[3][0] as URL;
+    expect(archivedUrl.searchParams.get("status")).toBe("draft");
+    expect(archivedUrl.searchParams.get("filters[archivedAt][$notNull]")).toBe("true");
+    expect(publishedUrl.searchParams.get("status")).toBe("published");
+    expect(publishedUrl.searchParams.get("filters[archivedAt][$null]")).toBe("true");
+  });
+
   it("traverses every metadata page instead of stopping at 100", async () => {
     const firstHundred = Array.from({ length: 100 }, (_, index) => page(`page-${index + 1}`));
     const fetchMock = vi.fn()

@@ -56,7 +56,9 @@ export type ManagedStrapiPageResult = {
 export type ManagedStrapiPageSummary = {
   total: number;
   active: number;
+  draft: number;
   published: number;
+  archived: number;
 };
 
 export type ManagedStrapiPageInput = {
@@ -272,6 +274,7 @@ type ManagedPageVersionOptions = {
   active?: boolean;
   slug?: string;
   excludeDocumentId?: string;
+  archived?: "only" | "exclude";
 };
 
 function managedPageListUrl(
@@ -304,6 +307,11 @@ function managedPageListUrl(
   }
   if (options.excludeDocumentId) {
     url.searchParams.set("filters[documentId][$ne]", options.excludeDocumentId);
+  }
+  if (options.archived === "only") {
+    url.searchParams.set("filters[archivedAt][$notNull]", "true");
+  } else if (options.archived === "exclude") {
+    url.searchParams.set("filters[archivedAt][$null]", "true");
   }
   return url;
 }
@@ -399,15 +407,21 @@ export async function listManagedStrapiPages() {
 }
 
 export async function getManagedStrapiPageSummary(): Promise<ManagedStrapiPageSummary> {
-  const [all, active, published] = await Promise.all([
+  const [all, active, archived, published] = await Promise.all([
     listManagedPageVersion("draft", { page: 1, pageSize: 1 }),
     listManagedPageVersion("draft", { page: 1, pageSize: 1, active: true }),
-    listManagedPageVersion("published", { page: 1, pageSize: 1 }),
+    listManagedPageVersion("draft", { page: 1, pageSize: 1, archived: "only" }),
+    listManagedPageVersion("published", { page: 1, pageSize: 1, archived: "exclude" }),
   ]);
+  const total = all.pagination.total;
+  const archivedCount = Math.min(total, archived.pagination.total);
+  const publishedCount = Math.min(total - archivedCount, published.pagination.total);
   return {
-    total: all.pagination.total,
+    total,
     active: active.pagination.total,
-    published: published.pagination.total,
+    archived: archivedCount,
+    published: publishedCount,
+    draft: Math.max(0, total - archivedCount - publishedCount),
   };
 }
 
