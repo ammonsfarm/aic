@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { getManagedStrapiPageSummary } from "@/lib/strapi-management";
+import { getManagedSiteSettings } from "@/lib/strapi-site-settings-management";
 import {
   getStructuredInventorySummary,
   listStructuredAuditEvents,
@@ -9,7 +11,6 @@ import {
 import {
   STRUCTURED_COLLECTION_KEYS,
   STRUCTURED_COLLECTIONS,
-  type StructuredCollectionKey,
 } from "@/lib/structured-content-config";
 
 export const dynamic = "force-dynamic";
@@ -31,22 +32,76 @@ function eventHref(event: StructuredAuditEvent) {
   if (event.entityType === "site-setting") {
     return "/content/site-settings";
   }
+  if (event.entityType === "page") {
+    return `/content/site-pages/${encodeURIComponent(event.entityDocumentId)}`;
+  }
   const key = STRUCTURED_COLLECTION_KEYS.find(
     (candidate) => STRUCTURED_COLLECTIONS[candidate].entityType === event.entityType,
   );
   return key ? `${STRUCTURED_COLLECTIONS[key].editorPath}/${event.entityDocumentId}` : "";
 }
 
+type WorkflowInventoryItem = {
+  key: string;
+  entityType: string;
+  label: string;
+  href: string;
+  summary: StructuredInventorySummary;
+};
+
 export default async function ContentWorkflowPage() {
-  const results = await Promise.allSettled(
+  const structuredResults = await Promise.allSettled(
     STRUCTURED_COLLECTION_KEYS.map(async (key) => ({
-      key,
+      key: String(key),
+      entityType: STRUCTURED_COLLECTIONS[key].entityType,
+      label: STRUCTURED_COLLECTIONS[key].pluralLabel,
+      href: STRUCTURED_COLLECTIONS[key].editorPath,
       summary: await getStructuredInventorySummary(key),
     })),
   );
+  const [pagesResult, settingsResult] = await Promise.allSettled([
+    getManagedStrapiPageSummary(),
+    getManagedSiteSettings(),
+  ]);
 
-  const inventory = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
-  const inventoryError = results.some((result) => result.status === "rejected");
+  const inventory: WorkflowInventoryItem[] = structuredResults.flatMap(
+    (result) => result.status === "fulfilled" ? [result.value] : [],
+  );
+  if (pagesResult.status === "fulfilled") {
+    inventory.unshift({
+      key: "site-pages",
+      entityType: "page",
+      label: "Site pages",
+      href: "/content/site-pages",
+      summary: {
+        total: pagesResult.value.total,
+        draft: pagesResult.value.draft,
+        published: pagesResult.value.published,
+        archived: pagesResult.value.archived,
+      },
+    });
+  }
+  if (settingsResult.status === "fulfilled") {
+    const settings = settingsResult.value;
+    const total = settings ? 1 : 0;
+    const publishedSettings = settings?.publicationStatus === "published" ? 1 : 0;
+    inventory.unshift({
+      key: "site-settings",
+      entityType: "site-setting",
+      label: "Site settings and navigation",
+      href: "/content/site-settings",
+      summary: {
+        total,
+        draft: total - publishedSettings,
+        published: publishedSettings,
+        archived: 0,
+      },
+    });
+  }
+  const inventoryError =
+    structuredResults.some((result) => result.status === "rejected") ||
+    pagesResult.status === "rejected" ||
+    settingsResult.status === "rejected";
   let events: StructuredAuditEvent[] = [];
   let auditError = "";
   try {
@@ -66,7 +121,7 @@ export default async function ContentWorkflowPage() {
         <div>
           <p className="eyebrow">Content / Workflow</p>
           <h1>Publishing workflow</h1>
-          <p>Review current editorial state and the append-only attribution trail across structured public content.</p>
+          <p>Review current editorial state and the append-only attribution trail across every public content workflow.</p>
         </div>
         <div className="status-list" aria-label="Publishing state summary">
           <span><strong>{drafts}</strong>Draft</span>
@@ -78,22 +133,19 @@ export default async function ContentWorkflowPage() {
       {inventoryError || auditError ? (
         <section className="notice-card" role="alert">
           <strong>Some workflow data is unavailable</strong>
-          <p>{auditError || "One or more structured collections could not be loaded."}</p>
+          <p>{auditError || "One or more editorial inventories could not be loaded."}</p>
         </section>
       ) : null}
 
       <section className="overview-grid" aria-label="Structured content collections">
-        {inventory.map(({ key, summary }: { key: StructuredCollectionKey; summary: StructuredInventorySummary }) => {
-          const definition = STRUCTURED_COLLECTIONS[key];
-          return (
-            <article className="overview-primary" key={key}>
-              <p className="eyebrow">{definition.entityType}</p>
-              <h2>{definition.pluralLabel}</h2>
-              <p>{summary.total} total · {summary.published} published · {summary.draft} draft · {summary.archived} archived</p>
-              <Link className="button button--ghost" href={definition.editorPath}>Open inventory →</Link>
-            </article>
-          );
-        })}
+        {inventory.map(({ key, entityType, label, href, summary }) => (
+          <article className="overview-primary" key={key}>
+            <p className="eyebrow">{entityType}</p>
+            <h2>{label}</h2>
+            <p>{summary.total} total · {summary.published} published · {summary.draft} draft · {summary.archived} archived</p>
+            <Link className="button button--ghost" href={href}>Open inventory →</Link>
+          </article>
+        ))}
       </section>
 
       <section className="data-card">
