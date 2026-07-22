@@ -1,22 +1,17 @@
-import { ContentManagementPlaceholder } from "@/components/content-management-placeholder";
+import StructuredEntryEditorPage from "../../structured/[collection]/[documentId]/page";
 
-export default async function ContentPostDetail({ params }: { params: Promise<{ postId: string }> }) {
+export const dynamic = "force-dynamic";
+
+export default async function ContentPostDetail({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ postId: string }>;
+  searchParams: Promise<Record<string, string | undefined>>;
+}) {
   const { postId } = await params;
-
-  return (
-    <ContentManagementPlaceholder
-      eyebrow="Content / Posts"
-      title={`Writing editor: ${postId}`}
-      description="Edit the selected writing draft, preview it, schedule it, publish it directly, or archive it."
-      checklist={[
-        "Load draft and published versions for the selected writing.",
-        "Edit body content, metadata, scripture references, tags, and related resources.",
-        "Record revision history and audit entries for saves and publishing actions.",
-      ]}
-      notes={[
-        "Historical imports should auto-publish during migration.",
-        "Content Manager can publish directly in the first release.",
-      ]}
-    />
-  );
+  return StructuredEntryEditorPage({
+    params: Promise.resolve({ collection: "posts", documentId: postId }),
+    searchParams,
+  });
 }

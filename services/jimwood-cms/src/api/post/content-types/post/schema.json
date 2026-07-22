@@ -1,0 +1,36 @@
+{
+  "kind": "collectionType",
+  "collectionName": "pastorwood_posts",
+  "info": {
+    "singularName": "post",
+    "pluralName": "posts",
+    "displayName": "Post / Writing",
+    "description": "Devotionals, Bible studies, articles, and written resources"
+  },
+  "options": { "draftAndPublish": true },
+  "pluginOptions": {},
+  "attributes": {
+    "title": { "type": "string", "required": true },
+    "slug": { "type": "uid", "targetField": "title", "required": true },
+    "contentType": {
+      "type": "enumeration",
+      "enum": ["devotional", "bible-study", "article", "written-resource", "newsletter-archive"],
+      "default": "article",
+      "required": true
+    },
+    "summary": { "type": "text" },
+    "body": { "type": "richtext", "required": true },
+    "featuredImage": { "type": "media", "multiple": false, "allowedTypes": ["images"] },
+    "author": { "type": "relation", "relation": "manyToOne", "target": "api::person.person" },
+    "scriptureReferences": { "type": "component", "repeatable": true, "component": "content.scripture-reference" },
+    "relatedLinks": { "type": "component", "repeatable": true, "component": "content.external-link" },
+    "topics": { "type": "json" },
+    "publishDate": { "type": "datetime" },
+    "scheduledFor": { "type": "datetime" },
+    "legacyUrl": { "type": "string" },
+    "legacyId": { "type": "string" },
+    "archiveReason": { "type": "text" },
+    "archivedAt": { "type": "datetime" },
+    "seo": { "type": "component", "repeatable": false, "component": "seo.metadata" }
+  }
+}

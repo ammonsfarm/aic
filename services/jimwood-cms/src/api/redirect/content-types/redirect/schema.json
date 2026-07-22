@@ -1,0 +1,21 @@
+{
+  "kind": "collectionType",
+  "collectionName": "pastorwood_redirects",
+  "info": {
+    "singularName": "redirect",
+    "pluralName": "redirects",
+    "displayName": "Legacy Redirect",
+    "description": "Permanent and temporary redirects used during PastorWood migration"
+  },
+  "options": { "draftAndPublish": false },
+  "pluginOptions": {},
+  "attributes": {
+    "fromPath": { "type": "string", "required": true, "unique": true },
+    "toPath": { "type": "string", "required": true },
+    "statusCode": { "type": "integer", "default": 301, "required": true, "min": 301, "max": 308 },
+    "active": { "type": "boolean", "default": true },
+    "notes": { "type": "text" },
+    "lastVerifiedAt": { "type": "datetime" },
+    "archivedAt": { "type": "datetime" }
+  }
+}

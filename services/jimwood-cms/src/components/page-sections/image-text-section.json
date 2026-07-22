@@ -1,0 +1,38 @@
+{
+  "collectionName": "components_page_sections_image_text_sections",
+  "info": {
+    "displayName": "Image Text Section"
+  },
+  "options": {},
+  "attributes": {
+    "eyebrow": {
+      "type": "string"
+    },
+    "heading": {
+      "type": "string"
+    },
+    "body": {
+      "type": "richtext"
+    },
+    "image": {
+      "type": "media",
+      "multiple": false,
+      "allowedTypes": [
+        "images"
+      ]
+    },
+    "imageSide": {
+      "type": "enumeration",
+      "default": "right",
+      "enum": [
+        "none",
+        "left",
+        "right"
+      ]
+    },
+    "imageDescription": {
+      "type": "text"
+    }
+  },
+  "config": {}
+}

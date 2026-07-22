@@ -1,0 +1,13 @@
+{
+  "collectionName": "components_content_external_links",
+  "info": {
+    "displayName": "External link",
+    "description": "A labeled external or internal resource link"
+  },
+  "attributes": {
+    "label": { "type": "string", "required": true },
+    "url": { "type": "string", "required": true },
+    "description": { "type": "text" }
+  },
+  "config": {}
+}

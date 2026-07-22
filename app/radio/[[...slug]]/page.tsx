@@ -1,4 +1,4 @@
-import { PastorWoodRadioPage } from "@/components/pastor-wood-site";
+import { PastorWoodStructuredRadioPage } from "@/components/pastor-wood-structured-listings";
 
 type PageProps = {
   params: Promise<{ slug?: string[] }>;
@@ -6,5 +6,5 @@ type PageProps = {
 
 export default async function Page({ params }: PageProps) {
   const { slug = [] } = await params;
-  return <PastorWoodRadioPage slug={slug} />;
+  return <PastorWoodStructuredRadioPage slug={slug} />;
 }

@@ -1,0 +1,15 @@
+{
+  "collectionName": "components_seo_metadata",
+  "info": {
+    "displayName": "SEO metadata",
+    "description": "Search and social sharing metadata"
+  },
+  "attributes": {
+    "title": { "type": "string", "maxLength": 70 },
+    "description": { "type": "text", "maxLength": 180 },
+    "canonicalUrl": { "type": "string" },
+    "socialImage": { "type": "media", "multiple": false, "allowedTypes": ["images"] },
+    "noIndex": { "type": "boolean", "default": false }
+  },
+  "config": {}
+}

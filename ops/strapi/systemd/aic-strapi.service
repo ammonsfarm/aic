@@ -1,0 +1,32 @@
+[Unit]
+Description=AIC Pastor Wood Strapi CMS
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ammonsfarm
+Group=ammonsfarm
+WorkingDirectory=/mnt/storage/aic/services/jimwood-cms
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=1337
+Environment=STRAPI_CMS_ROOT=/mnt/storage/aic/services/jimwood-cms
+Environment=STRAPI_MEDIA_ROOT=/mnt/storage/pastorwood-media/strapi/uploads
+EnvironmentFile=/etc/aic/strapi.env
+ExecStartPre=/mnt/storage/aic/ops/strapi/prepare-strapi-storage.sh
+ExecStart=/mnt/storage/aic/services/jimwood-cms/node_modules/.bin/strapi start
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=120
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/mnt/storage/aic/services/jimwood-cms/.tmp
+ReadWritePaths=/mnt/storage/aic/services/jimwood-cms/public
+ReadWritePaths=/mnt/storage/pastorwood-media/strapi
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

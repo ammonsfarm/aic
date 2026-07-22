@@ -1,0 +1,17 @@
+{
+  "collectionName": "components_content_scripture_references",
+  "info": {
+    "displayName": "Scripture reference",
+    "description": "A normalized Bible passage reference attached to editorial content"
+  },
+  "attributes": {
+    "label": { "type": "string", "required": true },
+    "book": { "type": "string" },
+    "chapter": { "type": "integer", "min": 1 },
+    "verseStart": { "type": "integer", "min": 1 },
+    "verseEnd": { "type": "integer", "min": 1 },
+    "translation": { "type": "string", "default": "ESV" },
+    "url": { "type": "string" }
+  },
+  "config": {}
+}

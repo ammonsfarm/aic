@@ -1,0 +1,16 @@
+[Unit]
+Description=Back up AIC Pastor Wood Strapi database and media
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ammonsfarm
+Group=ammonsfarm
+EnvironmentFile=/etc/aic/strapi.env
+ExecStart=/mnt/storage/aic/ops/strapi/backup-strapi.sh
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/mnt/storage/backups/aic-strapi
