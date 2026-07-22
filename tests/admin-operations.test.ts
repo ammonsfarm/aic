@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { parseRetryableStage, retryablePipelineStages } from "@/lib/admin-operations";
+import {
+  parseRetryableStage,
+  podtracAuthenticationStatus,
+  retryablePipelineStages,
+} from "@/lib/admin-operations";
 import {
   canGenerateForRole,
   canMutateForRole,
@@ -37,5 +41,27 @@ describe("admin operation boundaries", () => {
     expect(roleLandingPath("Read Only")).toBe("/podcast");
     expect(roleLandingPath("Content Manager")).toBe("/content");
     expect(roleLandingPath("Admin")).toBe("/overview");
+  });
+
+  it("derives Podtrac authentication state from only the latest authoritative sync run", () => {
+    expect(podtracAuthenticationStatus({
+      status: "failed",
+      started_at: "2026-07-21T08:15:00Z",
+      completed_at: "2026-07-21T08:15:05Z",
+      error: "Podtrac authentication failed with HTTP 401",
+    }).state).toBe("auth-error");
+    expect(podtracAuthenticationStatus({
+      status: "completed",
+      started_at: "2026-07-22T08:15:00Z",
+      completed_at: "2026-07-22T08:16:00Z",
+      error: "",
+    })).toMatchObject({ state: "ok", checkedAt: "2026-07-22T08:16:00Z" });
+    expect(podtracAuthenticationStatus({
+      status: "failed",
+      started_at: "2026-07-22T08:15:00Z",
+      completed_at: "2026-07-22T08:16:00Z",
+      error: "database connection timed out",
+    }).state).toBe("unknown");
+    expect(podtracAuthenticationStatus(null).state).toBe("unknown");
   });
 });

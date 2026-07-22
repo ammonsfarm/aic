@@ -1,7 +1,5 @@
 import "server-only";
 
-import { open, stat } from "node:fs/promises";
-
 import { getPool, queryRows } from "@/lib/db";
 import { calculateFreshness, type DataFreshness } from "@/lib/podcast-reporting";
 
@@ -100,6 +98,16 @@ type UnmatchedPodtracRow = {
   }> | null;
 };
 
+type MatchedPodtracRow = {
+  podtrac_episode_id: string;
+  title: string;
+  publish_date: string | null;
+  match_notes: string;
+  track_id: string;
+  episode_title: string;
+  episode_publish_date: string;
+};
+
 type ExtentRow = {
   podtrac_current_through: string | null;
   ingest_current_through: string | null;
@@ -193,6 +201,16 @@ export type UnmatchedPodtracEpisode = {
   candidates: Array<{ trackId: string; title: string; publishDate: string; score: number }>;
 };
 
+export type MatchedPodtracEpisode = {
+  podtracEpisodeId: string;
+  title: string;
+  publishDate: string | null;
+  matchNotes: string;
+  trackId: string;
+  episodeTitle: string;
+  episodePublishDate: string;
+};
+
 export type EpisodeOperationalStatus = {
   trackId: string;
   title: string;
@@ -218,46 +236,43 @@ function boundedText(value: unknown, maxLength: number): string {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
 }
 
-async function readFileTail(path: string, maxBytes = 64 * 1024): Promise<{ text: string; modifiedAt: string } | null> {
-  try {
-    const details = await stat(path);
-    const start = Math.max(0, details.size - maxBytes);
-    const length = details.size - start;
-    const handle = await open(path, "r");
-    try {
-      const buffer = Buffer.alloc(length);
-      await handle.read(buffer, 0, length, start);
-      return { text: buffer.toString("utf8"), modifiedAt: details.mtime.toISOString() };
-    } finally {
-      await handle.close();
-    }
-  } catch {
-    return null;
-  }
-}
-
-async function podtracAuthProbe() {
-  const logPath = process.env.PODTRAC_CRON_LOG_PATH || "/mnt/storage/aic_podcast/run_logs/cron_podtrac_daily.log";
-  const tail = await readFileTail(logPath);
-  if (!tail) {
-    return { state: "unknown" as const, checkedAt: null, message: "Podtrac runner log is not readable." };
+export function podtracAuthenticationStatus(
+  latestRun: Pick<PodtracRunRow, "status" | "started_at" | "completed_at" | "error"> | null | undefined,
+) {
+  if (!latestRun) {
+    return { state: "unknown" as const, checkedAt: null, message: "No authoritative Podtrac sync run has been recorded." };
   }
 
-  const authError = /(?:authentication failed|http\s+(?:401|403)|unauthori[sz]ed|forbidden)/i.test(tail.text);
-  if (authError) {
+  const checkedAt = latestRun.completed_at ?? latestRun.started_at;
+  const authError = /(?:authentication failed|http\s+(?:401|403)|unauthori[sz]ed|forbidden)/i.test(latestRun.error);
+  if (latestRun.status === "failed" && authError) {
     return {
       state: "auth-error" as const,
-      checkedAt: tail.modifiedAt,
-      message: "The latest Podtrac runner output reports an authentication error. Refresh the approved Podtrac session before retrying.",
+      checkedAt,
+      message: "The latest Podtrac sync run failed authentication. Refresh the approved Podtrac session before retrying.",
     };
   }
 
-  return { state: "ok" as const, checkedAt: tail.modifiedAt, message: "No authentication error appears in recent Podtrac runner output." };
+  if (latestRun.status === "completed") {
+    return { state: "ok" as const, checkedAt, message: "The latest authoritative Podtrac sync run completed without an authentication error." };
+  }
+
+  if (latestRun.status === "running") {
+    return { state: "unknown" as const, checkedAt, message: "The latest Podtrac sync run is still in progress." };
+  }
+
+  return {
+    state: "unknown" as const,
+    checkedAt,
+    message: latestRun.error
+      ? "The latest Podtrac sync run failed for a reason other than authentication. Review pipeline history."
+      : `The latest Podtrac sync run has status ${latestRun.status || "unknown"}.`,
+  };
 }
 
 export async function getOperationalDashboard({ limit = 20 }: { limit?: number } = {}): Promise<OperationalDashboard> {
   const safeLimit = Math.min(Math.max(Math.trunc(limit), 5), 100);
-  const [ingestRows, stageRows, podtracRows, transcriptStatusRows, transcriptRows, retryRows, auditRows, extentRows, auth] =
+  const [ingestRows, stageRows, podtracRows, transcriptStatusRows, transcriptRows, retryRows, auditRows, extentRows] =
     await Promise.all([
       queryRows<IngestRunRow>(
         `select run_id, status, stage, started_at, completed_at, error
@@ -359,10 +374,10 @@ export async function getOperationalDashboard({ limit = 20 }: { limit?: number }
            (select max(activity_date)::text from podtrac_daily_activity) as podtrac_current_through,
            (select max(completed_at)::timestamptz::date::text from ingest_runs where status = 'completed') as ingest_current_through`,
       ),
-      podtracAuthProbe(),
     ]);
 
   const extent = extentRows[0] ?? { podtrac_current_through: null, ingest_current_through: null };
+  const auth = podtracAuthenticationStatus(podtracRows[0]);
   const latestTranscriptUpdate = transcriptStatusRows
     .map((row) => row.latest)
     .filter((value): value is string => Boolean(value))
@@ -482,17 +497,17 @@ export async function listUnmatchedPodtracEpisodes({
          select
            e.track_id,
            e.title,
-           e.publish_date,
+           e.publish_date::text as publish_date,
            round(similarity(lower(e.title), lower(pe.title))::numeric, 4)::float8 as score
          from episodes e
          where similarity(lower(e.title), lower(pe.title)) >= 0.2
             or (
               pe.publish_date is not null
-              and e.publish_date ~ '^\\d{4}-\\d{2}-\\d{2}$'
+              and e.publish_date::text ~ '^\\d{4}-\\d{2}-\\d{2}$'
               and abs((e.publish_date::date - pe.publish_date)) <= 10
             )
          order by similarity(lower(e.title), lower(pe.title)) desc,
-                  case when e.publish_date ~ '^\\d{4}-\\d{2}-\\d{2}$' then abs((e.publish_date::date - pe.publish_date)) end asc nulls last
+                  case when e.publish_date::text ~ '^\\d{4}-\\d{2}-\\d{2}$' then abs((e.publish_date::date - pe.publish_date)) end asc nulls last
          limit 5
        ) candidate
      ) c on true
@@ -510,6 +525,51 @@ export async function listUnmatchedPodtracEpisodes({
     matchStatus: row.match_status,
     matchNotes: row.match_notes,
     candidates: Array.isArray(row.candidates) ? row.candidates : [],
+  }));
+}
+
+export async function listMatchedPodtracEpisodes({
+  query = "",
+  limit = 20,
+}: {
+  query?: string;
+  limit?: number;
+} = {}): Promise<MatchedPodtracEpisode[]> {
+  const search = boundedText(query, 120);
+  const safeLimit = Math.min(Math.max(Math.trunc(limit), 5), 100);
+  const rows = await queryRows<MatchedPodtracRow>(
+    `select
+       pe.podtrac_episode_id,
+       pe.title,
+       pe.publish_date::text,
+       pe.match_notes,
+       pe.track_id,
+       coalesce(e.title, pe.matched_episode_title, pe.track_id) as episode_title,
+       coalesce(e.publish_date::text, nullif(pe.matched_episode_publish_date, ''), '') as episode_publish_date
+     from podtrac_episodes pe
+     left join episodes e on e.track_id = pe.track_id
+     where pe.track_id is not null
+       and pe.match_status = 'matched'
+       and (
+         $1 = ''
+         or pe.title ilike '%' || $1 || '%'
+         or pe.podtrac_episode_id ilike '%' || $1 || '%'
+         or pe.track_id ilike '%' || $1 || '%'
+         or e.title ilike '%' || $1 || '%'
+       )
+     order by pe.updated_at desc, pe.publish_date desc nulls last, pe.title
+     limit $2`,
+    [search, safeLimit],
+  );
+
+  return rows.map((row) => ({
+    podtracEpisodeId: row.podtrac_episode_id,
+    title: row.title,
+    publishDate: row.publish_date,
+    matchNotes: row.match_notes,
+    trackId: row.track_id,
+    episodeTitle: row.episode_title,
+    episodePublishDate: row.episode_publish_date,
   }));
 }
 
@@ -680,6 +740,9 @@ export async function reconcilePodtracEpisode({
   const normalizedNote = boundedText(note, 1000);
   if (!normalizedPodtracId) {
     throw new Error("A Podtrac episode is required.");
+  }
+  if (!normalizedTrackId && !normalizedNote) {
+    throw new Error("An audit note is required before removing a Podtrac match.");
   }
 
   const client = await getPool().connect();

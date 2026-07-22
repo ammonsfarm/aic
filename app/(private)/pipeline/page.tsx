@@ -1,7 +1,7 @@
 import { RoutePanel } from "@/components/route-panel";
 import { DataFreshnessNotice } from "@/components/data-freshness";
 import { PipelineOperations } from "@/components/pipeline-operations";
-import { getOperationalDashboard, listUnmatchedPodtracEpisodes } from "@/lib/admin-operations";
+import { getOperationalDashboard, listMatchedPodtracEpisodes, listUnmatchedPodtracEpisodes } from "@/lib/admin-operations";
 import { getPodtracDashboard } from "@/lib/podcast-data";
 import { addReportDays } from "@/lib/podcast-reporting";
 import { isCurrentUserAdministrator } from "@/lib/rbac";
@@ -42,10 +42,11 @@ export const dynamic = "force-dynamic";
 export default async function PipelinePage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
   const params = await searchParams;
   const query = params.q?.trim().slice(0, 120) ?? "";
-  const [operations, dashboard, unmatched, isAdministrator] = await Promise.all([
+  const [operations, dashboard, unmatched, matched, isAdministrator] = await Promise.all([
     getOperationalDashboard({ limit: 20 }),
     getPodtracDashboard(),
     listUnmatchedPodtracEpisodes({ query, limit: 20 }),
+    listMatchedPodtracEpisodes({ query, limit: 20 }),
     isCurrentUserAdministrator(),
   ]);
   const exportToday = operations.generatedAt.slice(0, 10);
@@ -190,13 +191,13 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
         {isAdministrator ? (
           <div className="podcast-subnav">
             <a className="button button--ghost" href={`/api/admin/podcast/export?report=unmatched&startDate=${exportToday.slice(0, 4)}-01-01&endDate=${exportToday}`}>Export unmatched CSV</a>
-            <a className="button button--ghost" href={`/api/admin/podcast/export?report=pipeline&startDate=${exportStart}&endDate=${exportToday}`}>Export pipeline CSV</a>
+            <a className="button button--ghost" href={`/api/admin/podcast/export?report=pipeline&startDate=${exportStart}&endDate=${exportToday}`}>Export all pipeline events CSV</a>
             <a className="button button--ghost" href={`/api/admin/podcast/export?report=transcript-edits&startDate=${exportStart}&endDate=${exportToday}`}>Export transcript CSV</a>
           </div>
         ) : null}
       </section>
 
-      <PipelineOperations isAdministrator={isAdministrator} unmatched={unmatched} />
+      <PipelineOperations isAdministrator={isAdministrator} unmatched={unmatched} matched={matched} />
 
       {isAdministrator && operations.audit.length > 0 ? (
         <section className="podcast-chart-section">
