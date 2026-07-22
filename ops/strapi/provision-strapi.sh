@@ -41,7 +41,6 @@ else
   API_TOKEN_SALT="$(random_hex 32)"
   ADMIN_JWT_SECRET="$(random_hex 32)"
   TRANSFER_TOKEN_SALT="$(random_hex 32)"
-  JWT_SECRET="$(random_hex 32)"
   ENCRYPTION_KEY="$(random_hex 16)"
   DATABASE_PASSWORD="$(random_hex 32)"
 
@@ -59,7 +58,6 @@ else
     printf 'API_TOKEN_SALT=%s\n' "${API_TOKEN_SALT}"
     printf 'ADMIN_JWT_SECRET=%s\n' "${ADMIN_JWT_SECRET}"
     printf 'TRANSFER_TOKEN_SALT=%s\n' "${TRANSFER_TOKEN_SALT}"
-    printf 'JWT_SECRET=%s\n' "${JWT_SECRET}"
     printf 'ENCRYPTION_KEY=%s\n' "${ENCRYPTION_KEY}"
     printf 'DATABASE_CLIENT=postgres\n'
     printf 'DATABASE_HOST=127.0.0.1\n'

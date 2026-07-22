@@ -23,14 +23,6 @@ const deniedExecutableTypes = [
 ];
 
 const config = ({ env }: Core.Config.Shared.ConfigParams): Core.Config.Plugin => ({
-  'users-permissions': {
-    config: {
-      jwtManagement: 'refresh',
-      sessions: {
-        httpOnly: true,
-      },
-    },
-  },
   upload: {
     config: {
       sizeLimit: env.int('UPLOAD_MAX_FILE_SIZE', 256 * 1024 * 1024),

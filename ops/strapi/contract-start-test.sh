@@ -10,6 +10,9 @@ db_name="aic_strapi_contract_$$"
 db_role="aic_strapi_contract_$$"
 db_password="$(openssl rand -hex 32)"
 run_pid=""
+contract_id="${BASHPID}"
+probe_image="/tmp/aic-strapi-contract-upload-${contract_id}.png"
+upload_paths_file="/tmp/aic-strapi-contract-upload-paths-${contract_id}"
 
 case "${worktree}" in
   /mnt/storage/aic|/mnt/storage/aic-worktrees/*) ;;
@@ -23,6 +26,14 @@ cleanup() {
     kill -KILL -- "-${run_pid}" >/dev/null 2>&1 || true
   fi
   sudo rm -f /run/aic-strapi/aic-api-token /run/aic-strapi/aic-api-token.tmp
+  if [[ -f "${upload_paths_file}" ]]; then
+    while IFS= read -r upload_path; do
+      if [[ "${upload_path}" =~ ^/uploads/[A-Za-z0-9_-]+\.(png|jpg|jpeg|webp)$ ]]; then
+        rm -f -- "${worktree}/services/jimwood-cms/public${upload_path}"
+      fi
+    done < "${upload_paths_file}"
+  fi
+  rm -f -- "${probe_image}" "${upload_paths_file}"
   {
     printf 'DROP DATABASE IF EXISTS %s WITH (FORCE);\n' "${db_name}"
     printf 'DROP ROLE IF EXISTS %s;\n' "${db_role}"
@@ -49,7 +60,6 @@ export APP_KEYS="$(openssl rand -hex 32),$(openssl rand -hex 32),$(openssl rand 
 export API_TOKEN_SALT="$(openssl rand -hex 32)"
 export ADMIN_JWT_SECRET="$(openssl rand -hex 32)"
 export TRANSFER_TOKEN_SALT="$(openssl rand -hex 32)"
-export JWT_SECRET="$(openssl rand -hex 32)"
 export ENCRYPTION_KEY="$(openssl rand -hex 16)"
 export DATABASE_CLIENT=postgres
 export DATABASE_HOST=127.0.0.1
@@ -86,6 +96,37 @@ fi
 AIC_PROBE_TOKEN="${token}" node -e \
   'const response = await fetch("http://127.0.0.1:1338/api/pages?pagination[pageSize]=1", { headers: { Authorization: `Bearer ${process.env.AIC_PROBE_TOKEN}` } }); if (response.status !== 200) throw new Error(`managed token probe returned ${response.status}`);'
 
+AIC_PROBE_IMAGE="${probe_image}" node --input-type=module -e \
+  'import sharp from "sharp"; await sharp({ create: { width: 640, height: 360, channels: 4, background: { r: 20, g: 40, b: 60, alpha: 1 } } }).png().toFile(process.env.AIC_PROBE_IMAGE);'
+
+upload_response="$(curl -fsS -X POST http://127.0.0.1:1338/api/upload \
+  -H "Authorization: Bearer ${token}" \
+  -F "files=@${probe_image};type=image/png")"
+
+AIC_UPLOAD_RESPONSE="${upload_response}" AIC_UPLOAD_PATHS_FILE="${upload_paths_file}" \
+  node --input-type=module <<'NODE'
+import assert from 'node:assert/strict';
+import { writeFileSync } from 'node:fs';
+
+const payload = JSON.parse(process.env.AIC_UPLOAD_RESPONSE);
+assert.equal(Array.isArray(payload), true);
+assert.equal(payload.length, 1);
+const file = payload[0];
+assert.equal(file.mime, 'image/png');
+assert.equal(file.width, 640);
+assert.equal(file.height, 360);
+
+const urls = [
+  file.url,
+  ...Object.values(file.formats ?? {}).map((format) => format.url),
+].filter(Boolean);
+assert.ok(urls.length > 1, 'Strapi upload did not create an image derivative');
+for (const url of urls) {
+  assert.match(url, /^\/uploads\/[A-Za-z0-9_-]+\.(png|jpg|jpeg|webp)$/);
+}
+writeFileSync(process.env.AIC_UPLOAD_PATHS_FILE, `${urls.join('\n')}\n`, { mode: 0o600 });
+NODE
+
 token_rows="$(docker exec "${postgres_container}" sh -lc \
   "psql -X -At -U \"\$POSTGRES_USER\" -d ${db_name} -c \"select name || ':' || type from strapi_api_tokens order by name\"")"
 if [[ "${token_rows}" != "AIC content manager:custom" ]]; then
@@ -93,4 +134,4 @@ if [[ "${token_rows}" != "AIC content manager:custom" ]]; then
   exit 1
 fi
 
-echo "Strapi contract start passed: private health, custom-token API access, and broad defaults revoked."
+echo "Strapi contract start passed: private health, custom-token API access, image upload processing, and broad defaults revoked."
