@@ -42,18 +42,22 @@ DATABASE_USERNAME=strapi
 
 `DATABASE_PASSWORD` should stay in `.env` only.
 
-## First Admin User
+## Administrative access
 
-On the first successful `npm run develop`, open the admin URL printed by Strapi and create the first admin user.
+The production service binds only to `127.0.0.1`. Content managers work through
+the Clerk-protected AIC `/content` area, which uses a generated custom Strapi API
+token. Strapi's broad default first-run tokens are revoked automatically.
 
-This user is local to Strapi. It does not replace the AIC Next.js app authentication model.
+If emergency Strapi super-admin access is ever required, create that separate
+local account only through an SSH port forward. It does not replace the AIC
+Next.js authentication model.
 
-## Current Scope
+## Current scope
 
-This baseline intentionally does not define all Jim Wood content types yet. Add them in focused changes:
+The versioned service defines Site Settings, Pages and page sections, Posts,
+Episodes, People, Endorsements, governed Media Assets, Redirects, Editorial
+Revisions, and Editorial Events. The protected AIC editor owns create, save,
+preview, publish, unpublish, archive, restore, rollback, and audit workflows.
 
-1. Site Settings single type.
-2. Page collection type with Draft & Publish.
-3. Page section components or dynamic zone.
-4. Post / Writing, Episode, Person, Endorsement, and Newsletter types.
-5. Public API permissions and AIC Next.js fetch integration.
+Production provisioning, service installation, backups, and restore drills are
+documented in `../../../ops/strapi/README.md`.

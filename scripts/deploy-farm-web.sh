@@ -8,6 +8,8 @@ REMOTE_BRANCH="${REMOTE_BRANCH:-main}"
 REMOTE_SERVICE="${REMOTE_SERVICE:-aic-web.service}"
 REMOTE_PORT="${REMOTE_PORT:-8087}"
 INSTALL_TRANSCRIPT_EDIT_WORKER="${INSTALL_TRANSCRIPT_EDIT_WORKER:-1}"
+INSTALL_STRAPI_SERVICE="${INSTALL_STRAPI_SERVICE:-1}"
+RUN_STRAPI_BACKUP_DRILL="${RUN_STRAPI_BACKUP_DRILL:-0}"
 SERVICE_URL="http://127.0.0.1:${REMOTE_PORT}"
 
 ssh_target="${REMOTE_USER}@${REMOTE_HOST}"
@@ -31,6 +33,7 @@ git pull --ff-only origin "${REMOTE_BRANCH}"
 
 echo "Installing dependencies..."
 npm ci
+npm --prefix services/jimwood-cms ci
 
 echo "Applying database migrations..."
 MIGRATION_PYTHON="python3"
@@ -44,12 +47,27 @@ then
 fi
 "\${MIGRATION_PYTHON}" apply_postgres_migrations.py
 
+echo "Building Strapi..."
+npm --prefix services/jimwood-cms run build
+
+if [ "${INSTALL_STRAPI_SERVICE}" = "1" ]; then
+  echo "Provisioning and installing private Strapi service..."
+  sudo bash ops/strapi/provision-strapi.sh
+  sudo bash ops/strapi/install-strapi-service.sh
+fi
+
 echo "Building Next.js app..."
 npm run build
 
 if [ "${INSTALL_TRANSCRIPT_EDIT_WORKER}" = "1" ]; then
   echo "Installing transcript edit worker timer..."
   bash scripts/install-transcript-edit-worker.sh
+fi
+
+if [ "${RUN_STRAPI_BACKUP_DRILL}" = "1" ]; then
+  echo "Running verified Strapi backup and isolated restore drill..."
+  sudo systemctl start aic-strapi-backup.service
+  sudo bash ops/strapi/restore-drill.sh
 fi
 
 echo "Restarting service: ${REMOTE_SERVICE}"

@@ -21,17 +21,25 @@ direct admin access is required.
 
 ## Required environment
 
-Copy the placeholder keys from `services/jimwood-cms/.env.example` into
-`/etc/aic/strapi.env`, generate independent random secrets, and set PostgreSQL
-credentials. Also set AIC's `STRAPI_URL=http://127.0.0.1:1337` and a scoped API
-token. Never put token values in Git.
+`provision-strapi.sh` creates `/etc/aic/strapi.env` with independent random
+secrets, creates the isolated `aic_strapi` role/database in `farm-postgres`, and
+locks the environment file to root mode 0600. It is idempotent and refuses
+unexpected paths or database settings.
+
+At service bootstrap, Strapi creates or reconciles one custom least-privilege
+token for the AIC server. Its key is written only to the mode-0600 runtime file
+`/run/aic-strapi/aic-api-token`; Strapi's broad first-run Full Access and Read
+Only tokens are revoked. `sync-aic-strapi-env.sh` copies the managed key into the
+existing mode-0600 AIC service environment without printing it. Never put token
+values in Git or command arguments.
 
 Production refuses to start with SQLite.
 
 ## Install after branch integration
 
-1. Create the separate PostgreSQL database and least-privilege Strapi role.
-2. Run `npm ci && npm run build` in `services/jimwood-cms`.
+1. Run `sudo ops/strapi/provision-strapi.sh` to create the private environment,
+   PostgreSQL database, and least-privilege role.
+2. Run `npm ci && npm run build` in `services/jimwood-cms` as `ammonsfarm`.
 3. Install and inspect the backup client image explicitly with
    `docker pull postgres:16` and `docker image inspect postgres:16`. The backup
    job never pulls an image on its own.
@@ -39,13 +47,14 @@ Production refuses to start with SQLite.
    `STRAPI_BACKUP_DRY_RUN=1 ops/strapi/backup-strapi.sh`. It still reads the
    configured environment file and requires the database variables, but it
    connects to no database and creates no backup directory.
-5. Install the three unit files from `ops/strapi/systemd` into
-   `/etc/systemd/system`.
-6. Run `systemctl daemon-reload`.
-7. Enable and start `aic-strapi.service`.
-8. Verify `curl -fsS http://127.0.0.1:1337/_health`.
-9. Run `aic-strapi-backup.service` once manually and inspect its journal.
-10. Enable `aic-strapi-backup.timer`.
+5. Run `sudo ops/strapi/install-strapi-service.sh`. It installs all three units,
+   starts the private service and timer, verifies loopback-only binding and
+   health, and safely configures the AIC server token.
+6. Run `sudo systemctl start aic-strapi-backup.service` once and inspect its
+   journal and output directory.
+7. Run `sudo ops/strapi/restore-drill.sh`; it restores only into a generated
+   disposable database and temporary media directory, verifies contents, and
+   removes both drill targets.
 
 Do not expose the Strapi write token or draft APIs through a public browser.
 
@@ -63,9 +72,9 @@ container environment rather than command arguments, drops capabilities, and
 runs with a read-only container filesystem and the service user's UID/GID.
 
 A restore drill must be performed into a disposable PostgreSQL database and a
-temporary media directory before launch and at least quarterly. Never restore over
-the live database or uploads directory. Use `pg_restore --clean` only against
-that explicitly created disposable database.
+temporary media directory before launch and at least quarterly. Never restore
+over the live database or uploads directory. The checked-in drill intentionally
+does not accept a database name and never uses `pg_restore --clean`.
 
 ## Legacy media boundary
 
