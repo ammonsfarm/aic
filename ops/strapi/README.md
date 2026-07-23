@@ -161,8 +161,63 @@ runs also roll back the snapshot session and remove the partial directory.
 
 The configured backup directory and media root are currently on the same
 `/mnt/storage` failure domain. An independently configured off-host or offsite
-copy remains required for storage-loss recovery; the checked-in scripts do not
-claim that same-host retention provides it.
+copy remains required for storage-loss recovery. The replication unit described
+below is installed disabled and does not claim that same-host retention provides
+off-host protection.
+
+## Disabled encrypted off-host replication
+
+`aic-strapi-backup-replication.timer` is deliberately never enabled by the
+installer or deployment. Its command does not connect to PostgreSQL, create a
+dump, restore an archive, or copy a working database. It considers only the
+timestamped directories under `/mnt/storage/backups/aic-strapi`, runs
+`verify-strapi-backup.sh` against every local candidate before any network
+operation, and accepts only the exact eight-file verified payload.
+
+The one-time external decision is to choose an off-host provider and create a
+dedicated rclone `crypt` remote for this backup. The currently available
+capacity makes the existing `OneDrive2` provider a candidate, but the scripts do
+not select it, reuse its credentials, or create a key. The operator must:
+
+1. Create `/etc/aic/rclone-aic-strapi.conf` as root:root mode 0600. It must
+   contain a dedicated named backing provider and a `crypt` remote targeting a
+   non-root directory on that provider. The crypt remote must use standard file
+   and directory-name encryption, a password, and a separate filename salt.
+2. Save the original crypt password, filename salt, backing-provider recovery
+   information, and restore instructions in a recovery kit held outside this
+   server and outside the selected cloud account. Record the kit's SHA-256 in a
+   root:root mode-0600 `/etc/aic/strapi-backup-recovery.confirmation` containing
+   exactly:
+
+   ```text
+   AIC_STRAPI_CRYPT_RECOVERY_MATERIAL_STORED_OFF_HOST=YES
+   AIC_STRAPI_CRYPT_RECOVERY_KIT_SHA256=<64 lowercase hex characters>
+   ```
+
+   Do not place the recovery password, salt, provider token, or recovery kit in
+   Git, this confirmation file, shell arguments, or service logs.
+3. Copy `strapi-backup-replication.env.example` to
+   `/etc/aic/strapi-backup-replication.env` as root:root mode 0600. Set the
+   dedicated crypt remote name, bounded generation count, and change both the
+   enable flag to `1` and off-host confirmation to `YES` only after steps 1-2.
+4. Run
+   `sudo /usr/local/libexec/aic-strapi/replicate-verified-backups.sh
+   --validate-config-only`. This performs no network or database operation.
+5. After a canonical local backup has passed offline verification, manually run
+   `sudo systemctl start aic-strapi-backup-replication.service`. Inspect its
+   journal and the encrypted provider listing, then perform a documented restore
+   drill on an isolated recovery host before enabling the timer with
+   `sudo systemctl enable --now aic-strapi-backup-replication.timer`.
+
+Replication uploads to a unique staging directory inside the selected crypt
+remote, checks the exact remote listing, runs `rclone cryptcheck`, moves the set
+to its immutable timestamped name, checks it again, and writes an encrypted
+completion marker last. Existing set names or markers are never overwritten.
+Retention deletes only the oldest completed generations beyond the configured
+2-365 bound and only after validating their exact managed markers. Remote or
+listing ambiguity fails closed. The rclone config path and remote name may
+appear in the process list, but credentials and crypt material remain only in
+the root-owned rclone file and are never printed or passed as arguments.
 
 ## Legacy media boundary
 

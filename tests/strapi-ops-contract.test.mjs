@@ -21,6 +21,7 @@ for (const name of [
   "prepare-strapi-storage.sh",
   "provision-strapi.sh",
   "require-canonical-db-context.sh",
+  "replicate-verified-backups.sh",
   "run-consistent-backup.sh",
   "sync-aic-strapi-env.sh",
   "verify-strapi-backup.sh",

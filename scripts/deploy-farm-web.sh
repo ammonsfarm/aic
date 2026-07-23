@@ -133,6 +133,7 @@ all_timers=(
   aic-podcast-daily-ingest.timer
   aic-podtrac-daily-ingest.timer
   aic-strapi-backup.timer
+  aic-strapi-backup-replication.timer
 )
 all_worker_services=(
   aic-transcript-edit-worker.service
@@ -143,6 +144,7 @@ all_worker_services=(
   aic-public-data-retention-worker.service
   aic-podcast-daily-ingest.service
   aic-podtrac-daily-ingest.service
+  aic-strapi-backup-replication.service
 )
 previous_active_timers=()
 for timer in "\${all_timers[@]}"; do

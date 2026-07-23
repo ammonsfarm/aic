@@ -1,0 +1,27 @@
+[Unit]
+Description=Replicate verified AIC Strapi backups to a client-encrypted off-host remote
+After=network-online.target aic-strapi-backup.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=NODE_ENV=production
+UnsetEnvironment=AIC_STRAPI_REPLICATION_TEST_MODE AIC_STRAPI_REPLICATION_TEST_ROOT AIC_STRAPI_REPLICATION_BACKUP_ROOT AIC_STRAPI_REPLICATION_OPS_ROOT AIC_STRAPI_REPLICATION_CONFIG AIC_STRAPI_REPLICATION_RECOVERY_CONFIRMATION AIC_STRAPI_REPLICATION_RCLONE_BIN AIC_STRAPI_REPLICATION_LOCK_FILE RCLONE_CONFIG RCLONE_CONFIG_PASS
+ExecStart=/usr/local/libexec/aic-strapi/replicate-verified-backups.sh
+TimeoutStartSec=8h
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadOnlyPaths=/mnt/storage/backups/aic-strapi
+ReadOnlyPaths=-/etc/aic/strapi-backup-replication.env
+ReadOnlyPaths=-/etc/aic/strapi-backup-recovery.confirmation
+ReadOnlyPaths=-/etc/aic/rclone-aic-strapi.conf
+
+[Install]
+WantedBy=multi-user.target

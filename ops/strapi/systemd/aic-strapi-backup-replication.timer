@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily encrypted replication of verified AIC Strapi backups
+
+[Timer]
+OnCalendar=*-*-* 05:20:00
+Persistent=true
+RandomizedDelaySec=20m
+Unit=aic-strapi-backup-replication.service
+
+[Install]
+WantedBy=timers.target

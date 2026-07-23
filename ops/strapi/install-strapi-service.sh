@@ -27,6 +27,7 @@ fi
 test -x "${ops_root}/with-aic-db-env.sh"
 test -x "${ops_root}/ensure-strapi-schema.sh"
 test -x "${ops_root}/run-consistent-backup.sh"
+test -x "${ops_root}/replicate-verified-backups.sh"
 
 install -o root -g root -m 0644 \
   "${ops_root}/systemd/aic-strapi-schema.service" \
@@ -40,12 +41,20 @@ install -o root -g root -m 0644 \
 install -o root -g root -m 0644 \
   "${ops_root}/systemd/aic-strapi-backup.timer" \
   /etc/systemd/system/aic-strapi-backup.timer
+install -o root -g root -m 0644 \
+  "${ops_root}/systemd/aic-strapi-backup-replication.service" \
+  /etc/systemd/system/aic-strapi-backup-replication.service
+install -o root -g root -m 0644 \
+  "${ops_root}/systemd/aic-strapi-backup-replication.timer" \
+  /etc/systemd/system/aic-strapi-backup-replication.timer
 
 systemctl daemon-reload
 systemctl enable aic-strapi.service >/dev/null
 # A newly installed timer must not become persistent until deploy-farm-web.sh
 # has created and offline-verified the first canonical backup set.
 systemctl disable --now aic-strapi-backup.timer >/dev/null 2>&1 || true
+# The replication timer is installed but never enabled here. Its command also
+# fails closed until the root-owned crypt config and recovery proof exist.
 systemctl restart aic-strapi-schema.service
 systemctl restart aic-strapi.service
 

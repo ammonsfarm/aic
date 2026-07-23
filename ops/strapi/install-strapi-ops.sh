@@ -22,20 +22,25 @@ scripts=(
   prepare-strapi-storage.sh
   provision-strapi.sh
   require-canonical-db-context.sh
+  replicate-verified-backups.sh
   run-consistent-backup.sh
   sync-aic-strapi-env.sh
   validate-backup-toc.py
+  validate-rclone-crypt-config.py
   verify-strapi-backup.sh
   with-aic-db-env.sh
 )
 resources=(
   backup-object-inventory.txt
+  strapi-backup-replication.env.example
 )
 units=(
   aic-strapi.service
   aic-strapi-schema.service
   aic-strapi-backup.service
   aic-strapi-backup.timer
+  aic-strapi-backup-replication.service
+  aic-strapi-backup-replication.timer
 )
 
 install -d -o root -g root -m 0755 "${libexec_root}" "${libexec_root}/systemd"
