@@ -16,6 +16,7 @@ INSTALL_SUBSCRIPTION_PROVIDER_WORKER="${INSTALL_SUBSCRIPTION_PROVIDER_WORKER:-1}
 INSTALL_SCHEDULED_PUBLICATION_WORKER="${INSTALL_SCHEDULED_PUBLICATION_WORKER:-1}"
 INSTALL_PUBLIC_DATA_RETENTION_WORKER="${INSTALL_PUBLIC_DATA_RETENTION_WORKER:-1}"
 CONFIGURE_PASTORWOOD_DEVELOPMENT_ENV="${CONFIGURE_PASTORWOOD_DEVELOPMENT_ENV:-0}"
+INSTALL_PODCAST_SCHEDULED_WORKERS="${INSTALL_PODCAST_SCHEDULED_WORKERS:-1}"
 SERVICE_URL="http://127.0.0.1:${REMOTE_PORT}"
 
 for toggle in \
@@ -27,7 +28,8 @@ for toggle in \
   "${INSTALL_SUBSCRIPTION_PROVIDER_WORKER}" \
   "${INSTALL_SCHEDULED_PUBLICATION_WORKER}" \
   "${INSTALL_PUBLIC_DATA_RETENTION_WORKER}" \
-  "${CONFIGURE_PASTORWOOD_DEVELOPMENT_ENV}"; do
+  "${CONFIGURE_PASTORWOOD_DEVELOPMENT_ENV}" \
+  "${INSTALL_PODCAST_SCHEDULED_WORKERS}"; do
   case "${toggle}" in 0|1) ;; *) echo "Deployment toggles must be 0 or 1." >&2; exit 1 ;; esac
 done
 ssh_target="${REMOTE_USER}@${REMOTE_HOST}"
@@ -103,6 +105,18 @@ if [ "${INSTALL_STRAPI_SERVICE}" = "0" ] && \
   wait_for_strapi_health
 fi
 
+echo "Acquiring podcast and Podtrac scheduler locks before checkout or migration mutation..."
+exec 8>>/mnt/storage/aic_podcast/daily_ingest.lock
+if ! /usr/bin/flock -n 8; then
+  echo "The canonical podcast ingest lock is active; aborting before checkout mutation." >&2
+  exit 1
+fi
+exec 9>>/tmp/aic_podtrac_ingest.lock
+if ! /usr/bin/flock -n 9; then
+  echo "The canonical Podtrac ingest lock is active; aborting before checkout mutation." >&2
+  exit 1
+fi
+
 previous_sha="\$(git rev-parse HEAD)"
 if [[ -n "\$(git status --porcelain --untracked-files=no)" ]]; then
   echo "Deployment checkout has tracked changes; refusing to mutate or overwrite them." >&2
@@ -116,6 +130,8 @@ all_timers=(
   aic-subscription-provider-worker.timer
   aic-scheduled-publication-worker.timer
   aic-public-data-retention-worker.timer
+  aic-podcast-daily-ingest.timer
+  aic-podtrac-daily-ingest.timer
   aic-strapi-backup.timer
 )
 all_worker_services=(
@@ -125,6 +141,8 @@ all_worker_services=(
   aic-subscription-provider-worker.service
   aic-scheduled-publication-worker.service
   aic-public-data-retention-worker.service
+  aic-podcast-daily-ingest.service
+  aic-podtrac-daily-ingest.service
 )
 previous_active_timers=()
 for timer in "\${all_timers[@]}"; do
@@ -386,6 +404,14 @@ else
   sudo systemctl disable --now aic-public-data-retention-worker.timer >/dev/null 2>&1 || true
 fi
 
+if [ "${INSTALL_PODCAST_SCHEDULED_WORKERS}" = "1" ]; then
+  echo "Installing canonical daily podcast and Podtrac timers..."
+  START_TIMERS=0 bash scripts/install-podcast-scheduled-workers.sh
+  timers_to_start+=(aic-podcast-daily-ingest.timer aic-podtrac-daily-ingest.timer)
+else
+  sudo systemctl disable aic-podcast-daily-ingest.timer aic-podtrac-daily-ingest.timer >/dev/null 2>&1 || true
+fi
+
 # The backup timer stays disabled until this deployment has created and
 # offline-verified a canonical backup set below.
 sudo systemctl disable --now aic-strapi-backup.timer >/dev/null 2>&1 || true
@@ -428,6 +454,11 @@ if [[ "\${#timers_to_start[@]}" -gt 0 ]]; then
   for timer in "\${timers_to_start[@]}"; do
     sudo systemctl is-active "\${timer}"
   done
+fi
+
+if [ "${INSTALL_PODCAST_SCHEDULED_WORKERS}" = "1" ]; then
+  echo "Removing only the two exact legacy podcast cron commands after replacement timers are active..."
+  bash scripts/migrate-legacy-podcast-cron.sh
 fi
 
 trap - EXIT INT TERM
