@@ -7,7 +7,7 @@ Use this file to drive the website build with Codex. The intent is to make the w
 Primary website repo:
 
 ```text
-ssh finsvc:/home/openclaw/aic
+farm:/mnt/storage/aic
 ```
 
 Planning and data-pipeline repo:
@@ -20,7 +20,14 @@ Serving database:
 
 ```text
 Postgres database: aic
+Endpoint: 192.168.1.106:5432
+Canonical environment: /mnt/storage/aic/.env
 ```
+
+This is the one existing serving database. Build, validation, migration, and
+content work must not copy, clone, restore, substitute, or create an alternate
+database. Inherited `DB_*`, `DATABASE_URL`, and libpq routing values are not
+authoritative.
 
 Current source-of-truth planning docs:
 
@@ -74,7 +81,7 @@ Core surfaces:
 Paste this as the main goal when ready to start implementation:
 
 ```text
-/goal Build the AIC website MVP as a secure Next.js App Router product app in ssh finsvc:/home/openclaw/aic, using the existing Postgres database aic as the serving database and the planning docs in /Users/van/firebase/aic_podcast as source context.
+/goal Build the AIC website MVP as a secure Next.js App Router product app on farm in /mnt/storage/aic, using only the existing PostgreSQL database at 192.168.1.106:5432 with settings from /mnt/storage/aic/.env, and using the planning docs in /Users/van/firebase/aic_podcast as source context. Never copy, clone, restore, substitute, or create an alternate database.
 
 Read and respect PROJECT.md, WEBSITE_PLAN.md, WEBSITE_GOAL_PROMPTS.md, postgres/README.md, and any AGENTS.md, GEMINI.md, or CONTRIBUTING_AI.md files that exist. Use Codex's Impeccable design skill for frontend design. Treat this as a product UI, not a marketing site.
 
@@ -84,7 +91,7 @@ Implementation target:
 1. Create or complete a Next.js App Router + TypeScript app.
 2. Add Clerk auth exactly according to the Clerk rules in PROJECT.md.
 3. Keep all database and AI credentials server-side only.
-4. Connect to Postgres using DB_HOST, DB_PORT, DB_NAME, DB_USER, and DB_PASSWORD from env.
+4. Connect to Postgres only with the file-authoritative DB_HOST, DB_PORT, DB_NAME, DB_USER, and DB_PASSWORD from /mnt/storage/aic/.env; reject inherited routing overrides.
 5. Build the private owner console first: Overview, Stats, Episodes, Episode Detail, RAG Chat, Content Studio, Pipeline.
 6. Use real Postgres data from episodes, transcript_chunks, episode_intelligence, episode_intelligence_items, episode_intelligence_vectors, podtrac_episodes, podtrac_daily_activity, podtrac_countries, podtrac_activity_by_country, podtrac_clients, and podtrac_activity_by_client.
 7. Preserve data caveats: exact episode-by-country stats do not exist yet, so do not present that as exact.
@@ -115,7 +122,7 @@ Use these when you want the work broken into controlled stages instead of one la
 ```text
 /goal Prepare the AIC website product and design foundation before implementation.
 
-Work in ssh finsvc:/home/openclaw/aic for website files and refer to /Users/van/firebase/aic_podcast for planning and data context. Read PROJECT.md, WEBSITE_PLAN.md, WEBSITE_GOAL_PROMPTS.md, postgres/README.md, and relevant repo instructions.
+Work on `farm` in `/mnt/storage/aic` for website files and refer to `/Users/van/firebase/aic_podcast` for planning and data context. Read PROJECT.md, WEBSITE_PLAN.md, WEBSITE_GOAL_PROMPTS.md, postgres/README.md, and relevant repo instructions.
 
 Use Impeccable as the primary frontend design skill. Create PRODUCT.md and DESIGN.md if they do not exist. Product register is product UI.
 
@@ -151,7 +158,7 @@ Acceptance:
 ```text
 /goal Build the AIC website app shell with Clerk auth and the Mountain Study Console layout.
 
-Use ssh finsvc:/home/openclaw/aic. Read PRODUCT.md, DESIGN.md, PROJECT.md, WEBSITE_PLAN.md, and WEBSITE_GOAL_PROMPTS.md first. Use Next.js App Router and TypeScript. Follow the Clerk rules in PROJECT.md exactly: use clerkMiddleware from @clerk/nextjs/server in proxy.ts, ClerkProvider inside body, imports from @clerk/nextjs or @clerk/nextjs/server, App Router only, Show instead of deprecated SignedIn/SignedOut.
+Use `farm:/mnt/storage/aic`. Read PRODUCT.md, DESIGN.md, PROJECT.md, WEBSITE_PLAN.md, and WEBSITE_GOAL_PROMPTS.md first. Use Next.js App Router and TypeScript. Follow the Clerk rules in PROJECT.md exactly: use clerkMiddleware from @clerk/nextjs/server in proxy.ts, ClerkProvider inside body, imports from @clerk/nextjs or @clerk/nextjs/server, App Router only, Show instead of deprecated SignedIn/SignedOut.
 
 Build:
 - private app shell
@@ -174,7 +181,7 @@ Acceptance:
 ```text
 /goal Add the secure Postgres data layer for the AIC website and build a private health/overview data check.
 
-Use ssh finsvc:/home/openclaw/aic. Read postgres/README.md and migrations. Load DB env vars server-side only. Do not expose secrets in client code or logs.
+Use `farm:/mnt/storage/aic`. Read postgres/README.md and migrations. Load database settings server-side only and authoritatively from `/mnt/storage/aic/.env`. The target must remain the existing `192.168.1.106:5432` service; do not create or restore another database. Do not expose secrets in client code or logs.
 
 Build:
 - server-only Postgres client module

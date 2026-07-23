@@ -9,6 +9,9 @@ source is kept here so the automation is versioned with `ammonsfarm/aic`.
 - Fetches Podtrac episode, country, and client daily reports.
 - Uses the signed-in Chrome session by default.
 - Writes directly to PostgreSQL.
+- Reads the declared Mac workspace `.env` authoritatively and requires the
+  existing AIC endpoint at `192.168.1.106:5432`; inherited database variables
+  cannot repoint it.
 - Does not use SQLite for current ingest, fixes, staging, or sync.
 - Catches up automatically from the latest Podtrac activity date in Postgres,
   with a seven-day lookback and a forty-five-day maximum window.
@@ -54,6 +57,11 @@ cd /Users/van/firebase/aic_podcast
 ```
 
 Use `--dry-run` to fetch and report counts without writing to Postgres.
+
+The Mac runtime does not depend on `/mnt/storage/aic/.env`, which is a farm-host
+path. Its explicitly supplied local `.env` must contain credentials for the same
+existing AIC database. Never create, copy, clone, or restore another database for
+Podtrac ingestion.
 
 ## Validation
 

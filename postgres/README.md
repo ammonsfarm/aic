@@ -2,7 +2,10 @@
 
 This folder contains the Postgres/pgvector serving schema and sync tooling for the AIC podcast RAG project.
 
-SQLite remains the local staging/audit database. Postgres is the serving target for private and public web apps.
+SQLite remains a local staging/audit source for historical import tools. It is
+not a PostgreSQL copy or substitute. The only server database target is the
+existing PostgreSQL service at `192.168.1.106:5432`, using the database name and
+credentials in `/mnt/storage/aic/.env`.
 
 ## Setup
 
@@ -16,27 +19,27 @@ python3 -m venv .venv-pg
 Apply migrations:
 
 ```bash
-.venv-pg/bin/python apply_postgres_migrations.py
+.venv-pg/bin/python apply_postgres_migrations.py --env-file /mnt/storage/aic/.env
 ```
 
 Sync local SQLite staging data into Postgres:
 
 ```bash
-.venv-pg/bin/python sync_sqlite_to_postgres.py --sqlite-db rag_test.sqlite3
+.venv-pg/bin/python sync_sqlite_to_postgres.py --env-file /mnt/storage/aic/.env --sqlite-db rag_test.sqlite3
 ```
 
 Sync Podtrac statistics into Postgres:
 
 ```bash
-.venv-pg/bin/python sync_podtrac_to_postgres.py --podtrac-db podtrac_stats.sqlite3
+.venv-pg/bin/python sync_podtrac_to_postgres.py --env-file /mnt/storage/aic/.env --podtrac-db podtrac_stats.sqlite3
 ```
 
 ## Environment
 
-The scripts read these variables from `.env`:
+Server scripts read these values authoritatively from `/mnt/storage/aic/.env`:
 
 ```text
-DB_HOST=
+DB_HOST=192.168.1.106
 DB_PORT=5432
 DB_NAME=aic
 DB_USER=
@@ -44,6 +47,11 @@ DB_PASSWORD=
 ```
 
 Do not commit `.env`.
+
+The file values replace inherited `DB_*`, `DATABASE_URL`, and libpq routing
+variables. Commands fail closed if the endpoint is not exactly
+`192.168.1.106:5432`. Never create, copy, clone, restore, or select another
+PostgreSQL database for migration or validation.
 
 ## Tables
 

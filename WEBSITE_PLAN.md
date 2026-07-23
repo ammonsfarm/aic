@@ -7,7 +7,10 @@ Build a secure website around the AIC podcast corpus that serves two audiences:
 1. Private owner/editor users who need stats, corpus intelligence, RAG chat, source-backed writing tools, and pipeline visibility.
 2. Public visitors who need to browse episodes, read summaries, search public content, and view transcripts where approved.
 
-The website should use Postgres as the serving database. SQLite remains the staging and audit layer for local imports and batch jobs.
+The website uses only the existing PostgreSQL database at
+`192.168.1.106:5432`, with its canonical settings in `/mnt/storage/aic/.env`.
+SQLite files remain read-only staging/audit inputs for historical local imports;
+they are not PostgreSQL copies, restore targets, or serving-database substitutes.
 
 ## Design Direction
 

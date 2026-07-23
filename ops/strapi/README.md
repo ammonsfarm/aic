@@ -40,6 +40,17 @@ environment. It does not create a role or database. Provisioning also maintains
 a checksummed, root-only recovery copy of the application secrets on
 `/mnt/storage`.
 
+`ensure-strapi-schema.sh` and `backup-strapi.sh` are internal commands, not
+standalone operator entry points. The supported `with-aic-db-env.sh` wrapper
+replaces inherited database and libpq routing values, generates a fresh
+PID-bound operation guard, and then executes them. Each internal command also
+parses `/mnt/storage/aic/.env` independently without sourcing it and compares
+the host, port, database name, user, password, and `aic_strapi` schema before it
+can connect. The alternate comparison-file path exists only for isolated tests:
+it requires `NODE_ENV=test`, fake native-client mode, and a non-production stub
+client directory. It is rejected when `NODE_ENV` is unset, development, or
+production.
+
 The dedicated schema prevents Strapi migrations and tables from being mixed
 into `public`; it is not a PostgreSQL authorization boundary. The explicit
 deployment requirement reuses the existing `DB_USER` and its existing database

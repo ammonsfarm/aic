@@ -314,14 +314,19 @@ Imported vectors live in `episode_intelligence_vectors`. Keep this table separat
 
 SQLite remains the local staging and audit database. The serving database for future private/public web apps is PostgreSQL with `pgvector`.
 
-Current dev target:
+Current server target:
 
-- Host: `finsvc`
-- Server project directory: `/home/openclaw/aic`
+- SSH host: `farm`
+- Server project directory: `/mnt/storage/aic`
 - GitHub repo: `https://github.com/ammonsfarm/aic.git`
-- Database: `aic`
+- PostgreSQL endpoint: the existing `192.168.1.106:5432` service
+- Database name and credentials: the existing values in `/mnt/storage/aic/.env`
 
-The local `.env` stores `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD`. Do not print or commit those values.
+The canonical `/mnt/storage/aic/.env` stores `DB_HOST`, `DB_PORT`, `DB_NAME`,
+`DB_USER`, and `DB_PASSWORD`. Server migration and sync commands replace
+inherited database variables with those file values and reject any other host
+or port. Do not print or commit the credentials, and do not copy, clone,
+restore, substitute, or create an alternate PostgreSQL database.
 
 The Postgres tooling is:
 
@@ -335,20 +340,24 @@ The Postgres tooling is:
 Apply migrations:
 
 ```bash
-.venv-pg/bin/python apply_postgres_migrations.py
+.venv-pg/bin/python apply_postgres_migrations.py --env-file /mnt/storage/aic/.env
 ```
 
 Sync SQLite staging data to Postgres:
 
 ```bash
-.venv-pg/bin/python sync_sqlite_to_postgres.py --sqlite-db rag_test.sqlite3
+.venv-pg/bin/python sync_sqlite_to_postgres.py --env-file /mnt/storage/aic/.env --sqlite-db rag_test.sqlite3
 ```
 
 Sync Podtrac statistics to Postgres:
 
 ```bash
-.venv-pg/bin/python sync_podtrac_to_postgres.py --podtrac-db podtrac_stats.sqlite3
+.venv-pg/bin/python sync_podtrac_to_postgres.py --env-file /mnt/storage/aic/.env --podtrac-db podtrac_stats.sqlite3
 ```
+
+The SQLite files in these historical import commands are read-only staging
+sources. They are not PostgreSQL copies, test databases, restore targets, or
+substitutes for the existing AIC database.
 
 The serving schema keeps:
 

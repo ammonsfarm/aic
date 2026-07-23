@@ -17,6 +17,12 @@ REMOTE_PORT=8087 \
 ./scripts/deploy-farm-web.sh
 ```
 
+The existing PostgreSQL database at `192.168.1.106:5432` is the only server
+database target. Deployment reads its database name, user, and password from
+`/mnt/storage/aic/.env`, replaces inherited `DB_*` and libpq routing variables,
+and aborts before checkout mutation if the exact target is unavailable. Do not
+copy, clone, restore, substitute, or create an alternate deployment database.
+
 After deploy, validate with:
 
 ```bash
@@ -62,7 +68,7 @@ On the server, the historical transcript JSON source is:
 After migrations are applied, load or refresh the readable transcript tables with:
 
 ```bash
-ssh ammonsfarm@farm "cd /mnt/storage/aic && python3 sync_transcript_segments_to_postgres.py --transcript-dir /home/ammonsfarm/gemini-transcribe"
+ssh ammonsfarm@farm "cd /mnt/storage/aic && .venv-pg/bin/python sync_transcript_segments_to_postgres.py --env-file /mnt/storage/aic/.env --transcript-dir /home/ammonsfarm/gemini-transcribe"
 ```
 
 ## Transcript edit queue
@@ -72,7 +78,7 @@ Episode pages can queue transcript corrections from the audio-following reader. 
 A backend worker consumes `status='pending'` rows, applies the correction to `transcript_segments` or `transcript_chunks`, updates matching `transcript_chunks` text, refreshes affected chunk embeddings when `OPENAI_API_KEY` is available, then marks the request `applied` or `failed`.
 
 ```bash
-.venv-pg/bin/python scripts/apply_transcript_edit_requests.py --env-file .env --limit 25
+.venv-pg/bin/python scripts/apply_transcript_edit_requests.py --env-file /mnt/storage/aic/.env --limit 25
 ```
 
 On the farm host this is installed as a systemd timer:

@@ -17,7 +17,8 @@ Replace all `replace_me_*` values before using the app for real editorial conten
 ## Local database
 
 Local development defaults to Strapi's SQLite database in `.tmp/data.db` and
-does not require a separate database service.
+does not require a separate database service. This disposable empty developer
+database is never copied from, restored from, or substituted for production.
 
 Start Strapi directly:
 
@@ -39,6 +40,8 @@ settings must never be copied into local development.
 Production does not use this local database. The native service maps the
 existing AIC `DB_*` target from `/mnt/storage/aic/.env` and routes
 Strapi-managed objects to the `aic_strapi` schema in that same database.
+Production startup rejects SQLite, alternate endpoints, independent libpq
+routing, and direct schema/backup commands outside the canonical wrapper.
 Because production intentionally reuses the existing AIC database login, this
 schema is a namespace boundary rather than a separate authorization role.
 

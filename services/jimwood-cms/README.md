@@ -50,9 +50,11 @@ npm ci
 npm run develop
 ```
 
-SQLite is allowed only for local development. Production requires PostgreSQL
-and refuses to boot without the database environment variables. Validate the
-service with:
+SQLite is allowed only for disposable local UI/schema development. It starts
+empty, is never populated from production, and is not a copy, clone, restore,
+or substitute for the AIC PostgreSQL database. Production requires PostgreSQL,
+rejects SQLite, and receives the exact existing database context only through
+the canonical wrapper. Validate the service with:
 
 ```bash
 npm test
