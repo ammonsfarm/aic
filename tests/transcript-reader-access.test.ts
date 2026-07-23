@@ -35,10 +35,10 @@ describe("transcript correction controls", () => {
     expect(transcriptMarkup(false)).not.toContain("Save correction");
   });
 
-  it("derives the permission on the protected episode page from the signed-in app role", async () => {
+  it("derives the permission on the protected episode page from the authorized app role", async () => {
     const page = await readFile(new URL("../app/episodes/[trackId]/page.tsx", import.meta.url), "utf8");
 
-    expect(page).toContain("requireSignedInAppUser()");
+    expect(page).toContain("requireInternalReadConsoleUser()");
     expect(page).toContain("canEditTranscript={canMutateForRole(appUser.role)}");
   });
 });
