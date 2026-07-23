@@ -1,15 +1,11 @@
 import { PastorWoodSite } from "@/components/pastor-wood-site";
+import { getPublicFixedCmsPage } from "@/lib/public-fixed-cms-page";
 import { publicCmsPageMetadata } from "@/lib/public-seo";
-import { getStrapiPageByPageKey } from "@/lib/strapi";
+
+export const dynamic = "force-dynamic";
 
 async function getHomePage() {
-  try {
-    const page = await getStrapiPageByPageKey("home");
-    return page?.active ? page : null;
-  } catch (error) {
-    console.error("Strapi lookup failed for home; using the static public fallback.", error);
-    return null;
-  }
+  return getPublicFixedCmsPage("home");
 }
 
 export async function generateMetadata() {

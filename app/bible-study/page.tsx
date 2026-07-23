@@ -1,19 +1,13 @@
 import type { PastorWoodCmsPage } from "@/components/pastor-wood-site";
 import { PastorWoodStructuredPostsPage } from "@/components/pastor-wood-structured-listings";
+import { getPublicFixedCmsPage } from "@/lib/public-fixed-cms-page";
 import { publicArchiveCanonicalPath, publicArchivePage } from "@/lib/public-pagination";
 import { publicCmsPageMetadata } from "@/lib/public-seo";
-import { getStrapiPageByPageKey } from "@/lib/strapi";
 
 type PageProps = { searchParams: Promise<{ page?: string }> };
 
 async function getDevotionalPage(): Promise<PastorWoodCmsPage | null> {
-  try {
-    const page = await getStrapiPageByPageKey("bible-study");
-    return page?.active ? page : null;
-  } catch (error) {
-    console.error("Strapi lookup failed for bible-study", error);
-    return null;
-  }
+  return getPublicFixedCmsPage("bible-study");
 }
 
 export async function generateMetadata({ searchParams }: PageProps) {

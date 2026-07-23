@@ -1,8 +1,9 @@
 import "server-only";
 
 import { cmsMediaPublicUrl } from "@/lib/cms-media-url";
+import { getProjectedContentByIdentity } from "@/lib/public-content-projection";
 import { STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag } from "@/lib/strapi";
-import { fetchStrapiJsonOrNull } from "@/lib/strapi-request";
+import { fetchStrapiJsonResult } from "@/lib/strapi-request";
 import { safeCmsHref } from "@/lib/cms-html";
 import { subscriptionProviderConfigReady } from "@/lib/subscription-provider-config";
 
@@ -33,6 +34,8 @@ export type StrapiSiteSettings = {
     alternativeText: string;
     name: string;
   } | null;
+  /** Raw published CMS switch before provider configuration is considered. */
+  subscriptionPublishedEnabled: boolean;
   subscriptionEnabled: boolean;
 };
 
@@ -78,6 +81,7 @@ function asRecord(value: unknown): Record<string, unknown> {
 function pageHref(page: unknown) {
   const entity = asRecord(page);
   const source = asRecord(entity.attributes ?? entity);
+  if (source.active === false || getString(source.archivedAt)) return "";
   const pageKey = getString(source.pageKey);
   const slug = getString(source.slug);
 
@@ -96,8 +100,11 @@ function normalizeNavigationItem(item: unknown): StrapiNavigationItem | null {
   const source = asRecord(item);
   const label = getString(source.label);
   const explicitUrl = getString(source.url);
+  const pageEntity = asRecord(source.page);
+  const pageSource = asRecord(pageEntity.attributes ?? pageEntity);
+  const pageDocumentId = getString(pageSource.documentId) || getString(pageEntity.documentId);
   const linkedPageHref = pageHref(source.page);
-  const href = safeCmsHref(linkedPageHref || explicitUrl);
+  const href = safeCmsHref(linkedPageHref || (pageDocumentId ? "" : explicitUrl));
 
   if (!label || !href) {
     return null;
@@ -128,6 +135,7 @@ function normalizeSettings(entity: StrapiEntity<StrapiSiteSettings>): StrapiSite
   const siteName = getString(source.siteName) || "Abiding in Christ";
   const headerLogoSource = asRecord(asRecord(source.headerLogo).attributes ?? source.headerLogo);
   const headerLogoUrl = cmsMediaPublicUrl(source.headerLogo);
+  const subscriptionPublishedEnabled = getBoolean(source.subscriptionEnabled, false);
 
   return {
     siteName,
@@ -138,21 +146,57 @@ function normalizeSettings(entity: StrapiEntity<StrapiSiteSettings>): StrapiSite
     copyrightText: getString(source.copyrightText),
     showDonateButton: getBoolean(source.showDonateButton, true),
     donateButtonLabel: getString(source.donateButtonLabel) || "Donate",
-    donateButtonUrl: getString(source.donateButtonUrl) || "/donate/",
-    donorDashboardUrl: getString(source.donorDashboardUrl) || "https://www.pastorwood.org/donor-dashboard/",
+    donateButtonUrl: getString(source.donateButtonUrl),
+    donorDashboardUrl: getString(source.donorDashboardUrl),
     headerLogo: headerLogoUrl ? {
       url: headerLogoUrl,
       alternativeText: getString(headerLogoSource.alternativeText),
       name: getString(headerLogoSource.name),
     } : null,
-    subscriptionEnabled: getBoolean(source.subscriptionEnabled, false) && subscriptionProviderConfigReady(),
+    subscriptionPublishedEnabled,
+    subscriptionEnabled: subscriptionPublishedEnabled && subscriptionProviderConfigReady(),
   };
+}
+
+function unpublishedSettings(): StrapiSiteSettings {
+  return {
+    siteName: "Abiding in Christ",
+    topNavigation: [],
+    footerNavigation: [],
+    utilityNavigation: [],
+    footerText: "",
+    copyrightText: "",
+    showDonateButton: false,
+    donateButtonLabel: "Donate",
+    donateButtonUrl: "",
+    donorDashboardUrl: "",
+    headerLogo: null,
+    subscriptionPublishedEnabled: false,
+    subscriptionEnabled: false,
+  };
+}
+
+async function projectedSettings() {
+  try {
+    const projection = await getProjectedContentByIdentity<Record<string, unknown>>(
+      "site-setting",
+      "singleton",
+      "site-setting",
+    );
+    if (projection.status === "found") {
+      return normalizeSettings(projection.item as StrapiEntity<StrapiSiteSettings>) || unpublishedSettings();
+    }
+    return projection.status === "not-found" ? unpublishedSettings() : null;
+  } catch (error) {
+    console.error("Projected site settings lookup failed.", error);
+    return null;
+  }
 }
 
 export async function getStrapiSiteSettings(): Promise<StrapiSiteSettings | null> {
   const baseUrl = strapiBaseUrl();
   if (!baseUrl) {
-    return null;
+    return projectedSettings();
   }
 
   const token = strapiApiToken();
@@ -164,7 +208,7 @@ export async function getStrapiSiteSettings(): Promise<StrapiSiteSettings | null
   url.searchParams.set("populate[utilityNavigation][populate]", "page");
   url.searchParams.set("populate[headerLogo]", "*");
 
-  const payload = await fetchStrapiJsonOrNull<StrapiSingleResponse<StrapiSiteSettings>>(
+  const result = await fetchStrapiJsonResult<StrapiSingleResponse<StrapiSiteSettings>>(
     url,
     {
       headers,
@@ -176,9 +220,8 @@ export async function getStrapiSiteSettings(): Promise<StrapiSiteSettings | null
     { label: "Strapi site settings request" },
   );
 
-  if (!payload) {
-    return null;
-  }
-
-  return payload.data ? normalizeSettings(payload.data) : null;
+  if (result.status === "unavailable") return projectedSettings();
+  const payload = result.data;
+  if (!payload?.data) return unpublishedSettings();
+  return normalizeSettings(payload.data);
 }

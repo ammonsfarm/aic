@@ -6,6 +6,11 @@ import {
   type AttributeSchema,
   type SnapshotSchemaResolver,
 } from './editorial-snapshot';
+import {
+  projectPublishedDocument,
+  tombstonePublicProjection,
+  type ProjectionTransaction,
+} from './public-projection';
 
 declare const strapi: Core.Strapi;
 
@@ -50,12 +55,38 @@ type ContentTypeSchema = {
 };
 
 const entityModels = {
-  page: { uid: 'api::page.page', titleField: 'title', publishable: true },
-  post: { uid: 'api::post.post', titleField: 'title', publishable: true },
-  episode: { uid: 'api::episode.episode', titleField: 'title', publishable: true },
-  person: { uid: 'api::person.person', titleField: 'name', publishable: true },
-  endorsement: { uid: 'api::endorsement.endorsement', titleField: 'attribution', publishable: true },
-  'media-asset': { uid: 'api::media-asset.media-asset', titleField: 'title', publishable: true },
+  page: {
+    uid: 'api::page.page', titleField: 'title', publishable: true,
+    populate: { sections: { populate: '*' }, socialImage: true },
+  },
+  post: {
+    uid: 'api::post.post', titleField: 'title', publishable: true,
+    populate: {
+      author: true,
+      scriptureReferences: true,
+      relatedLinks: true,
+      featuredImage: true,
+      seo: { populate: { socialImage: true } },
+    },
+  },
+  episode: {
+    uid: 'api::episode.episode', titleField: 'title', publishable: true,
+    populate: {
+      audio: true,
+      featuredImage: true,
+      guests: true,
+      scriptureReferences: true,
+      seo: { populate: { socialImage: true } },
+    },
+  },
+  person: { uid: 'api::person.person', titleField: 'name', publishable: true, populate: { photo: true } },
+  endorsement: {
+    uid: 'api::endorsement.endorsement', titleField: 'attribution', publishable: true,
+    populate: { person: true, photo: true },
+  },
+  'media-asset': {
+    uid: 'api::media-asset.media-asset', titleField: 'title', publishable: true, populate: { asset: true },
+  },
   redirect: { uid: 'api::redirect.redirect', titleField: 'fromPath', publishable: false },
   'site-setting': {
     uid: 'api::site-setting.site-setting',
@@ -126,9 +157,9 @@ function editorialPopulate(model: (typeof entityModels)[EntityType]) {
 async function withEditorialTransaction<T>(
   entityType: EntityType,
   documentId: string,
-  callback: () => Promise<T>,
+  callback: (trx: ProjectionTransaction) => Promise<T>,
 ) {
-  return strapi.db.transaction(async ({ trx }) => {
+  return strapi.db.transaction(async ({ trx }: { trx: ProjectionTransaction }) => {
     const databaseClient = String(strapi.db.config.connection.client || '');
     if (documentId && databaseClient.includes('postgres')) {
       await trx.raw(
@@ -136,7 +167,7 @@ async function withEditorialTransaction<T>(
         [`pastorwood-editorial:${entityType}:${documentId}`],
       );
     }
-    return callback();
+    return callback(trx as unknown as ProjectionTransaction);
   });
 }
 
@@ -377,7 +408,7 @@ const editorialWorkflowController = {
       return ctx.badRequest('Content data is required.');
     }
 
-    return withEditorialTransaction(entityType, entityType === 'site-setting' ? 'singleton' : '', async () => {
+    return withEditorialTransaction(entityType, entityType === 'site-setting' ? 'singleton' : '', async (trx) => {
       if (entityType === 'site-setting') {
         const existing = await strapi.db.query(model.uid as never).findOne();
         if (existing) {
@@ -391,6 +422,9 @@ const editorialWorkflowController = {
       });
       const documentId = String(created.documentId);
       await recordAction(entityType, model, documentId, created, 'create', actor, input.note);
+      if (entityType === 'redirect') {
+        await projectPublishedDocument(trx, entityType, documentId, created);
+      }
       ctx.status = 201;
       ctx.body = { data: created };
     });
@@ -411,7 +445,7 @@ const editorialWorkflowController = {
     }
     const data = input.data;
 
-    return withEditorialTransaction(entityType, documentId, async () => {
+    return withEditorialTransaction(entityType, documentId, async (trx) => {
       const current = await findDraft(model, documentId);
       if (!current) {
         return ctx.notFound('Content item was not found.');
@@ -443,6 +477,9 @@ const editorialWorkflowController = {
         populate: editorialPopulate(model),
       });
       await recordAction(entityType, model, documentId, updated, 'save', actor, input.note);
+      if (entityType === 'redirect') {
+        await projectPublishedDocument(trx, entityType, documentId, updated);
+      }
       ctx.body = { data: updated };
     });
   },
@@ -462,7 +499,7 @@ const editorialWorkflowController = {
       return ctx.badRequest('Document id is required.');
     }
 
-    return withEditorialTransaction(entityType, documentId, async () => {
+    return withEditorialTransaction(entityType, documentId, async (trx) => {
       let current = await findDraft(model, documentId);
       if (!current) {
         return ctx.notFound('Content item was not found.', { code: 'EDITORIAL_NOT_FOUND' });
@@ -555,6 +592,7 @@ const editorialWorkflowController = {
         if (entityType === 'episode') {
           await enqueueEpisodeProcessing(documentId, published, revisionNumber, actor);
         }
+        await projectPublishedDocument(trx, entityType, documentId, published);
         ctx.body = { data: published };
         return;
       }
@@ -589,6 +627,7 @@ const editorialWorkflowController = {
         if (entityType === 'episode') {
           await enqueueEpisodeProcessing(documentId, published, revisionNumber, actor);
         }
+        await projectPublishedDocument(trx, entityType, documentId, published);
         ctx.body = { data: published };
         return;
       }
@@ -656,6 +695,7 @@ const editorialWorkflowController = {
         await documents(model.uid).unpublish({ documentId, populate: editorialPopulate(model) });
         const draft = (await findDraft(model, documentId)) || current;
         await recordAction(entityType, model, documentId, draft, action, actor, input.note);
+        await tombstonePublicProjection(trx, entityType, documentId, draft);
         ctx.body = { data: draft };
         return;
       }
@@ -676,6 +716,7 @@ const editorialWorkflowController = {
           await documents(model.uid).unpublish({ documentId, populate: editorialPopulate(model) });
         }
         await recordAction(entityType, model, documentId, archived, action, actor, input.note);
+        await tombstonePublicProjection(trx, entityType, documentId, archived);
         ctx.body = { data: archived };
         return;
       }
@@ -687,6 +728,9 @@ const editorialWorkflowController = {
         }
         const restored = await documents(model.uid).update({ documentId, data, status: 'draft', populate: editorialPopulate(model) });
         await recordAction(entityType, model, documentId, restored, action, actor, input.note);
+        if (entityType === 'redirect') {
+          await projectPublishedDocument(trx, entityType, documentId, restored);
+        }
         ctx.body = { data: restored };
         return;
       }
@@ -719,6 +763,9 @@ const editorialWorkflowController = {
           input.note,
           { restoredRevision: revision.revisionNumber },
         );
+        if (entityType === 'redirect') {
+          await projectPublishedDocument(trx, entityType, documentId, restored);
+        }
         ctx.body = { data: restored };
         return;
       }
@@ -731,6 +778,7 @@ const editorialWorkflowController = {
           return ctx.badRequest('Deletion confirmation no longer matches the current item title.');
         }
         await recordAction(entityType, model, documentId, current, action, actor, input.note);
+        await tombstonePublicProjection(trx, entityType, documentId, current);
         await documents(model.uid).delete({ documentId });
         ctx.body = { data: { documentId, deleted: true } };
         return;

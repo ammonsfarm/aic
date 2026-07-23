@@ -68,7 +68,7 @@ export function publicMetadata({
       description,
       images: [socialImage],
     },
-    ...(noIndex ? { robots: { index: false, follow: false } } : {}),
+    ...(noIndex ? { robots: { index: false, follow: true } } : {}),
   };
 }
 

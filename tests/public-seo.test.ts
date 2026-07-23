@@ -58,7 +58,7 @@ describe("public indexing gate", () => {
     });
 
     expect(metadata.alternates).toEqual({ canonical: "https://www.pastorwood.org/writings/canonical/" });
-    expect(metadata.robots).toEqual({ index: false, follow: false });
+    expect(metadata.robots).toEqual({ index: false, follow: true });
     expect(metadata.openGraph?.images).toEqual([{
       url: "https://www.pastorwood.org/media/cms/share/image.jpg",
       alt: "Structured title",
@@ -97,7 +97,7 @@ describe("public indexing gate", () => {
     });
 
     expect(metadata.alternates).toEqual({ canonical: "https://www.pastorwood.org/our-story/" });
-    expect(metadata.robots).toMatchObject({ index: false, follow: false });
+    expect(metadata.robots).toMatchObject({ index: false, follow: true });
     expect(metadata.openGraph?.images).toEqual([{ url: "https://www.pastorwood.org/media/cms/social-doc/share.jpg", alt: "Custom page" }]);
     expect(metadata.twitter?.images).toEqual(["https://www.pastorwood.org/media/cms/social-doc/share.jpg"]);
 

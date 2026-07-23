@@ -1,16 +1,12 @@
 import type { PastorWoodCmsPage } from "@/components/pastor-wood-site";
 import { PastorWoodStructuredEndorsementsPage } from "@/components/pastor-wood-structured-listings";
+import { getPublicFixedCmsPage } from "@/lib/public-fixed-cms-page";
 import { publicCmsPageMetadata } from "@/lib/public-seo";
-import { getStrapiPageByPageKey } from "@/lib/strapi";
+
+export const dynamic = "force-dynamic";
 
 async function getPage(): Promise<PastorWoodCmsPage | null> {
-  try {
-    const page = await getStrapiPageByPageKey("endorsements");
-    return page?.active ? page : null;
-  } catch (error) {
-    console.error("Strapi lookup failed for endorsements", error);
-    return null;
-  }
+  return getPublicFixedCmsPage("endorsements");
 }
 
 export async function generateMetadata() {

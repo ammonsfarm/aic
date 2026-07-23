@@ -10,6 +10,12 @@ import {
   getFallbackPostsPage,
 } from "@/lib/pastorwood-public-fallback";
 import { STATIC_BOARD_MEMBERS, STATIC_ENDORSEMENTS } from "@/lib/pastorwood-static-fallback";
+import {
+  getProjectedContentByIdentity,
+  listAllProjectedContent,
+  listProjectedContentPage,
+} from "@/lib/public-content-projection";
+import { fetchWithTimeout } from "@/lib/strapi-request";
 import { STRAPI_STRUCTURED_CACHE_TAG, strapiStructuredCacheTag } from "@/lib/strapi-cache-tags";
 import type { StructuredCollectionKey } from "@/lib/structured-content-config";
 import { STRUCTURED_COLLECTIONS } from "@/lib/structured-content-config";
@@ -27,6 +33,7 @@ export type PublishedPage<T> = {
   total: number;
   available: boolean;
   degraded?: boolean;
+  continuitySource?: "projection" | "bootstrap";
 };
 
 export type PublishedLookupResult<T> =
@@ -325,7 +332,7 @@ async function publishedCollectionPage(
 
   try {
     const token = readToken();
-    const response = await fetch(new URL(`/api/${definition.apiPath}?${query.toString()}`, origin), {
+    const response = await fetchWithTimeout(new URL(`/api/${definition.apiPath}?${query.toString()}`, origin), {
       headers: {
         Accept: "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -334,7 +341,6 @@ async function publishedCollectionPage(
         revalidate: 300,
         tags: [STRAPI_STRUCTURED_CACHE_TAG, strapiStructuredCacheTag(key)],
       },
-      signal: AbortSignal.timeout(8_000),
     });
 
     if (!response.ok) {
@@ -385,11 +391,19 @@ async function publishedCollectionPage(
   }
 }
 
-async function publishedCollection(
+async function allPublishedCollection(
   key: StructuredCollectionKey,
-  options: Parameters<typeof publishedCollectionPage>[1] = {},
+  options: Omit<Parameters<typeof publishedCollectionPage>[1], "page" | "pageSize"> = {},
 ) {
-  return (await publishedCollectionPage(key, options)).items;
+  const first = await publishedCollectionPage(key, { ...options, page: 1, pageSize: STRAPI_MAX_PAGE_SIZE });
+  if (!first.available) return null;
+  const items = [...first.items];
+  for (let page = 2; page <= first.pageCount; page += 1) {
+    const next = await publishedCollectionPage(key, { ...options, page, pageSize: STRAPI_MAX_PAGE_SIZE });
+    if (!next.available) return null;
+    items.push(...next.items);
+  }
+  return items;
 }
 
 function publishedPost(entry: PublicEntry): PublishedPost {
@@ -468,10 +482,30 @@ export async function listPublishedPostsPage(contentType: string | undefined, pa
   const result = await publishedCollectionPage("posts", { filters: contentType ? { contentType } : undefined, sort: "publishDate:desc", page, pageSize });
   if (result.available) return { ...result, items: result.items.map(publishedPost) };
   try {
-    const fallback = await getFallbackPostsPage(contentType, page, pageSize);
-    return { ...fallback, items: fallback.items.map(fallbackPost), available: true, degraded: true };
+    const projection = await listProjectedContentPage<PublicEntry>("post", page, pageSize, { contentType });
+    if (projection.hasState) {
+      return {
+        ...projection,
+        items: projection.items.map(publishedPost),
+        available: true,
+        degraded: true,
+        continuitySource: "projection",
+      };
+    }
   } catch (error) {
-    console.error("Published post fallback lookup failed.", error);
+    console.error("Published post projection lookup failed; trying the bootstrap archive.", error);
+  }
+  try {
+    const fallback = await getFallbackPostsPage(contentType, page, pageSize);
+    return {
+      ...fallback,
+      items: fallback.items.map(fallbackPost),
+      available: true,
+      degraded: true,
+      continuitySource: "bootstrap",
+    };
+  } catch (error) {
+    console.error("Published post bootstrap lookup failed.", error);
     return { ...result, items: [] };
   }
 }
@@ -485,10 +519,19 @@ export async function getPublishedPostBySlugResult(slug: string): Promise<Publis
   const result = await publishedCollectionPage("posts", { filters: { slug }, pageSize: 1 });
   if (!result.available) {
     try {
+      const projection = await getProjectedContentByIdentity<PublicEntry>("post", "slug", slug);
+      if (projection.status === "found") {
+        return { status: "found", item: publishedPost(projection.item), degraded: true };
+      }
+      if (projection.status === "not-found") return { status: "not-found" };
+    } catch (error) {
+      console.error("Published post detail projection lookup failed; trying the bootstrap archive.", error);
+    }
+    try {
       const fallback = await getFallbackPostBySlug(slug);
       return fallback ? { status: "found", item: fallbackPost(fallback), degraded: true } : { status: "unavailable" };
     } catch (error) {
-      console.error("Published post detail fallback lookup failed.", error);
+      console.error("Published post detail bootstrap lookup failed.", error);
       return { status: "unavailable" };
     }
   }
@@ -501,7 +544,7 @@ export async function getPublishedPostBySlugResult(slug: string): Promise<Publis
   return { status: "found", item: post };
 }
 
-async function listAllFallbackPosts(firstPage?: Pick<PublishedPage<PublishedPost>, "items" | "pageCount">): Promise<PublishedPost[]> {
+async function listAllBootstrapPosts(firstPage?: Pick<PublishedPage<PublishedPost>, "items" | "pageCount">): Promise<PublishedPost[]> {
   const fallbackFirst = firstPage ? null : await getFallbackPostsPage(undefined, 1, STRAPI_MAX_PAGE_SIZE);
   const first = firstPage || {
     items: (fallbackFirst?.items || []).map(fallbackPost),
@@ -516,11 +559,35 @@ async function listAllFallbackPosts(firstPage?: Pick<PublishedPage<PublishedPost
 
 export async function listAllPublishedPosts(): Promise<PublishedPost[]> {
   const first = await listPublishedPostsPage(undefined, 1, STRAPI_MAX_PAGE_SIZE);
-  if (first.degraded) return listAllFallbackPosts(first);
+  if (first.degraded) {
+    if (first.continuitySource === "projection") {
+      try {
+        const projection = await listAllProjectedContent<PublicEntry>("post");
+        return projection.items.map(publishedPost);
+      } catch (error) {
+        console.error("Complete projected post archive lookup failed.", error);
+        return [];
+      }
+    }
+    return listAllBootstrapPosts(first);
+  }
+  if (!first.available) return [];
   const items = [...first.items];
   for (let page = 2; page <= first.pageCount; page += 1) {
     const next = await listPublishedPostsPage(undefined, page, STRAPI_MAX_PAGE_SIZE);
-    if (next.degraded) return listAllFallbackPosts();
+    if (next.degraded) {
+      if (next.continuitySource === "projection") {
+        try {
+          const projection = await listAllProjectedContent<PublicEntry>("post");
+          return projection.items.map(publishedPost);
+        } catch (error) {
+          console.error("Complete projected post archive lookup failed.", error);
+          return [];
+        }
+      }
+      return listAllBootstrapPosts();
+    }
+    if (!next.available) return [];
     items.push(...next.items);
   }
   return items;
@@ -555,10 +622,30 @@ export async function listPublishedEpisodesPage(
   });
   if (result.available) return { ...result, items: result.items.map(publishedEpisode) };
   try {
-    const fallback = await getFallbackEpisodesPage(page, pageSize, { query, year });
-    return { ...fallback, items: fallback.items.map(fallbackEpisode), available: true, degraded: true };
+    const projection = await listProjectedContentPage<PublicEntry>("episode", page, pageSize, { query, year });
+    if (projection.hasState) {
+      return {
+        ...projection,
+        items: projection.items.map(publishedEpisode),
+        available: true,
+        degraded: true,
+        continuitySource: "projection",
+      };
+    }
   } catch (error) {
-    console.error("Published episode fallback lookup failed.", error);
+    console.error("Published episode projection lookup failed; trying the bootstrap archive.", error);
+  }
+  try {
+    const fallback = await getFallbackEpisodesPage(page, pageSize, { query, year });
+    return {
+      ...fallback,
+      items: fallback.items.map(fallbackEpisode),
+      available: true,
+      degraded: true,
+      continuitySource: "bootstrap",
+    };
+  } catch (error) {
+    console.error("Published episode bootstrap lookup failed.", error);
     return { ...result, items: [] };
   }
 }
@@ -572,12 +659,23 @@ async function publishedEpisodeLookupResult(filters: Record<string, string>): Pr
   const result = await publishedCollectionPage("episodes", { filters, pageSize: 1 });
   if (!result.available) {
     try {
+      const projection = filters.slug !== undefined
+        ? await getProjectedContentByIdentity<PublicEntry>("episode", "slug", filters.slug)
+        : await getProjectedContentByIdentity<PublicEntry>("episode", "track-id", filters.trackId || "");
+      if (projection.status === "found") {
+        return { status: "found", item: publishedEpisode(projection.item), degraded: true };
+      }
+      if (projection.status === "not-found") return { status: "not-found" };
+    } catch (error) {
+      console.error("Published episode detail projection lookup failed; trying the bootstrap archive.", error);
+    }
+    try {
       const fallback = filters.slug !== undefined
         ? await getFallbackEpisodeBySlug(filters.slug)
         : await getFallbackEpisodeByTrackId(filters.trackId || "");
       return fallback ? { status: "found", item: fallbackEpisode(fallback), degraded: true } : { status: "unavailable" };
     } catch (error) {
-      console.error("Published episode detail fallback lookup failed.", error);
+      console.error("Published episode detail bootstrap lookup failed.", error);
       return { status: "unavailable" };
     }
   }
@@ -607,7 +705,7 @@ export function getPublishedEpisodeByTrackIdResult(trackId: string): Promise<Pub
   return publishedEpisodeLookupResult({ trackId });
 }
 
-async function listAllFallbackEpisodes(firstPage?: Pick<PublishedPage<PublishedEpisode>, "items" | "pageCount">): Promise<PublishedEpisode[]> {
+async function listAllBootstrapEpisodes(firstPage?: Pick<PublishedPage<PublishedEpisode>, "items" | "pageCount">): Promise<PublishedEpisode[]> {
   const fallbackFirst = firstPage ? null : await getFallbackEpisodesPage(1, STRAPI_MAX_PAGE_SIZE);
   const first = firstPage || {
     items: (fallbackFirst?.items || []).map(fallbackEpisode),
@@ -622,11 +720,35 @@ async function listAllFallbackEpisodes(firstPage?: Pick<PublishedPage<PublishedE
 
 export async function listAllPublishedEpisodes(): Promise<PublishedEpisode[]> {
   const first = await listPublishedEpisodesPage(1, STRAPI_MAX_PAGE_SIZE);
-  if (first.degraded) return listAllFallbackEpisodes(first);
+  if (first.degraded) {
+    if (first.continuitySource === "projection") {
+      try {
+        const projection = await listAllProjectedContent<PublicEntry>("episode");
+        return projection.items.map(publishedEpisode);
+      } catch (error) {
+        console.error("Complete projected episode archive lookup failed.", error);
+        return [];
+      }
+    }
+    return listAllBootstrapEpisodes(first);
+  }
+  if (!first.available) return [];
   const items = [...first.items];
   for (let page = 2; page <= first.pageCount; page += 1) {
     const next = await listPublishedEpisodesPage(page, STRAPI_MAX_PAGE_SIZE);
-    if (next.degraded) return listAllFallbackEpisodes();
+    if (next.degraded) {
+      if (next.continuitySource === "projection") {
+        try {
+          const projection = await listAllProjectedContent<PublicEntry>("episode");
+          return projection.items.map(publishedEpisode);
+        } catch (error) {
+          console.error("Complete projected episode archive lookup failed.", error);
+          return [];
+        }
+      }
+      return listAllBootstrapEpisodes();
+    }
+    if (!next.available) return [];
     items.push(...next.items);
   }
   return items;
@@ -642,6 +764,32 @@ export async function listPublishedBoardMembersResult(): Promise<PublishedPage<P
     sort: "sortOrder:asc",
   });
   if (!result.available) {
+    try {
+      const projection = await listProjectedContentPage<PublicEntry>("person", 1, STRAPI_MAX_PAGE_SIZE, {
+        activeOnly: true,
+        boardOnly: true,
+      });
+      if (projection.hasState) {
+        return {
+          ...projection,
+          items: projection.items.map((entry) => ({
+            ...entry,
+            name: text(entry.name),
+            slug: text(entry.slug),
+            title: text(entry.title),
+            organization: text(entry.organization),
+            biography: text(entry.biography),
+            photoUrl: absoluteMediaUrl(entry.photo) || safeCmsImageSrc(text(entry.legacyPhotoUrl)),
+            sortOrder: number(entry.sortOrder),
+          })),
+          available: true,
+          degraded: true,
+          continuitySource: "projection",
+        };
+      }
+    } catch (error) {
+      console.error("Published board projection lookup failed; using the bootstrap snapshot.", error);
+    }
     return {
       items: STATIC_BOARD_MEMBERS.map((member, index) => ({
         documentId: `static-board-member-${index + 1}`,
@@ -656,6 +804,7 @@ export async function listPublishedBoardMembersResult(): Promise<PublishedPage<P
       total: STATIC_BOARD_MEMBERS.length,
       available: true,
       degraded: true,
+      continuitySource: "bootstrap",
     };
   }
   return {
@@ -683,6 +832,31 @@ export async function listPublishedEndorsementsResult(): Promise<PublishedPage<P
     sort: "sortOrder:asc",
   });
   if (!result.available) {
+    try {
+      const projection = await listProjectedContentPage<PublicEntry>("endorsement", 1, STRAPI_MAX_PAGE_SIZE, {
+        activeOnly: true,
+      });
+      if (projection.hasState) {
+        return {
+          ...projection,
+          items: projection.items.map((entry) => ({
+            ...entry,
+            quote: text(entry.quote),
+            attribution: text(entry.attribution),
+            title: text(entry.title),
+            organization: text(entry.organization),
+            photoUrl: absoluteMediaUrl(entry.photo),
+            sortOrder: number(entry.sortOrder),
+            featured: Boolean(entry.featured),
+          })),
+          available: true,
+          degraded: true,
+          continuitySource: "projection",
+        };
+      }
+    } catch (error) {
+      console.error("Published endorsement projection lookup failed; using the bootstrap snapshot.", error);
+    }
     return {
       items: STATIC_ENDORSEMENTS.map((endorsement, index) => ({
         documentId: `static-endorsement-${index + 1}`,
@@ -696,6 +870,7 @@ export async function listPublishedEndorsementsResult(): Promise<PublishedPage<P
       total: STATIC_ENDORSEMENTS.length,
       available: true,
       degraded: true,
+      continuitySource: "bootstrap",
     };
   }
   return {
@@ -714,10 +889,20 @@ export async function listPublishedEndorsementsResult(): Promise<PublishedPage<P
 }
 
 export async function listPublicMediaAssets(): Promise<PublishedMediaAsset[]> {
-  const entries = await publishedCollection("media-assets", {
+  const live = await allPublishedCollection("media-assets", {
     filters: { visibility: "public" },
     sort: "title:asc",
   });
+  let entries = live;
+  if (!entries) {
+    try {
+      entries = (await listAllProjectedContent<PublicEntry>("media-asset")).items
+        .filter((entry) => entry.visibility === "public");
+    } catch (error) {
+      console.error("Published media-asset projection lookup failed.", error);
+      entries = [];
+    }
+  }
   return entries.flatMap((entry) => {
     const url = absoluteMediaUrl(entry.asset);
     if (!url) return [];
@@ -735,10 +920,20 @@ export async function listPublicMediaAssets(): Promise<PublishedMediaAsset[]> {
 }
 
 export async function listPublicRedirects(): Promise<PublicRedirect[]> {
-  const entries = await publishedCollection("redirects", {
+  const live = await allPublishedCollection("redirects", {
     filters: { active: true },
     sort: "fromPath:asc",
   });
+  let entries = live;
+  if (!entries) {
+    try {
+      entries = (await listAllProjectedContent<PublicEntry>("redirect")).items
+        .filter((entry) => entry.active === true);
+    } catch (error) {
+      console.error("Published redirect projection lookup failed.", error);
+      entries = [];
+    }
+  }
   return entries.flatMap((entry) => {
     const statusCode = Number(entry.statusCode);
     if (![301, 302, 307, 308].includes(statusCode)) return [];

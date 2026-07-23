@@ -108,7 +108,7 @@ describe("public writing detail availability", () => {
       title: "Grace search title",
       description: "Grace search description",
       alternates: { canonical: "https://www.pastorwood.org/writings/grace-canonical/" },
-      robots: { index: false, follow: false },
+      robots: { index: false, follow: true },
       openGraph: { images: [{ url: "https://www.pastorwood.org/media/cms/social-doc/share.jpg" }] },
     });
   });

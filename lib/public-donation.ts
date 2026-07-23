@@ -3,6 +3,21 @@ const DEFAULT_DONOR_DASHBOARD_URL = "https://www.pastorwood.org/donor-dashboard/
 
 const PASTORWOOD_HOSTS = new Set(["pastorwood.org", "www.pastorwood.org"]);
 
+function publicAppOwnsPastorWoodHost() {
+  // The shipping production application is the canonical PastorWood host. If
+  // its public URL is missing or malformed, fail closed instead of sending a
+  // visitor back into the application through a stale GiveWP self-link.
+  if (process.env.NODE_ENV === "production") return true;
+  const candidate = process.env.PASTORWOOD_PUBLIC_URL?.trim();
+  if (!candidate) return false;
+  try {
+    const parsed = new URL(candidate);
+    return parsed.protocol === "https:" && PASTORWOOD_HOSTS.has(parsed.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
 function configuredHosts(value: string | undefined) {
   return new Set(
     (value || "")
@@ -50,7 +65,7 @@ export function safeExternalDonationUrl(value: string | undefined | null) {
     const parsed = new URL(candidate);
     if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.port || parsed.hash) return null;
     if (PASTORWOOD_HOSTS.has(parsed.hostname.toLowerCase())) {
-      return isCanonicalGiveWpRoute(parsed) ? DEFAULT_DONATION_URL : null;
+      return !publicAppOwnsPastorWoodHost() && isCanonicalGiveWpRoute(parsed) ? DEFAULT_DONATION_URL : null;
     }
     return safeHttpsProviderUrl(candidate, configuredHosts(process.env.PASTORWOOD_DONATION_ALLOWED_HOSTS));
   } catch {
@@ -66,7 +81,7 @@ export function safeExternalDonorDashboardUrl(value: string | undefined | null) 
     if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.port || parsed.hash) return null;
     if (PASTORWOOD_HOSTS.has(parsed.hostname.toLowerCase())) {
       const canonicalPath = parsed.pathname === "/donor-dashboard" || parsed.pathname === "/donor-dashboard/";
-      return canonicalPath && !parsed.search ? DEFAULT_DONOR_DASHBOARD_URL : null;
+      return !publicAppOwnsPastorWoodHost() && canonicalPath && !parsed.search ? DEFAULT_DONOR_DASHBOARD_URL : null;
     }
     return safeHttpsProviderUrl(candidate, configuredHosts(process.env.PASTORWOOD_DONOR_DASHBOARD_ALLOWED_HOSTS));
   } catch {
@@ -78,7 +93,7 @@ export function getPublicDonationUrl(cmsValue?: string | null) {
   return (
     safeExternalDonationUrl(cmsValue) ||
     safeExternalDonationUrl(process.env.PASTORWOOD_DONATION_URL) ||
-    DEFAULT_DONATION_URL
+    (publicAppOwnsPastorWoodHost() ? null : DEFAULT_DONATION_URL)
   );
 }
 
@@ -86,7 +101,7 @@ export function getPublicDonorDashboardUrl(cmsValue?: string | null) {
   return (
     safeExternalDonorDashboardUrl(cmsValue) ||
     safeExternalDonorDashboardUrl(process.env.PASTORWOOD_DONOR_DASHBOARD_URL) ||
-    DEFAULT_DONOR_DASHBOARD_URL
+    (publicAppOwnsPastorWoodHost() ? null : DEFAULT_DONOR_DASHBOARD_URL)
   );
 }
 

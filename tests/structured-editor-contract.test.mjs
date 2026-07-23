@@ -84,7 +84,7 @@ test("site pages use the same revisioned workflow and enforce immutable identity
   assert.doesNotMatch(pageActions, /unpublishManagedStrapiPage/);
 
   const workflow = await source("services/jimwood-cms/src/api/editorial-workflow/controllers/editorial-workflow.ts");
-  assert.match(workflow, /page: \{ uid: 'api::page\.page'/);
+  assert.match(workflow, /page:\s*\{[\s\S]{0,160}?uid: 'api::page\.page'/);
   assert.match(workflow, /Page identity cannot be changed after creation/);
   assert.match(workflow, /data\.pageKey = current\.pageKey/);
   assert.match(workflow, /strapi\.db\.transaction/);

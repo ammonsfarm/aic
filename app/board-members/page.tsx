@@ -1,16 +1,12 @@
 import type { PastorWoodCmsPage } from "@/components/pastor-wood-site";
 import { PastorWoodStructuredBoardPage } from "@/components/pastor-wood-structured-listings";
+import { getPublicFixedCmsPage } from "@/lib/public-fixed-cms-page";
 import { publicCmsPageMetadata } from "@/lib/public-seo";
-import { getStrapiPageByPageKey } from "@/lib/strapi";
+
+export const dynamic = "force-dynamic";
 
 async function getPage(): Promise<PastorWoodCmsPage | null> {
-  try {
-    const page = await getStrapiPageByPageKey("board-members");
-    return page?.active ? page : null;
-  } catch (error) {
-    console.error("Strapi lookup failed for board-members", error);
-    return null;
-  }
+  return getPublicFixedCmsPage("board-members");
 }
 
 export async function generateMetadata() {

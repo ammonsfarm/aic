@@ -1,6 +1,17 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const projection = vi.hoisted(() => ({ identity: vi.fn() }));
+
+vi.mock("@/lib/public-content-projection", () => ({
+  getProjectedContentByIdentity: projection.identity,
+}));
 
 import { getStrapiPageBySlugResult, strapiPageCacheTag } from "@/lib/strapi";
+
+beforeEach(() => {
+  projection.identity.mockReset();
+  projection.identity.mockResolvedValue({ status: "absent" });
+});
 
 afterEach(() => {
   delete process.env.STRAPI_URL;
@@ -72,5 +83,13 @@ describe("dynamic CMS page lookup semantics", () => {
     expect(url.searchParams.get("status")).toBe("published");
     expect(init.next?.revalidate).toBe(3600);
     expect(init.next?.tags).toContain(strapiPageCacheTag("custom-page"));
+  });
+
+  it("uses a tombstone to suppress a stale page during an outage", async () => {
+    process.env.STRAPI_URL = "http://127.0.0.1:1337";
+    projection.identity.mockResolvedValue({ status: "not-found" });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("down", { status: 503 })));
+
+    await expect(getStrapiPageBySlugResult("removed-page")).resolves.toEqual({ status: "not-found" });
   });
 });

@@ -55,4 +55,22 @@ describe("public donation destinations", () => {
     expect(getPublicDonationUrl("https://evil.example/pay")).toBe(DEFAULT_DONATION_URL);
     expect(getPublicDonorDashboardUrl("https://evil.example/account")).toBe(DEFAULT_DONOR_DASHBOARD_URL);
   });
+
+  it("fails closed on canonical self-links in production even when the public URL is absent or wrong", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    for (const publicUrl of ["", "not-a-url", "https://preview.example.test"]) {
+      vi.stubEnv("PASTORWOOD_PUBLIC_URL", publicUrl);
+      expect(safeExternalDonationUrl(DEFAULT_DONATION_URL)).toBeNull();
+      expect(safeExternalDonorDashboardUrl(DEFAULT_DONOR_DASHBOARD_URL)).toBeNull();
+      expect(getPublicDonationUrl()).toBeNull();
+      expect(getPublicDonorDashboardUrl()).toBeNull();
+    }
+  });
+
+  it("still accepts an explicitly allowlisted external provider in production", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("PASTORWOOD_DONATION_ALLOWED_HOSTS", "give.example.org");
+    vi.stubEnv("PASTORWOOD_DONATION_URL", "https://give.example.org/forms/14759");
+    expect(getPublicDonationUrl()).toBe("https://give.example.org/forms/14759");
+  });
 });

@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   genericPage: vi.fn(),
   lookup: vi.fn(),
-  legacyPage: vi.fn(),
   notFound: vi.fn(() => { throw new Error("NEXT_NOT_FOUND"); }),
   shell: vi.fn(),
 }));
@@ -14,7 +13,6 @@ vi.mock("@/components/pastor-wood-site", () => ({
   PastorWoodShell: mocks.shell,
 }));
 vi.mock("@/lib/strapi", () => ({ getStrapiPageBySlugResult: mocks.lookup }));
-vi.mock("@/lib/content-pages", () => ({ getPublishedContentPage: mocks.legacyPage }));
 vi.mock("next/navigation", () => ({ notFound: mocks.notFound }));
 
 import DynamicCmsPage, { generateMetadata } from "@/app/[slug]/page";
@@ -38,7 +36,6 @@ const page = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.legacyPage.mockResolvedValue(null);
 });
 
 describe("dynamic public CMS page", () => {
@@ -74,26 +71,15 @@ describe("dynamic public CMS page", () => {
     expect(rendered.props.cmsPage).toEqual(page);
   });
 
-  it("renders the existing published AIC page archive with an explicit degraded state", async () => {
-    mocks.lookup.mockResolvedValue({ status: "unavailable" });
-    mocks.legacyPage.mockResolvedValue({
-      title: "Archived page",
-      revision: {
-        title: "Archived page",
-        heroTitle: "Archived hero",
-        heroBody: "Archived introduction",
-        seoTitle: "Archived SEO",
-        seoDescription: "Archived description",
-        bodyHtml: "<p>Existing published body</p>",
-      },
-    });
+  it("renders a last-published projected page with an explicit degraded state", async () => {
+    mocks.lookup.mockResolvedValue({ status: "found", page, degraded: true });
 
     const metadata = await generateMetadata(params("custom-page"));
     const rendered = await DynamicCmsPage(params("custom-page"));
 
-    expect(metadata.title).toBe("Archived SEO");
+    expect(metadata.title).toBe("Custom page");
     expect(rendered.type).toBe(mocks.genericPage);
     expect(rendered.props.degraded).toBe(true);
-    expect(rendered.props.cmsPage.sections).toEqual([{ component: "page-sections.text-section", body: "<p>Existing published body</p>" }]);
+    expect(rendered.props.cmsPage).toEqual(page);
   });
 });

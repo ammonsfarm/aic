@@ -142,6 +142,28 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
 
+function protectedMediaPreviewUrl(value: unknown) {
+  const source = asRecord(value);
+  const rawUrl = getString(source.url);
+  if (!rawUrl || rawUrl.startsWith("//")) return "";
+  try {
+    const absolute = /^https?:\/\//i.test(rawUrl);
+    const parsed = new URL(rawUrl, "https://strapi-preview.invalid");
+    const baseUrl = strapiBaseUrl();
+    const sameStrapi = !absolute || (baseUrl && parsed.origin === new URL(baseUrl).origin);
+    if (!sameStrapi || !parsed.pathname.startsWith("/uploads/")) return "";
+    const encodedPath = parsed.pathname
+      .slice("/uploads/".length)
+      .split("/")
+      .filter(Boolean)
+      .map((part) => encodeURIComponent(decodeURIComponent(part)))
+      .join("/");
+    return encodedPath ? `/api/content/strapi-media/${encodedPath}` : "";
+  } catch {
+    return "";
+  }
+}
+
 function normalizeMedia(media: unknown): StrapiMedia | null {
   if (!media || typeof media !== "object") {
     return null;
@@ -158,8 +180,8 @@ function normalizeMedia(media: unknown): StrapiMedia | null {
     return null;
   }
 
-  const baseUrl = strapiBaseUrl();
-  const url = rawUrl.startsWith("http") || !baseUrl ? rawUrl : new URL(rawUrl, baseUrl).toString();
+  const url = protectedMediaPreviewUrl(source);
+  if (!url) return null;
 
   return {
     id: typeof entity.id === "number" ? entity.id : undefined,

@@ -38,6 +38,16 @@ type PastorWoodHooks = {
 
 const hooks = PastorWoodModule as unknown as PastorWoodHooks;
 
+function CmsPageContinuityNotice({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
+  if (cmsPage?.continuityDegraded !== true) return null;
+  return (
+    <section className="pw-section pw-content-unavailable" role="status">
+      <strong>Live publishing is temporarily unavailable.</strong>
+      <p>Showing the last published public version of this page while the live content service reconnects.</p>
+    </section>
+  );
+}
+
 function plainText(value: string) {
   return value
     .replace(/<[^>]*>/g, " ")
@@ -79,6 +89,7 @@ async function StructuredUnavailable({
   return (
     <Shell siteSettings={settings}>
       <Hero eyebrow={eyebrow} title={cmsPage?.heroTitle || title} body={cmsPage?.heroBody || body} />
+      <CmsPageContinuityNotice cmsPage={cmsPage} />
       <section className="pw-section pw-content-unavailable" role="alert">
         <h2>Content temporarily unavailable</h2>
         <p>The public content service could not return this listing. Please try again shortly.</p>
@@ -145,6 +156,7 @@ export async function PastorWoodStructuredBoardPage({
         title={cmsPage?.heroTitle || "Abiding in Christ Board Members"}
         body={cmsPage?.heroBody || "We are grateful for the people serving Abiding in Christ."}
       />
+      <CmsPageContinuityNotice cmsPage={cmsPage} />
       <section className="pw-section">
         {result.degraded ? (
           <PublicContentFallbackNotice>
@@ -196,6 +208,7 @@ export async function PastorWoodStructuredEndorsementsPage({
         title={cmsPage?.heroTitle || "Additional Endorsements for Pastor Wood"}
         body={cmsPage?.heroBody || "Public endorsements from ministry leaders and friends of the work."}
       />
+      <CmsPageContinuityNotice cmsPage={cmsPage} />
       <section className="pw-section">
         {result.degraded ? (
           <PublicContentFallbackNotice>
@@ -273,6 +286,7 @@ export async function PastorWoodStructuredPostsPage({
             : "Resources intended to encourage faithful Christian living.")
         }
       />
+      <CmsPageContinuityNotice cmsPage={cmsPage} />
       <section className="pw-section">
         {result.degraded ? (
           <PublicContentFallbackNotice>
@@ -435,6 +449,7 @@ export async function PastorWoodStructuredRadioPage({
         title={cmsPage?.heroTitle || "Radio Show Listings"}
         body={cmsPage?.heroBody || "Search and listen across the Abiding in Christ broadcast archive."}
       />
+      <CmsPageContinuityNotice cmsPage={cmsPage} />
       <section className="pw-section pw-radio-layout">
         <aside className="pw-radio-intro" aria-labelledby="radio-search-title">
           <div>

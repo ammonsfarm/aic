@@ -74,6 +74,7 @@ export default async function SiteSettingsDraftPreview() {
             alternativeText: settings.headerLogo.alternativeText,
             name: settings.headerLogo.name,
           } : null,
+          subscriptionPublishedEnabled: settings.subscriptionEnabled,
           subscriptionEnabled: settings.subscriptionEnabled,
         }}
       />

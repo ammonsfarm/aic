@@ -70,8 +70,12 @@ const footerResourceLinks = [
   { label: "Endorsements", href: routes.endorsements },
 ];
 
-function settingsLinks(items: StrapiSiteSettings["topNavigation"] | undefined, fallback: Array<{ label: string; href: string }>) {
-  const source = items?.length ? items : fallback;
+function settingsLinks(
+  items: StrapiSiteSettings["topNavigation"] | undefined,
+  fallback: Array<{ label: string; href: string }>,
+  settingsConfigured: boolean,
+) {
+  const source = settingsConfigured ? items || [] : fallback;
   return source.flatMap((item) => {
     const href = safeCmsHref(item.href);
     return item.label.trim() && href ? [{ label: item.label.trim(), href }] : [];
@@ -107,10 +111,12 @@ function PersonPhoto({ name, image, compact = false }: { name: string; image?: s
 }
 
 function PastorWoodNav({ siteSettings }: { siteSettings?: StrapiSiteSettings | null }) {
-  const links = settingsLinks(siteSettings?.topNavigation, navLinks);
+  const links = settingsLinks(siteSettings?.topNavigation, navLinks, Boolean(siteSettings));
   const donateLabel = siteSettings?.donateButtonLabel || "Donate";
   const requestedDonateHref = safeCmsHref(siteSettings?.donateButtonUrl || "");
-  const donateHref = requestedDonateHref.startsWith("/") ? requestedDonateHref : getPublicDonationUrl(requestedDonateHref) || routes.donate;
+  const donateHref = requestedDonateHref.startsWith("/")
+    ? requestedDonateHref
+    : getPublicDonationUrl(requestedDonateHref) || "";
   const headerLogo = siteSettings?.headerLogo;
   return (
     <header className="pw-nav">
@@ -139,14 +145,16 @@ function PastorWoodNav({ siteSettings }: { siteSettings?: StrapiSiteSettings | n
           {links.map((item) => <SmartLink key={item.label} href={item.href}>{item.label}</SmartLink>)}
         </nav>
       </details>
-      {siteSettings?.showDonateButton !== false ? <SmartLink className="pw-nav__cta" href={donateHref}>{donateLabel}</SmartLink> : null}
+      {siteSettings?.showDonateButton !== false && donateHref
+        ? <SmartLink className="pw-nav__cta" href={donateHref}>{donateLabel}</SmartLink>
+        : null}
     </header>
   );
 }
 
 function PastorWoodFooter({ siteSettings }: { siteSettings?: StrapiSiteSettings | null }) {
-  const footerLinks = settingsLinks(siteSettings?.footerNavigation, [...footerAffiliateLinks, ...footerResourceLinks]);
-  const footerText = siteSettings?.footerText || "A Ministry of Jim Wood";
+  const footerLinks = settingsLinks(siteSettings?.footerNavigation, [...footerAffiliateLinks, ...footerResourceLinks], Boolean(siteSettings));
+  const footerText = siteSettings ? siteSettings.footerText : "A Ministry of Jim Wood";
   return (
     <footer className="pw-footer">
       <div className="pw-footer__brand"><strong>{siteSettings?.siteName || "Pastor Jim Wood"}</strong><span>{footerText}</span>{siteSettings?.copyrightText ? <span>{siteSettings.copyrightText}</span> : null}</div>
@@ -180,7 +188,7 @@ export function PastorWoodShell({
 }
 
 function LinkBand({ siteSettings }: { siteSettings?: StrapiSiteSettings | null }) {
-  const links = settingsLinks(siteSettings?.utilityNavigation, primaryLinks);
+  const links = settingsLinks(siteSettings?.utilityNavigation, primaryLinks, Boolean(siteSettings));
   return (
     <section className="pw-link-band" aria-label="Original Pastor Wood links">
       {links.map((item) => <SmartLink key={item.label} href={item.href}>{item.label}</SmartLink>)}
@@ -227,6 +235,8 @@ function PastorWoodHome({
           </div>
         </div>
       </section>
+
+      <PublicPageContinuityNotice cmsPage={cmsPage} />
 
       <LinkBand siteSettings={siteSettings} />
 
@@ -389,7 +399,18 @@ export type PastorWoodCmsPage = {
     name?: string;
   } | null;
   sections?: PastorWoodCmsSection[];
+  continuityDegraded?: boolean;
 };
+
+export function PublicPageContinuityNotice({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
+  if (cmsPage?.continuityDegraded !== true) return null;
+  return (
+    <section className="pw-section pw-content-unavailable" role="status">
+      <strong>Live publishing is temporarily unavailable.</strong>
+      <p>Showing the last published public version of this page while the live content service reconnects.</p>
+    </section>
+  );
+}
 
 function RichTextContent({ value }: { value: string }) {
   return <div className="pw-rich-text" dangerouslySetInnerHTML={{ __html: sanitizeCmsHtml(value) }} />;
@@ -560,7 +581,11 @@ function ContactPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
 
 function DonatePage({ cmsPage, donorDashboard = false, siteSettings }: { cmsPage?: PastorWoodCmsPage | null; donorDashboard?: boolean; siteSettings?: StrapiSiteSettings | null }) {
   const heroTitle = cmsPage?.heroTitle || (donorDashboard ? "Donor Dashboard" : "Donate Today");
-  const heroBody = cmsPage?.heroBody || "Donation processing and donor account access remain on the original Pastor Wood site for now.";
+  const heroBody = cmsPage?.heroBody || "Giving and donor account access are available only through a separately hosted, verified provider.";
+  const configuredProviderUrl = donorDashboard ? siteSettings?.donorDashboardUrl : siteSettings?.donateButtonUrl;
+  const providerUrl = donorDashboard
+    ? getPublicDonorDashboardUrl(configuredProviderUrl)
+    : getPublicDonationUrl(configuredProviderUrl);
   return (
     <>
       <PageHero eyebrow="Donate" title={heroTitle} body={heroBody} />
@@ -572,7 +597,9 @@ function DonatePage({ cmsPage, donorDashboard = false, siteSettings }: { cmsPage
       ) : null}
       <section className="pw-section pw-donate-panel">
         <div><h2>{donorDashboard ? "Access your donor dashboard" : "Support Abiding in Christ"}</h2><p>{donorDashboard ? "Open the separately secured donor account service for giving history and account access." : "Open the verified secure giving form to support Pastor Wood and Abiding in Christ."}</p></div>
-        <a className="pw-button pw-button--primary" href={donorDashboard ? getPublicDonorDashboardUrl(siteSettings?.donorDashboardUrl) : getPublicDonationUrl(siteSettings?.donateButtonUrl)} target="_blank" rel="noreferrer noopener">{donorDashboard ? "Open donor dashboard" : "Open secure giving form"}</a>
+        {providerUrl ? (
+          <a className="pw-button pw-button--primary" href={providerUrl} target="_blank" rel="noreferrer noopener">{donorDashboard ? "Open donor dashboard" : "Open secure giving form"}</a>
+        ) : <p role="status">Secure giving is temporarily unavailable.</p>}
       </section>
     </>
   );
@@ -622,7 +649,7 @@ export async function PastorWoodGenericCmsPage({ cmsPage, degraded = false }: { 
       {degraded ? (
         <section className="pw-section pw-content-unavailable" role="status">
           <strong>Live publishing is temporarily unavailable.</strong>
-          <p>This published page is being served from the existing Abiding in Christ content archive.</p>
+          <p>Showing the last published public version of this page while the live content service reconnects.</p>
         </section>
       ) : null}
       <CmsPageSections sections={cmsPage.sections} />
@@ -645,7 +672,12 @@ export async function PastorWoodContentPage({ page, cmsPage }: { page: PageKey; 
     privacy: <PrivacyPage cmsPage={cmsPage} />,
   }[page];
 
-  return <PastorWoodShell siteSettings={siteSettings}>{content}</PastorWoodShell>;
+  return (
+    <PastorWoodShell siteSettings={siteSettings}>
+      <PublicPageContinuityNotice cmsPage={cmsPage} />
+      {content}
+    </PastorWoodShell>
+  );
 }
 
 export async function PastorWoodRadioPage(_props: { slug?: string[] }) {

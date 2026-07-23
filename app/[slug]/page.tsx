@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { PageHero, PastorWoodGenericCmsPage, PastorWoodShell, type PastorWoodCmsPage } from "@/components/pastor-wood-site";
-import { getPublishedContentPage } from "@/lib/content-pages";
 import { isDynamicCmsPublicSlug } from "@/lib/public-routes";
 import { getStrapiPageBySlugResult } from "@/lib/strapi";
 import { publicMetadata } from "@/lib/public-seo";
@@ -21,30 +20,7 @@ type DynamicPageResult =
   | { status: "unavailable" };
 
 async function getDynamicPageResult(slug: string): Promise<DynamicPageResult> {
-  const result = await getStrapiPageBySlugResult(slug);
-  if (result.status !== "unavailable") return result;
-
-  try {
-    const fallback = await getPublishedContentPage(slug);
-    if (!fallback?.revision) return { status: "unavailable" };
-    return {
-      status: "found",
-      degraded: true,
-      page: {
-        title: fallback.revision.title || fallback.title,
-        heroTitle: fallback.revision.heroTitle,
-        heroBody: fallback.revision.heroBody,
-        seoTitle: fallback.revision.seoTitle,
-        seoDescription: fallback.revision.seoDescription,
-        sections: fallback.revision.bodyHtml
-          ? [{ component: "page-sections.text-section", body: fallback.revision.bodyHtml }]
-          : [],
-      },
-    };
-  } catch (error) {
-    console.error(`Published page fallback lookup failed for ${slug}.`, error);
-    return { status: "unavailable" };
-  }
+  return getStrapiPageBySlugResult(slug);
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {

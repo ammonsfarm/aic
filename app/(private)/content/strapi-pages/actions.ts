@@ -142,7 +142,11 @@ function publicPathFor(pageKey: string, slug: string) {
   return normalizedSlug === "home" ? "/" : `/${normalizedSlug.replace(/^\/+/, "")}`;
 }
 
-async function sectionPayload(formData: FormData, keyPrefix: string) {
+async function sectionPayload(
+  formData: FormData,
+  keyPrefix: string,
+  allowedCurrentImageIds: ReadonlySet<number>,
+) {
   const component = formString(formData, `${keyPrefix}Component`);
   const remove = formBoolean(formData, `${keyPrefix}Remove`);
   const eyebrow = formString(formData, `${keyPrefix}Eyebrow`);
@@ -154,6 +158,9 @@ async function sectionPayload(formData: FormData, keyPrefix: string) {
   const selectedImageId = formNumber(formData, `${keyPrefix}ImageLibraryId`);
   const imageFile = formData.get(`${keyPrefix}ImageFile`);
   const hasImageUpload = imageFile instanceof File && imageFile.size > 0;
+  if (formString(formData, `${keyPrefix}ImageId`) && (!Number.isSafeInteger(existingImageId) || Number(existingImageId) <= 0)) {
+    throw new Error("The retained section image identifier is invalid.");
+  }
   if (formString(formData, `${keyPrefix}ImageLibraryId`) && !selectedImageId) {
     throw new Error("Choose a valid existing section image.");
   }
@@ -162,6 +169,9 @@ async function sectionPayload(formData: FormData, keyPrefix: string) {
   }
   if (selectedImageId) {
     await assertReusableMediaSelection(selectedImageId, "image/*");
+  }
+  if (existingImageId && !allowedCurrentImageIds.has(existingImageId)) {
+    await assertReusableMediaSelection(existingImageId, "image/*");
   }
   const uploadedImageId = hasImageUpload && imageFile instanceof File ? await uploadSectionImage(imageFile) : null;
   const imageId = uploadedImageId ?? selectedImageId ?? existingImageId;
@@ -210,12 +220,12 @@ async function sectionPayload(formData: FormData, keyPrefix: string) {
   return { order, section: base };
 }
 
-async function parseSections(formData: FormData) {
+async function parseSections(formData: FormData, allowedCurrentImageIds: ReadonlySet<number>) {
   const count = formNumber(formData, "sectionCount") ?? 0;
   const parsed = [] as Array<{ order: number; section: Record<string, unknown> }>;
 
   for (let index = 0; index < count; index += 1) {
-    const section = await sectionPayload(formData, `section${index}`);
+    const section = await sectionPayload(formData, `section${index}`, allowedCurrentImageIds);
     if (section) {
       parsed.push(section);
     }
@@ -223,7 +233,7 @@ async function parseSections(formData: FormData) {
 
   const newSectionCount = formNumber(formData, "newSectionCount") ?? 0;
   for (let index = 0; index < newSectionCount; index += 1) {
-    const newSection = await sectionPayload(formData, `newSection${index}`);
+    const newSection = await sectionPayload(formData, `newSection${index}`, allowedCurrentImageIds);
     if (newSection) {
       parsed.push({
         ...newSection,
@@ -232,7 +242,7 @@ async function parseSections(formData: FormData) {
     }
   }
 
-  const legacyNewSection = await sectionPayload(formData, "newSection");
+  const legacyNewSection = await sectionPayload(formData, "newSection", allowedCurrentImageIds);
   if (legacyNewSection) {
     parsed.push({ ...legacyNewSection, order: parsed.length + 1 });
   }
@@ -242,7 +252,12 @@ async function parseSections(formData: FormData) {
 
 async function parsePageInput(
   formData: FormData,
-  existing?: { pageKey: string; slug: string; socialImageId?: number },
+  existing?: {
+    pageKey: string;
+    slug: string;
+    socialImageId?: number;
+    allowedImageIds?: ReadonlySet<number>;
+  },
 ): Promise<ManagedStrapiPageInput> {
   const title = formString(formData, "title");
   const slug = assertAllowedPageSlug({
@@ -301,7 +316,7 @@ async function parsePageInput(
     noIndex: formBoolean(formData, "noIndex"),
     socialImage,
     scheduledFor: formDateTime(formData, "scheduledFor"),
-    sections: await parseSections(formData),
+    sections: await parseSections(formData, existing?.allowedImageIds || new Set<number>()),
   };
 }
 
@@ -355,6 +370,10 @@ export async function saveStrapiPageAction(documentId: string, formData: FormDat
     pageKey: existingPage.pageKey,
     slug: existingPage.slug,
     socialImageId: existingPage.socialImage?.id,
+    allowedImageIds: new Set([
+      ...(existingPage.socialImage?.id ? [existingPage.socialImage.id] : []),
+      ...existingPage.sections.flatMap((section) => section.image?.id ? [section.image.id] : []),
+    ]),
   };
   const input = await parsePageInput(formData, previousIdentity);
   await assertPageSlugIsUnique(input, documentId);

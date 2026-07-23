@@ -1,15 +1,11 @@
 import { PastorWoodContentPage, type PastorWoodCmsPage } from "@/components/pastor-wood-site";
+import { getPublicFixedCmsPage } from "@/lib/public-fixed-cms-page";
 import { publicCmsPageMetadata } from "@/lib/public-seo";
-import { getStrapiPageByPageKey } from "@/lib/strapi";
+
+export const dynamic = "force-dynamic";
 
 async function getPage(): Promise<PastorWoodCmsPage | null> {
-  try {
-    const page = await getStrapiPageByPageKey("privacy-terms-conditions");
-    return page?.active ? page : null;
-  } catch (error) {
-    console.error("Strapi lookup failed for privacy terms", error);
-    return null;
-  }
+  return getPublicFixedCmsPage("privacy-terms-conditions");
 }
 
 export async function generateMetadata() {

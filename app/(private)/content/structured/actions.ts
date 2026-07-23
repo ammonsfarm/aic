@@ -295,8 +295,20 @@ async function structuredPayload(
 
     if (field.type === "seo") {
       const candidate = formData.get(`${field.name}.socialImageFile`);
-      let replacementSocialImageId: number | null = null;
-      if (candidate instanceof File && candidate.size > 0) {
+      const selectedIdValue = formString(formData, `${field.name}.socialImageLibraryId`);
+      const selectedId = selectedIdValue ? Number(selectedIdValue) : 0;
+      const hasUpload = candidate instanceof File && candidate.size > 0;
+      if (selectedIdValue && (!Number.isSafeInteger(selectedId) || selectedId <= 0)) {
+        throw new Error("Social sharing image has an invalid existing-media selection.");
+      }
+      if (hasUpload && selectedId) {
+        throw new Error("Social sharing image must use either an existing image or a new upload, not both.");
+      }
+      let replacementSocialImageId: number | null = selectedId || null;
+      if (selectedId) {
+        await assertReusableMediaSelection(selectedId, "image/*");
+      }
+      if (hasUpload && candidate instanceof File) {
         validateFile(
           { ...field, type: "file", label: "Social sharing image", accept: "image/*" },
           candidate,

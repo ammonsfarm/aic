@@ -7,6 +7,11 @@ const fallback = vi.hoisted(() => ({
   episodeByTrackId: vi.fn(),
   postBySlug: vi.fn(),
 }));
+const projection = vi.hoisted(() => ({
+  page: vi.fn(),
+  all: vi.fn(),
+  identity: vi.fn(),
+}));
 
 vi.mock("@/lib/pastorwood-public-fallback", () => ({
   getFallbackEpisodesPage: fallback.episodesPage,
@@ -14,6 +19,11 @@ vi.mock("@/lib/pastorwood-public-fallback", () => ({
   getFallbackEpisodeBySlug: fallback.episodeBySlug,
   getFallbackEpisodeByTrackId: fallback.episodeByTrackId,
   getFallbackPostBySlug: fallback.postBySlug,
+}));
+vi.mock("@/lib/public-content-projection", () => ({
+  listProjectedContentPage: projection.page,
+  listAllProjectedContent: projection.all,
+  getProjectedContentByIdentity: projection.identity,
 }));
 
 import { listAllPublishedEpisodes } from "@/lib/strapi-structured-public";
@@ -50,6 +60,12 @@ beforeEach(() => {
   fallback.episodeBySlug.mockReset();
   fallback.episodeByTrackId.mockReset();
   fallback.postBySlug.mockReset();
+  projection.page.mockReset();
+  projection.all.mockReset();
+  projection.identity.mockReset();
+  projection.page.mockResolvedValue({ items: [], page: 1, pageSize: 100, pageCount: 0, total: 0, hasState: false });
+  projection.all.mockResolvedValue({ items: [], hasState: false });
+  projection.identity.mockResolvedValue({ status: "absent" });
 });
 
 describe("published archive fallback source consistency", () => {
@@ -77,5 +93,30 @@ describe("published archive fallback source consistency", () => {
     expect(result.map((item) => item.documentId)).toEqual(["fallback-1", "fallback-2"]);
     expect(requestedStrapiPages).toEqual([1, 2]);
     expect(fallback.episodesPage.mock.calls.map(([page]) => page)).toEqual([2, 1, 2]);
+  });
+
+  it("never returns a mixed partial archive when the all-page projection restart fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", vi.fn(async (input: URL | RequestInfo) => {
+      const page = Number(new URL(String(input)).searchParams.get("pagination[page]"));
+      return page === 1
+        ? new Response(JSON.stringify({
+            data: [strapiEpisode(1)],
+            meta: { pagination: { page: 1, pageSize: 100, pageCount: 2, total: 101 } },
+          }), { status: 200 })
+        : new Response("unavailable", { status: 503 });
+    }));
+    projection.page.mockResolvedValueOnce({
+      items: [strapiEpisode(101)],
+      page: 2,
+      pageSize: 100,
+      pageCount: 2,
+      total: 101,
+      hasState: true,
+    });
+    projection.all.mockRejectedValueOnce(new Error("projection restart failed"));
+
+    await expect(listAllPublishedEpisodes()).resolves.toEqual([]);
+    expect(fallback.episodesPage).not.toHaveBeenCalled();
   });
 });

@@ -1,16 +1,11 @@
 import { PastorWoodContentPage, type PastorWoodCmsPage } from "@/components/pastor-wood-site";
-import { getPublishedContentPage } from "@/lib/content-pages";
+import { getPublicFixedCmsPage } from "@/lib/public-fixed-cms-page";
 import { publicCmsPageMetadata } from "@/lib/public-seo";
-import { getStrapiPageByPageKey } from "@/lib/strapi";
+
+export const dynamic = "force-dynamic";
 
 async function getContactStrapiPage(): Promise<PastorWoodCmsPage | null> {
-  try {
-    const page = await getStrapiPageByPageKey("contact");
-    return page?.active ? page : null;
-  } catch (error) {
-    console.error("Strapi lookup failed for contact", error);
-    return null;
-  }
+  return getPublicFixedCmsPage("contact");
 }
 
 export async function generateMetadata() {
@@ -22,28 +17,7 @@ export async function generateMetadata() {
   });
 }
 
-async function getContactCmsPage() {
-  try {
-    return await getPublishedContentPage("contact");
-  } catch (error) {
-    console.error("CMS lookup failed for contact", error);
-    return null;
-  }
-}
-
 export default async function Page() {
   const strapiPage = await getContactStrapiPage();
-  if (strapiPage) {
-    return <PastorWoodContentPage page="contact" cmsPage={strapiPage} />;
-  }
-
-  const contentPage = await getContactCmsPage();
-  const cmsPage: PastorWoodCmsPage | null = contentPage?.revision
-    ? {
-        heroTitle: contentPage.revision.heroTitle,
-        heroBody: contentPage.revision.heroBody,
-      }
-    : null;
-
-  return <PastorWoodContentPage page="contact" cmsPage={cmsPage} />;
+  return <PastorWoodContentPage page="contact" cmsPage={strapiPage} />;
 }

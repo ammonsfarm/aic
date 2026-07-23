@@ -4980,6 +4980,18 @@ input:focus {
   color: oklch(86% 0.11 35);
 }
 
+.pw-subscribe-form__field-error {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: oklch(86% 0.11 35);
+  font-size: 0.9rem;
+  font-weight: 750;
+}
+
+.pw-subscribe-form [aria-invalid="true"] {
+  border-color: oklch(76% 0.15 35);
+}
+
 .pw-honeypot {
   position: absolute !important;
   width: 1px !important;

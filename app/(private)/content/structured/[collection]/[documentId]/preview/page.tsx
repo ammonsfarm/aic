@@ -68,6 +68,7 @@ function entryMedia(entry: StructuredEntry, field: string) {
     href,
     name: display(media.name || media.alternativeText || "Attached media"),
     alt: display(media.alternativeText || media.caption || ""),
+    caption: typeof media.caption === "string" ? media.caption : "",
     mime: typeof media.mime === "string" ? media.mime.toLowerCase() : "",
   };
 }
@@ -92,8 +93,13 @@ function PostPreview({ entry }: { entry: StructuredEntry }) {
     <>
       <PageHero eyebrow={contentType} title={title} body={summary} />
       <article className="pw-section pw-writing-detail">
+        {image ? (
+          <figure className="pw-structured-featured-image">
+            <img src={image.href} alt={image.alt === "—" ? "" : image.alt} />
+            {image.caption ? <figcaption>{image.caption}</figcaption> : null}
+          </figure>
+        ) : null}
         <p className="pw-kicker">{formatDate(entryText(entry, "publishDate"))}</p>
-        {image ? <img src={image.href} alt={image.alt === "—" ? "" : image.alt} /> : null}
         <div className="pw-rich-text" dangerouslySetInnerHTML={{ __html: sanitizeCmsHtml(entryText(entry, "body")) }} />
       </article>
     </>

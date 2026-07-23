@@ -5,18 +5,23 @@ export const RESERVED_PUBLIC_SLUGS = new Set([
   "about-pastor-wood",
   "abiding-in-christ",
   "api",
+  "app",
   "bible-study",
   "board-members",
   "contact",
   "donate",
   "donor-dashboard",
   "endorsements",
+  "feed",
   "login",
+  "media",
   "privacy",
   "privacy-terms-conditions",
   "radio",
+  "unsubscribe",
   "writings",
   "written-resources",
+  "wp-content",
 ]);
 
 export function isDynamicCmsPublicSlug(slug: string) {

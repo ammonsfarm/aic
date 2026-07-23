@@ -1,4 +1,16 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const projection = vi.hoisted(() => ({
+  page: vi.fn(),
+  all: vi.fn(),
+  identity: vi.fn(),
+}));
+
+vi.mock("@/lib/public-content-projection", () => ({
+  listProjectedContentPage: projection.page,
+  listAllProjectedContent: projection.all,
+  getProjectedContentByIdentity: projection.identity,
+}));
 
 import {
   getPublishedEpisodeByTrackId,
@@ -8,6 +20,8 @@ import {
   getPublishedPostBySlugResult,
   listAllPublishedEpisodes,
   listLatestPublishedPostsResult,
+  listPublicMediaAssets,
+  listPublicRedirects,
   listPublishedBoardMembers,
   listPublishedBoardMembersResult,
   listPublishedEndorsementsResult,
@@ -15,6 +29,13 @@ import {
 } from "@/lib/strapi-structured-public";
 
 const originalUrl = process.env.STRAPI_URL;
+
+beforeEach(() => {
+  const unavailable = new Error("projection unavailable in isolated test");
+  projection.page.mockReset().mockRejectedValue(unavailable);
+  projection.all.mockReset().mockRejectedValue(unavailable);
+  projection.identity.mockReset().mockRejectedValue(unavailable);
+});
 
 afterEach(() => {
   process.env.STRAPI_URL = originalUrl;
@@ -82,6 +103,66 @@ describe("published Strapi archive pagination", () => {
     expect(result.at(-1)?.slug).toBe("episode-300");
     expect(requestedPages).toEqual([1, 2, 3]);
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("walks beyond 100 live media assets and redirects without mixing sources", async () => {
+    process.env.STRAPI_URL = "http://127.0.0.1:1337";
+    const requests: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: URL | RequestInfo) => {
+      const url = new URL(String(input));
+      const page = Number(url.searchParams.get("pagination[page]"));
+      requests.push(`${url.pathname}:${page}`);
+      const itemNumber = page === 1 ? 1 : 101;
+      const data = url.pathname === "/api/media-assets"
+        ? [{
+            documentId: `asset-${itemNumber}`,
+            title: `Asset ${itemNumber}`,
+            slug: `asset-${itemNumber}`,
+            visibility: "public",
+            asset: { documentId: `media-${itemNumber}`, url: `/uploads/media-${itemNumber}.jpg` },
+          }]
+        : [{
+            documentId: `redirect-${itemNumber}`,
+            fromPath: `/old-${itemNumber}/`,
+            toPath: `/new-${itemNumber}/`,
+            statusCode: 301,
+            active: true,
+          }];
+      return new Response(JSON.stringify({
+        data,
+        meta: { pagination: { page, pageSize: 100, pageCount: 2, total: 101 } },
+      }), { status: 200 });
+    }));
+
+    const [assets, redirects] = await Promise.all([listPublicMediaAssets(), listPublicRedirects()]);
+
+    expect(assets.map((item) => item.documentId)).toEqual(["asset-1", "asset-101"]);
+    expect(redirects.map((item) => item.documentId)).toEqual(["redirect-1", "redirect-101"]);
+    expect(requests).toEqual([
+      "/api/media-assets:1",
+      "/api/redirects:1",
+      "/api/media-assets:2",
+      "/api/redirects:2",
+    ]);
+  });
+
+  it("discards a partial live media list and rebuilds solely from projection", async () => {
+    process.env.STRAPI_URL = "http://127.0.0.1:1337";
+    vi.stubGlobal("fetch", vi.fn(async (input: URL | RequestInfo) => {
+      const page = Number(new URL(String(input)).searchParams.get("pagination[page]"));
+      return page === 1
+        ? new Response(JSON.stringify({
+            data: [{ documentId: "live-partial", title: "Partial", slug: "partial", visibility: "public", asset: { documentId: "partial-media", url: "/uploads/partial.jpg" } }],
+            meta: { pagination: { page: 1, pageSize: 100, pageCount: 2, total: 101 } },
+          }), { status: 200 })
+        : new Response("down", { status: 503 });
+    }));
+    projection.all.mockResolvedValueOnce({
+      hasState: true,
+      items: [{ documentId: "projected-only", title: "Projected", slug: "projected", visibility: "public", asset: { documentId: "projected-media", url: "/uploads/projected.jpg" } }],
+    });
+
+    await expect(listPublicMediaAssets()).resolves.toMatchObject([{ documentId: "projected-only" }]);
   });
 
   it("clamps an oversized page request so record 101 remains on page 2", async () => {

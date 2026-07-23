@@ -6,7 +6,7 @@ const revisionUid = "api::editorial-revision.editorial-revision";
 const eventUid = "api::editorial-event.editorial-event";
 const settingsUid = "api::site-setting.site-setting";
 
-function workflowHarness() {
+function workflowHarness({ failProjection = false }: { failProjection?: boolean } = {}) {
   const calls: string[] = [];
   const revisions: Array<Record<string, unknown>> = [];
   const events: Array<Record<string, unknown>> = [];
@@ -61,12 +61,28 @@ function workflowHarness() {
       return data;
     }),
   };
-  const lock = vi.fn(async () => undefined);
-  const transaction = vi.fn(async (callback: (value: { trx: { raw: typeof lock } }) => Promise<unknown>) => {
+  const raw = vi.fn(async (sql: string) => {
+    if (failProjection && sql.includes("returning document_id")) {
+      throw new Error("projection write failed");
+    }
+    return sql.includes("returning document_id") ? { rows: [{ document_id: current.documentId }] } : { rows: [] };
+  });
+  const transaction = vi.fn(async (callback: (value: { trx: { raw: typeof raw } }) => Promise<unknown>) => {
     calls.push("transaction");
-    const result = await callback({ trx: { raw: lock } });
-    calls.push("commit");
-    return result;
+    const revisionCount = revisions.length;
+    const eventCount = events.length;
+    const originalDraft = draft;
+    try {
+      const result = await callback({ trx: { raw } });
+      calls.push("commit");
+      return result;
+    } catch (error) {
+      revisions.splice(revisionCount);
+      events.splice(eventCount);
+      draft = originalDraft;
+      calls.push("rollback");
+      throw error;
+    }
   });
 
   vi.stubGlobal("strapi", {
@@ -114,7 +130,7 @@ function workflowHarness() {
     calls,
     context,
     events,
-    lock,
+    lock: raw,
     revisionDocuments,
     revisions,
     settingsDocuments,
@@ -134,7 +150,8 @@ describe("site-settings editorial transaction", () => {
     await editorialWorkflowController.transition(ctx as never);
 
     expect(harness.transaction).toHaveBeenCalledTimes(1);
-    expect(harness.lock).toHaveBeenCalledTimes(1);
+    expect(String(harness.lock.mock.calls[0]?.[0])).toContain("pg_advisory_xact_lock");
+    expect(harness.lock.mock.calls.some(([sql]) => String(sql).includes("pastorwood_public_projection"))).toBe(true);
     expect(harness.calls).toEqual(["transaction", "update-draft", "publish", "commit"]);
     expect(harness.revisions.map((revision) => revision.action)).toEqual(["save", "publish"]);
     expect(harness.revisions.every((revision) => revision.actorEmail === "editor@example.test")).toBe(true);
@@ -188,5 +205,16 @@ describe("site-settings editorial transaction", () => {
     expect((second.body as { adopted: boolean }).adopted).toBe(false);
     expect(harness.settingsDocuments.update).not.toHaveBeenCalled();
     expect(harness.revisions.map((revision) => revision.action)).toEqual(["baseline"]);
+  });
+
+  it("rolls back the editorial publish when the public projection write fails", async () => {
+    const harness = workflowHarness({ failProjection: true });
+    const ctx = harness.context("publish");
+
+    await expect(editorialWorkflowController.transition(ctx as never)).rejects.toThrow("projection write failed");
+
+    expect(harness.calls).toEqual(["transaction", "update-draft", "publish", "rollback"]);
+    expect(harness.revisions).toHaveLength(0);
+    expect(harness.events).toHaveLength(0);
   });
 });

@@ -1,4 +1,6 @@
 import redirectManifest from "@/data/legacy-redirects.json";
+import { getProjectedContentByIdentity } from "@/lib/public-content-projection";
+import { fetchWithTimeout } from "@/lib/strapi-request";
 import { STRAPI_STRUCTURED_CACHE_TAG, strapiStructuredCacheTag } from "@/lib/strapi-cache-tags";
 
 export type LegacyRedirect = {
@@ -20,6 +22,7 @@ const reservedTargets = [
   "/overview",
   "/pipeline",
   "/preview",
+  "/privacy",
   "/research",
   "/signals",
   "/sources",
@@ -129,15 +132,29 @@ export async function resolvePublicLegacyRedirect(pathname: string): Promise<Leg
   const source = normalizePath(pathname);
   if (!source || isReservedPath(source)) return null;
   const fallback = resolveLegacyRedirect(source);
+  const projectedOrBootstrap = async () => {
+    try {
+      const projection = await getProjectedContentByIdentity<Record<string, unknown>>(
+        "redirect",
+        "path",
+        source.toLowerCase(),
+      );
+      if (projection.status === "found") return managedRedirect(projection.item, source);
+      return projection.status === "not-found" ? null : fallback;
+    } catch (error) {
+      console.error("Managed legacy redirect projection lookup failed; using the bootstrap manifest.", error);
+      return fallback;
+    }
+  };
   const origin = strapiRedirectOrigin();
-  if (!origin) return fallback;
+  if (!origin) return projectedOrBootstrap();
 
   const url = new URL("/api/redirects", origin);
   url.searchParams.set("pagination[pageSize]", "2");
   url.searchParams.set("filters[fromPath][$eq]", source);
   const token = process.env.STRAPI_READ_TOKEN?.trim() || process.env.STRAPI_API_TOKEN?.trim() || "";
   try {
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       headers: {
         Accept: "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -146,16 +163,15 @@ export async function resolvePublicLegacyRedirect(pathname: string): Promise<Leg
         revalidate: 300,
         tags: [STRAPI_STRUCTURED_CACHE_TAG, strapiStructuredCacheTag("redirects")],
       },
-      signal: AbortSignal.timeout(4_000),
     });
-    if (!response.ok) return fallback;
+    if (!response.ok) return projectedOrBootstrap();
     const payload = await response.json() as { data?: unknown[] };
-    if (!Array.isArray(payload.data)) return fallback;
+    if (!Array.isArray(payload.data)) return projectedOrBootstrap();
     if (payload.data.length !== 1) return null;
     return managedRedirect(payload.data[0], source);
   } catch (error) {
-    console.error("Managed legacy redirect lookup failed; using the generated fallback.", error);
-    return fallback;
+    console.error("Managed legacy redirect lookup failed; using the public continuity projection.", error);
+    return projectedOrBootstrap();
   }
 }
 

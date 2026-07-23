@@ -184,6 +184,7 @@ function StandardField({
     const socialImage = unwrappedMedia(seo.socialImage);
     const socialImageName = typeof socialImage?.name === "string" ? socialImage.name : "";
     const socialImageUrl = typeof socialImage?.url === "string" ? socialImage.url : "";
+    const compatibleOptions = mediaOptions.filter((option) => option.assetType === "image" || option.mime.startsWith("image/"));
     return (
       <fieldset className="editor-field-group">
         <legend>{field.label}</legend>
@@ -202,6 +203,16 @@ function StandardField({
         <label className="checkbox-row checkbox-row--form">
           <input name={`${field.name}.noIndex`} type="checkbox" defaultChecked={Boolean(seo.noIndex)} />
           <span>Hide from search engines</span>
+        </label>
+        <label>
+          <span>Use existing public social image</span>
+          <select name={`${field.name}.socialImageLibraryId`} defaultValue="">
+            <option value="">{socialImageName ? "Keep current image" : "Use the site default"}</option>
+            {compatibleOptions.map((option) => (
+              <option key={option.id} value={option.id}>{option.label}</option>
+            ))}
+          </select>
+          <small>Only published public images from the media library are available.</small>
         </label>
         <label>
           <span>Social sharing image</span>

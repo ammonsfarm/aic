@@ -38,9 +38,9 @@ test("the legacy writings index permanently redirects without exposing research 
 });
 
 test("home and Abiding in Christ are fixed published-CMS routes with explicit fallbacks", () => {
-  assert.match(homeRoute, /getStrapiPageByPageKey\("home"\)/);
+  assert.match(homeRoute, /getPublicFixedCmsPage\("home"\)/);
   assert.match(homeRoute, /<PastorWoodSite cmsPage=/);
-  assert.match(abidingRoute, /getStrapiPageByPageKey\("abiding-in-christ"\)/);
+  assert.match(abidingRoute, /getPublicFixedCmsPage\("abiding-in-christ"\)/);
   assert.match(abidingRoute, /page="abiding"/);
   assert.match(publicSite, /Browse the public radio archive/);
 });

@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 
 import { PastorWoodStructuredRadioPage } from "@/components/pastor-wood-structured-listings";
 import { publicArchiveCanonicalPath, publicArchivePage } from "@/lib/public-pagination";
+import { getPublicFixedCmsPage } from "@/lib/public-fixed-cms-page";
 import { parsePublicRadioArchiveState, publicRadioArchivePath } from "@/lib/public-radio-search";
 import { publicCmsPageMetadata, publicMetadata } from "@/lib/public-seo";
-import { getStrapiPageByPageKey } from "@/lib/strapi";
 import { getPublishedEpisodeBySlugResult } from "@/lib/strapi-structured-public";
 
 type PageProps = {
@@ -13,13 +13,7 @@ type PageProps = {
 };
 
 async function getRadioPage() {
-  try {
-    const page = await getStrapiPageByPageKey("radio");
-    return page?.active ? page : null;
-  } catch (error) {
-    console.error("Strapi lookup failed for radio; using the public fallback.", error);
-    return null;
-  }
+  return getPublicFixedCmsPage("radio");
 }
 
 export async function generateMetadata({ params, searchParams }: PageProps): Promise<Metadata> {

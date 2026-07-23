@@ -1,15 +1,11 @@
 import { PastorWoodContentPage } from "@/components/pastor-wood-site";
+import { getPublicFixedCmsPage } from "@/lib/public-fixed-cms-page";
 import { publicCmsPageMetadata } from "@/lib/public-seo";
-import { getStrapiPageByPageKey } from "@/lib/strapi";
+
+export const dynamic = "force-dynamic";
 
 async function getPage() {
-  try {
-    const page = await getStrapiPageByPageKey("abiding-in-christ");
-    return page?.active ? page : null;
-  } catch (error) {
-    console.error("Strapi lookup failed for abiding-in-christ; using the public fallback.", error);
-    return null;
-  }
+  return getPublicFixedCmsPage("abiding-in-christ");
 }
 
 export async function generateMetadata() {

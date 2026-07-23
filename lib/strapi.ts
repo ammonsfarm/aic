@@ -1,6 +1,7 @@
 import "server-only";
 
 import { cmsMediaPublicUrl } from "@/lib/cms-media-url";
+import { getProjectedContentByIdentity } from "@/lib/public-content-projection";
 import { fetchStrapiJsonResult } from "@/lib/strapi-request";
 
 export type StrapiMedia = {
@@ -40,10 +41,11 @@ export type StrapiPage = {
   noIndex: boolean;
   socialImage: StrapiMedia | null;
   sections: StrapiPageSection[];
+  continuityDegraded?: boolean;
 };
 
 export type StrapiPageLookupResult =
-  | { status: "found"; page: StrapiPage }
+  | { status: "found"; page: StrapiPage; degraded?: boolean }
   | { status: "not-found" }
   | { status: "unavailable" };
 
@@ -214,15 +216,35 @@ async function fetchStrapiPagesResult(url: URL, tags: string[]): Promise<StrapiP
   return page.active ? { status: "found", page } : { status: "not-found" };
 }
 
-async function fetchStrapiPages(url: URL, tags: string[]): Promise<StrapiPage | null> {
-  const result = await fetchStrapiPagesResult(url, tags);
-  return result.status === "found" ? result.page : null;
+async function projectedPage(
+  identityType: "slug" | "page-key",
+  identityValue: string,
+): Promise<StrapiPageLookupResult> {
+  try {
+    const result = await getProjectedContentByIdentity<Record<string, unknown>>(
+      "page",
+      identityType,
+      identityValue,
+    );
+    if (result.status === "not-found") return { status: "not-found" };
+    if (result.status === "absent") return { status: "unavailable" };
+    const page = normalizePage(result.item as StrapiEntity<StrapiPage>);
+    return page?.active ? { status: "found", page, degraded: true } : { status: "not-found" };
+  } catch (error) {
+    console.error(`Projected page lookup failed for ${identityValue}.`, error);
+    return { status: "unavailable" };
+  }
 }
 
 export async function getStrapiPageByPageKey(pageKey: string): Promise<StrapiPage | null> {
+  const result = await getStrapiPageByPageKeyResult(pageKey);
+  return result.status === "found" ? result.page : null;
+}
+
+export async function getStrapiPageByPageKeyResult(pageKey: string): Promise<StrapiPageLookupResult> {
   const baseUrl = strapiBaseUrl();
   if (!baseUrl) {
-    return null;
+    return projectedPage("page-key", pageKey);
   }
 
   const url = new URL("/api/pages", baseUrl);
@@ -234,7 +256,10 @@ export async function getStrapiPageByPageKey(pageKey: string): Promise<StrapiPag
   url.searchParams.set("populate[sections][populate]", "*");
   url.searchParams.set("populate[socialImage]", "*");
 
-  return fetchStrapiPages(url, [STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag(pageKey)]);
+  const live = await fetchStrapiPagesResult(url, [STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag(pageKey)]);
+  if (live.status === "found") return live;
+  if (live.status === "not-found") return { status: "not-found" };
+  return projectedPage("page-key", pageKey);
 }
 
 export async function getStrapiPageBySlug(slug: string): Promise<StrapiPage | null> {
@@ -245,14 +270,14 @@ export async function getStrapiPageBySlug(slug: string): Promise<StrapiPage | nu
 export async function getStrapiPageBySlugResult(slug: string): Promise<StrapiPageLookupResult> {
   const baseUrl = strapiBaseUrl();
   if (!baseUrl) {
-    return { status: "unavailable" };
+    return projectedPage("slug", slug);
   }
 
   let url: URL;
   try {
     url = new URL("/api/pages", baseUrl);
   } catch {
-    return { status: "unavailable" };
+    return projectedPage("slug", slug);
   }
   url.searchParams.set("filters[slug][$eq]", slug);
   url.searchParams.set("filters[active][$eq]", "true");
@@ -262,5 +287,7 @@ export async function getStrapiPageBySlugResult(slug: string): Promise<StrapiPag
   url.searchParams.set("populate[sections][populate]", "*");
   url.searchParams.set("populate[socialImage]", "*");
 
-  return fetchStrapiPagesResult(url, [STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag(slug)]);
+  const live = await fetchStrapiPagesResult(url, [STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag(slug)]);
+  if (live.status === "found" || live.status === "not-found") return live;
+  return projectedPage("slug", slug);
 }
