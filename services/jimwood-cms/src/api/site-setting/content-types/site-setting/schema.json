@@ -46,7 +46,7 @@
     },
     "showDonateButton": {
       "type": "boolean",
-      "default": true
+      "default": false
     },
     "donateButtonLabel": {
       "type": "string",
@@ -54,15 +54,15 @@
     },
     "donateButtonUrl": {
       "type": "string",
-      "default": "/donate"
+      "default": ""
     },
     "donorDashboardUrl": {
       "type": "string",
-      "default": "https://www.pastorwood.org/donor-dashboard/"
+      "default": ""
     },
     "subscriptionEnabled": {
       "type": "boolean",
-      "default": true
+      "default": false
     }
   }
 }

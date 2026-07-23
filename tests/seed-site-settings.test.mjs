@@ -23,6 +23,7 @@ function runSeed(baseUrl, provider = {}) {
       "MAILCHIMP_WEBHOOK_SECRET=webhook",
       "SUBSCRIPTION_RATE_LIMIT_SECRET=rate",
       "SUBSCRIPTION_UNSUBSCRIBE_SECRET=unsubscribe",
+      `PASTORWOOD_SUBSCRIPTIONS_ENABLED=${provider.runtimeEnabled ? "true" : "false"}`,
       "",
     ].join("\n"));
     const child = spawn(process.execPath, ["scripts/seed-strapi-site-settings.mjs"], {
@@ -126,7 +127,7 @@ test("a new draft site-settings singleton is initialized and verified through th
           topNavigation: initializationBodies.at(-1)?.data?.topNavigation ?? [],
           utilityNavigation: initializationBodies.at(-1)?.data?.utilityNavigation ?? [],
           footerNavigation: initializationBodies.at(-1)?.data?.footerNavigation ?? [],
-          showDonateButton: true,
+          showDonateButton: false,
           donateButtonLabel: "Donate",
           subscriptionEnabled: initializationBodies.at(-1)?.data?.subscriptionEnabled ?? false,
         },
@@ -168,7 +169,10 @@ test("a new draft site-settings singleton is initialized and verified through th
   assert.equal(verificationCount, 1);
   assert.equal(initializationBodies.length, 1);
   assert.equal(initializationBodies[0].data.siteName, "Abiding in Christ");
-  assert.equal(initializationBodies[0].data.subscriptionEnabled, true);
+  assert.equal(initializationBodies[0].data.showDonateButton, false);
+  assert.equal(initializationBodies[0].data.donateButtonUrl, "");
+  assert.equal(initializationBodies[0].data.donorDashboardUrl, "");
+  assert.equal(initializationBodies[0].data.subscriptionEnabled, false);
   assert.deepEqual(initializationBodies[0].actor, {
     id: "aic-deployment",
     email: "deployment@pastorwood.org",
@@ -177,13 +181,20 @@ test("a new draft site-settings singleton is initialized and verified through th
   assert.match(initializationBodies[0].note, /initialized the first site-settings draft/i);
   assert.match(result.stdout, /"initialized": true/);
   assert.match(result.stdout, /"siteName": "Abiding in Christ"/);
+  assert.match(result.stdout, /"subscriptionRuntimeEnabled": false/);
+
+  const runtimeReady = await runSeed(baseUrl, { runtimeEnabled: true });
+  assert.equal(runtimeReady.code, 0, runtimeReady.stderr);
+  assert.equal(initializationBodies.length, 2);
+  assert.equal(initializationBodies[1].data.subscriptionEnabled, false);
+  assert.match(runtimeReady.stdout, /"subscriptionLaunchReady": true/);
 
   const malformed = await runSeed(baseUrl, {
     serverPrefix: "evil.example.com/path",
     audienceId: "not-an-audience",
   });
   assert.equal(malformed.code, 0, malformed.stderr);
-  assert.equal(initializationBodies.length, 2);
-  assert.equal(initializationBodies[1].data.subscriptionEnabled, false);
+  assert.equal(initializationBodies.length, 3);
+  assert.equal(initializationBodies[2].data.subscriptionEnabled, false);
   assert.match(malformed.stdout, /"subscriptionProviderReady": false/);
 });

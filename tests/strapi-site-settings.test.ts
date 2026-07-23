@@ -87,6 +87,30 @@ describe("public Strapi site settings", () => {
     });
   });
 
+  it("keeps the effective subscription flag off until the explicit runtime gate is enabled", async () => {
+    for (const [key, value] of Object.entries({
+      MAILCHIMP_API_KEY: "key-us21",
+      MAILCHIMP_SERVER_PREFIX: "us21",
+      MAILCHIMP_AUDIENCE_ID: "9ad7bbba36",
+      MAILCHIMP_WEBHOOK_SECRET: "webhook",
+      SUBSCRIPTION_RATE_LIMIT_SECRET: "rate",
+      SUBSCRIPTION_UNSUBSCRIBE_SECRET: "unsubscribe",
+      PASTORWOOD_SUBSCRIPTIONS_ENABLED: "false",
+    })) {
+      vi.stubEnv(key, value);
+    }
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({
+      data: { documentId: "settings-1", subscriptionEnabled: true },
+    }), { status: 200 }))));
+
+    await expect(getStrapiSiteSettings()).resolves.toMatchObject({
+      subscriptionPublishedEnabled: true,
+      subscriptionEnabled: false,
+    });
+    vi.stubEnv("PASTORWOOD_SUBSCRIPTIONS_ENABLED", "true");
+    await expect(getStrapiSiteSettings()).resolves.toMatchObject({ subscriptionEnabled: true });
+  });
+
   it("treats a successful live empty singleton as authoritative and does not resurrect projection settings", async () => {
     projection.getByIdentity.mockResolvedValue({
       status: "found",

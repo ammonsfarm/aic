@@ -129,17 +129,15 @@ async function parseSiteSettingsInput(
   }
 
   const requestedDonateUrl = formString(formData, "donateButtonUrl");
-  const donateButtonUrl = requestedDonateUrl.startsWith("/")
-    ? safeCmsHref(requestedDonateUrl)
-    : safeExternalDonationUrl(requestedDonateUrl);
+  const donateButtonUrl = safeExternalDonationUrl(requestedDonateUrl);
   if (requestedDonateUrl && !donateButtonUrl) {
-    throw new Error("Donate button URL must be a same-site path, the canonical GiveWP form, or an allowlisted HTTPS provider URL.");
+    throw new Error("Donate button URL must use an explicitly allowlisted external HTTPS provider. PastorWood self-links are not payment destinations.");
   }
 
   const requestedDonorDashboardUrl = formString(formData, "donorDashboardUrl");
   const donorDashboardUrl = safeExternalDonorDashboardUrl(requestedDonorDashboardUrl);
   if (requestedDonorDashboardUrl && !donorDashboardUrl) {
-    throw new Error("Donor dashboard URL must be the canonical dashboard or an allowlisted HTTPS dashboard provider URL.");
+    throw new Error("Donor dashboard URL must use an explicitly allowlisted external HTTPS dashboard provider.");
   }
 
   const topNavigation = parseNavigationGroup(formData, "topNavigation");
@@ -250,12 +248,12 @@ export async function initializeSiteSettingsAction() {
       utilityNavigation: [],
       footerText: "A ministry of Jim Wood.",
       copyrightText: `© ${new Date().getUTCFullYear()} Abiding in Christ. All rights reserved.`,
-      showDonateButton: true,
+      showDonateButton: false,
       donateButtonLabel: "Donate",
-      donateButtonUrl: "/donate/",
-      donorDashboardUrl: "https://www.pastorwood.org/donor-dashboard/",
+      donateButtonUrl: "",
+      donorDashboardUrl: "",
       headerLogoId: null,
-      subscriptionEnabled: true,
+      subscriptionEnabled: false,
     },
     user,
     "Initialized site settings from the AIC content manager.",

@@ -2,6 +2,10 @@ import Link from "next/link";
 
 import type { ManagedStrapiPage } from "@/lib/strapi-management";
 import {
+  publicSubscriptionCaptureEnabled,
+  subscriptionProviderConfigReady,
+} from "@/lib/subscription-provider-config";
+import {
   getManagedSiteSettings,
   listManagedSiteSettingsRevisions,
   listSiteSettingsPageOptions,
@@ -257,6 +261,8 @@ export default async function SiteSettingsPage({ searchParams }: { searchParams:
 
   const navigationCount =
     settings.topNavigation.length + settings.utilityNavigation.length + settings.footerNavigation.length;
+  const subscriptionProviderReady = subscriptionProviderConfigReady();
+  const subscriptionRuntimeReady = publicSubscriptionCaptureEnabled();
 
   return (
     <div className="stack">
@@ -329,13 +335,13 @@ export default async function SiteSettingsPage({ searchParams }: { searchParams:
             </label>
             <label>
               <span>Donate button URL</span>
-              <input name="donateButtonUrl" defaultValue={settings.donateButtonUrl} />
-              <small>Use /donate/ for the local landing page, the canonical GiveWP form, or an explicitly allowlisted HTTPS provider.</small>
+              <input name="donateButtonUrl" type="url" defaultValue={settings.donateButtonUrl} />
+              <small>Use an explicitly allowlisted external HTTPS giving provider. Leave blank to keep public giving unavailable.</small>
             </label>
             <label>
               <span>Donor dashboard URL</span>
               <input name="donorDashboardUrl" type="url" defaultValue={settings.donorDashboardUrl} />
-              <small>Configured and validated separately from the giving form.</small>
+              <small>Use a separately allowlisted external HTTPS account provider. Leave blank when unavailable.</small>
             </label>
           </div>
 
@@ -375,9 +381,12 @@ export default async function SiteSettingsPage({ searchParams }: { searchParams:
             </label>
             <label className="checkbox-row">
               <input name="subscriptionEnabled" type="checkbox" defaultChecked={settings.subscriptionEnabled} />
-              <span>Show weekly devotional subscription forms</span>
+              <span>Request weekly devotional subscription forms</span>
             </label>
           </div>
+          <p className="muted-copy">
+            Publishing this request does not override protected operations controls. Forms are effective only when provider configuration is {subscriptionProviderReady ? "ready" : "incomplete"} and the runtime gate is {subscriptionRuntimeReady ? "enabled" : "disabled"}.
+          </p>
 
           <label>
             <span>Footer text</span>

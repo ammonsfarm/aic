@@ -52,6 +52,9 @@ test("subscription readiness and admin status use the same complete provider con
   assert.match(admin, /publicCaptureEnabled: publicSubscriptionCaptureEnabled\(\)/);
   assert.match(page, /summary\.provider\.unknown/);
   assert.match(page, /summary\.provider\.error/);
+  assert.match(page, /Provider configuration:/);
+  assert.match(page, /Runtime gate:/);
+  assert.match(page, /Published CMS gate:/);
 });
 
 test("contact UI remains present with CMS content and has explicit privacy consent", async () => {

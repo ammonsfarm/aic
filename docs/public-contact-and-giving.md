@@ -2,15 +2,15 @@
 
 ## Giving destinations
 
-The built-in donation destination is the verified GiveWP route:
+The former GiveWP destination is retained only as a rejected legacy reference:
 
 ```text
 https://www.pastorwood.org/?givewp-route=donation-form-view&form-id=14759
 ```
 
-PastorWood-hosted donation links must match that route and form ID exactly. A replacement payment provider must use HTTPS and its hostname must be listed in `PASTORWOOD_DONATION_ALLOWED_HOSTS`. `PASTORWOOD_DONATION_URL` can then select a URL on that host.
+After cutover, every `pastorwood.org` giving URL is a self-link and is invalid. A payment provider must use HTTPS and its hostname must be listed in `PASTORWOOD_DONATION_ALLOWED_HOSTS`. `PASTORWOOD_DONATION_URL` can then select a URL on that external host.
 
-The donor account service is configured independently with `PASTORWOOD_DONOR_DASHBOARD_URL` and `PASTORWOOD_DONOR_DASHBOARD_ALLOWED_HOSTS`. Allowlisting a giving host does not allow it to serve the dashboard, or vice versa. The same values are editable through the revisioned Strapi site-settings workflow. Invalid CMS or environment values fall back to the built-in destinations.
+The donor account service is configured independently with `PASTORWOOD_DONOR_DASHBOARD_URL` and `PASTORWOOD_DONOR_DASHBOARD_ALLOWED_HOSTS`. Allowlisting a giving host does not allow it to serve the dashboard, or vice versa. The same values are editable through the revisioned Strapi site-settings workflow. Empty, invalid, or PastorWood-hosted values fail closed and leave the corresponding public control unavailable.
 
 The trusted giving/dashboard panel remains on its public page even when the page has CMS sections. CTA URLs inside those sections use the same purpose-specific validation.
 

@@ -21,6 +21,7 @@ const authoritativeKeys = [
   "MAILCHIMP_WEBHOOK_SECRET",
   "SUBSCRIPTION_RATE_LIMIT_SECRET",
   "SUBSCRIPTION_UNSUBSCRIBE_SECRET",
+  "PASTORWOOD_SUBSCRIPTIONS_ENABLED",
 ];
 
 function loadEnv(filePath) {
@@ -78,6 +79,8 @@ const mailchimpAudienceId = process.env.MAILCHIMP_AUDIENCE_ID?.trim() || "";
 const subscriptionProviderReady = providerValuesPresent
   && /^[a-z0-9-]{2,24}$/.test(mailchimpServerPrefix)
   && /^[a-f0-9]{10,32}$/i.test(mailchimpAudienceId);
+const subscriptionRuntimeEnabled = process.env.PASTORWOOD_SUBSCRIPTIONS_ENABLED?.trim().toLowerCase() === "true";
+const subscriptionLaunchReady = subscriptionProviderReady && subscriptionRuntimeEnabled;
 
 const headers = {
   Authorization: `Bearer ${token}`,
@@ -124,7 +127,7 @@ if (existing?.data?.documentId) {
     },
   );
   let disabledUnconfiguredSubscription = false;
-  if (!subscriptionProviderReady && existing.data.subscriptionEnabled === true) {
+  if (!subscriptionLaunchReady && existing.data.subscriptionEnabled === true) {
     if (!existing.data.updatedAt) {
       throw new Error("Existing site settings have no concurrency timestamp; refusing an unaudited subscription change.");
     }
@@ -136,7 +139,7 @@ if (existing?.data?.documentId) {
           actor: deploymentActor,
           data: { subscriptionEnabled: false },
           expectedUpdatedAt: existing.data.updatedAt,
-          note: "Disabled public subscriptions because the complete provider and signing configuration is not present.",
+          note: "Disabled public subscriptions because the complete provider configuration and explicit runtime gate are not both ready.",
         }),
       },
     );
@@ -150,6 +153,8 @@ if (existing?.data?.documentId) {
       : baseline?.adopted === true ? "site-settings-baseline-adopted" : "site-settings-already-audited",
     documentId: existing.data.documentId,
     subscriptionProviderReady,
+    subscriptionRuntimeEnabled,
+    subscriptionLaunchReady,
   }, null, 2));
   process.exit(0);
 }
@@ -214,12 +219,12 @@ const payload = {
     footerNavigation,
     footerText: "A ministry of Jim Wood.",
     copyrightText: `© ${new Date().getFullYear()} Abiding in Christ. All rights reserved.`,
-    showDonateButton: true,
+    showDonateButton: false,
     donateButtonLabel: "Donate",
-    donateButtonUrl: "/donate/",
-    donorDashboardUrl: "https://www.pastorwood.org/donor-dashboard/",
+    donateButtonUrl: "",
+    donorDashboardUrl: "",
     headerLogo: null,
-    subscriptionEnabled: subscriptionProviderReady,
+    subscriptionEnabled: false,
   },
 };
 
@@ -249,5 +254,7 @@ console.log(JSON.stringify({
   donorDashboardUrl: data.donorDashboardUrl,
   subscriptionEnabled: data.subscriptionEnabled,
   subscriptionProviderReady,
+  subscriptionRuntimeEnabled,
+  subscriptionLaunchReady,
   initialized: true,
 }, null, 2));

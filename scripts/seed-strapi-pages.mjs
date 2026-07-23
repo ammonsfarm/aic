@@ -50,34 +50,16 @@ const pages = [
     slug: "donate",
     title: "Donate",
     heroTitle: "Donate Today",
-    heroBody: "Donation processing and donor account access remain on the original Pastor Wood site for now.",
-    sections: [
-      {
-        __component: "page-sections.cta-section",
-        eyebrow: "Support Abiding in Christ",
-        heading: "Support Abiding in Christ",
-        body: "Use the original secure giving page to support Pastor Wood and Abiding in Christ.",
-        buttonLabel: "Open on pastorwood.org",
-        buttonUrl: "https://www.pastorwood.org/?givewp-route=donation-form-view&form-id=14759",
-      },
-    ],
+    heroBody: "Secure giving remains unavailable until an external payment provider is intentionally configured.",
+    sections: [],
   },
   {
     pageKey: "donor-dashboard",
     slug: "donor-dashboard",
     title: "Donor Dashboard",
     heroTitle: "Donor Dashboard",
-    heroBody: "Donation processing and donor account access remain on the original Pastor Wood site for now.",
-    sections: [
-      {
-        __component: "page-sections.cta-section",
-        eyebrow: "Donor Dashboard",
-        heading: "Access your donor dashboard",
-        body: "Use the original donor dashboard for account access and giving history.",
-        buttonLabel: "Open on pastorwood.org",
-        buttonUrl: "https://www.pastorwood.org/donor-dashboard/",
-      },
-    ],
+    heroBody: "Donor account access remains unavailable until an external account provider is intentionally configured.",
+    sections: [],
   },
   {
     pageKey: "bible-study",

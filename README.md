@@ -25,6 +25,12 @@ ssh ammonsfarm@farm "curl -I http://127.0.0.1:8087/"
 
 For Cloudflare Zero Trust, point the tunnel to `http://127.0.0.1:8087` (or `http://192.168.1.141:8087` from your network edge path).
 
+### PastorWood public launch gates
+
+The canonical `/mnt/storage/aic/.env` is authoritative for public launch state. Development uses `PASTORWOOD_LAUNCH_STAGE=development`, exact origin `https://aic.ammonsfarm.org`, and mandatory `PASTORWOOD_ALLOW_INDEXING=false`. The production hostname is accepted only with the explicit `production-cutover` stage. Public devotional signup defaults off with `PASTORWOOD_SUBSCRIPTIONS_ENABLED=false`; it becomes effective only when the published CMS switch is also on and all Mailchimp, webhook-signing, rate-limit, and unsubscribe settings are valid. The deploy check rejects an enabled runtime gate when the provider worker install toggle is off or provider configuration is incomplete. It never enables signup merely because secrets exist.
+
+Giving and donor-account links also fail closed. `PASTORWOOD_DONATION_URL` and `PASTORWOOD_DONOR_DASHBOARD_URL` must point to separately allowlisted external HTTPS hosts. A `pastorwood.org` URL is a self-link after cutover and is never treated as a payment or account provider.
+
 ## Protected episode audio
 
 Episode pages use the authenticated route `/api/audio/[trackId]` for MP3 playback. The route streams private MinIO objects from `local-minio/aic/podcasts/` through the Next app, so browsers do not receive public GCS links.

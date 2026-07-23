@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { safeCmsHref, safeCmsImageSrc, sanitizeCmsHtml } from "@/lib/cms-html";
 import { safeExternalDonationUrl } from "@/lib/public-donation";
@@ -11,6 +11,10 @@ import { isKnownPrivatePath, singleSegmentSlug } from "@/lib/route-access";
 import { isContentManagerRole, isResearchUserRole, normalizeAicRole } from "@/lib/rbac";
 import { applicationSecurityHeaders, contentSecurityPolicy } from "@/lib/security-headers";
 import { isPublicStrapiChange } from "@/lib/strapi-webhook";
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe("CMS page identity", () => {
   it("keeps an existing page key immutable when its slug changes", () => {
@@ -98,11 +102,14 @@ describe("CMS HTML sanitizer", () => {
 
   it("restricts external donation destinations to approved hosts and path", () => {
     expect(safeExternalDonationUrl("https://www.pastorwood.org/?givewp-route=donation-form-view&form-id=14759"))
-      .toBe("https://www.pastorwood.org/?givewp-route=donation-form-view&form-id=14759");
+      .toBeNull();
     expect(safeExternalDonationUrl("https://www.pastorwood.org/donations/givewp-donation-form/")).toBeNull();
     expect(safeExternalDonationUrl("https://www.pastorwood.org/not-donations/phish")).toBeNull();
     expect(safeExternalDonationUrl("https://evil.example/donations/give")).toBeNull();
     expect(safeExternalDonationUrl("//evil.example/donations/give")).toBeNull();
+    vi.stubEnv("PASTORWOOD_DONATION_ALLOWED_HOSTS", "give.example.org");
+    expect(safeExternalDonationUrl("https://give.example.org/donations/give"))
+      .toBe("https://give.example.org/donations/give");
   });
 });
 

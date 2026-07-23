@@ -5,13 +5,27 @@ import { SubscriberSuppressionForm } from "@/components/subscriber-suppression-f
 import { SubscriptionProviderRetryForm } from "@/components/subscription-provider-retry-form";
 import { requireContentManagerOrAdmin } from "@/lib/rbac";
 import { getSubscriptionProviderSummary } from "@/lib/subscription-provider-admin";
+import { getPublishedManagedSiteSettings } from "@/lib/strapi-site-settings-management";
 
 export const dynamic = "force-dynamic";
 
 export default async function NewsletterSubscribersPage() {
   await requireContentManagerOrAdmin();
-  const summary = await getSubscriptionProviderSummary();
+  const [summary, publishedLookup] = await Promise.all([
+    getSubscriptionProviderSummary(),
+    getPublishedManagedSiteSettings()
+      .then((settings) => ({ available: true as const, settings }))
+      .catch((error) => {
+        console.error("Published site-settings readiness lookup failed", error);
+        return { available: false as const, settings: null };
+      }),
+  ]);
+  const publishedSettings = publishedLookup.settings;
   const providerReady = summary.provider.configured;
+  const runtimeReady = summary.provider.publicCaptureEnabled;
+  const cmsGateReady = publishedSettings?.subscriptionEnabled === true;
+  const cmsGateUnavailable = !publishedLookup.available;
+  const publicSignupReady = providerReady && runtimeReady && cmsGateReady;
   return (
     <div className="stack">
       <MountainPanel
@@ -25,8 +39,19 @@ export default async function NewsletterSubscribersPage() {
             <h2 id="subscription-delivery-heading">Mailchimp delivery</h2>
             <p>New signups remain pending until Mailchimp confirms double opt-in. Signed webhooks keep unsubscribe, bounce, and suppression state synchronized.</p>
           </div>
-          <span className={`status-pill ${providerReady ? "status-pill--good" : "status-pill--warn"}`}>
-            {providerReady ? "Configured" : "Configuration required"}
+          <span className={`status-pill ${publicSignupReady ? "status-pill--good" : "status-pill--warn"}`}>
+            {publicSignupReady ? "Public signup ready" : "Public signup disabled"}
+          </span>
+        </div>
+        <div className="status-pills status-pills--compact" aria-label="Public signup readiness gates">
+          <span className={providerReady ? "status-item status-item--active" : "status-item status-item--warn"}>
+            Provider configuration: {providerReady ? "ready" : "incomplete"}
+          </span>
+          <span className={runtimeReady ? "status-item status-item--active" : "status-item status-item--warn"}>
+            Runtime gate: {runtimeReady ? "enabled" : "disabled"}
+          </span>
+          <span className={cmsGateReady ? "status-item status-item--active" : "status-item status-item--warn"}>
+            Published CMS gate: {cmsGateUnavailable ? "unavailable" : cmsGateReady ? "enabled" : "disabled"}
           </span>
         </div>
         <div className="data-card responsive-table">
@@ -48,8 +73,13 @@ export default async function NewsletterSubscribersPage() {
         {!providerReady ? (
           <p className="notice-card status-item--warn" role="status">Set all protected Mailchimp, signed-webhook, rate-limit, and unsubscribe settings with valid provider routing before enabling delivery. No secret value is displayed here.</p>
         ) : null}
-        {!summary.provider.publicCaptureEnabled ? (
+        {!runtimeReady ? (
           <p className="notice-card status-item--warn" role="status">Public signup is explicitly disabled at runtime. Existing unsubscribe and provider-reconciliation work remains visible here.</p>
+        ) : null}
+        {cmsGateUnavailable ? (
+          <p className="notice-card status-item--warn" role="status">The published CMS subscription setting could not be verified, so public signup remains disabled.</p>
+        ) : !cmsGateReady ? (
+          <p className="notice-card status-item--warn" role="status">Publish the CMS subscription switch only after provider configuration and the runtime gate are intentionally ready.</p>
         ) : null}
         {summary.outbox.latestError ? <p className="notice-card status-item--warn" role="alert">Latest provider error: {summary.outbox.latestError}</p> : null}
         <SubscriptionProviderRetryForm disabled={!summary.outbox.failed} />

@@ -5,7 +5,10 @@ import { getProjectedContentByIdentity } from "@/lib/public-content-projection";
 import { STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag } from "@/lib/strapi";
 import { fetchStrapiJsonResult } from "@/lib/strapi-request";
 import { safeCmsHref } from "@/lib/cms-html";
-import { subscriptionProviderConfigReady } from "@/lib/subscription-provider-config";
+import {
+  publicSubscriptionCaptureEnabled,
+  subscriptionProviderConfigReady,
+} from "@/lib/subscription-provider-config";
 
 export const STRAPI_SITE_SETTINGS_CACHE_TAG = "strapi:site-settings";
 
@@ -144,7 +147,7 @@ function normalizeSettings(entity: StrapiEntity<StrapiSiteSettings>): StrapiSite
     utilityNavigation: normalizeNavigation(source.utilityNavigation),
     footerText: getString(source.footerText),
     copyrightText: getString(source.copyrightText),
-    showDonateButton: getBoolean(source.showDonateButton, true),
+    showDonateButton: getBoolean(source.showDonateButton, false),
     donateButtonLabel: getString(source.donateButtonLabel) || "Donate",
     donateButtonUrl: getString(source.donateButtonUrl),
     donorDashboardUrl: getString(source.donorDashboardUrl),
@@ -154,7 +157,9 @@ function normalizeSettings(entity: StrapiEntity<StrapiSiteSettings>): StrapiSite
       name: getString(headerLogoSource.name),
     } : null,
     subscriptionPublishedEnabled,
-    subscriptionEnabled: subscriptionPublishedEnabled && subscriptionProviderConfigReady(),
+    subscriptionEnabled: subscriptionPublishedEnabled
+      && subscriptionProviderConfigReady()
+      && publicSubscriptionCaptureEnabled(),
   };
 }
 

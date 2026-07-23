@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  DEFAULT_DONATION_URL,
-  DEFAULT_DONOR_DASHBOARD_URL,
+  LEGACY_DONATION_URL,
+  LEGACY_DONOR_DASHBOARD_URL,
   getPublicDonationUrl,
   getPublicDonorDashboardUrl,
   safeExternalDonationUrl,
@@ -14,10 +14,10 @@ afterEach(() => {
 });
 
 describe("public donation destinations", () => {
-  it("uses only the verified canonical GiveWP query route on PastorWood hosts", () => {
-    expect(DEFAULT_DONATION_URL).toBe("https://www.pastorwood.org/?givewp-route=donation-form-view&form-id=14759");
-    expect(safeExternalDonationUrl(DEFAULT_DONATION_URL)).toBe(DEFAULT_DONATION_URL);
-    expect(safeExternalDonationUrl("https://pastorwood.org/?form-id=14759&givewp-route=donation-form-view")).toBe(DEFAULT_DONATION_URL);
+  it("rejects legacy canonical GiveWP self-links after cutover", () => {
+    expect(LEGACY_DONATION_URL).toBe("https://www.pastorwood.org/?givewp-route=donation-form-view&form-id=14759");
+    expect(safeExternalDonationUrl(LEGACY_DONATION_URL)).toBeNull();
+    expect(safeExternalDonationUrl("https://pastorwood.org/?form-id=14759&givewp-route=donation-form-view")).toBeNull();
     for (const value of [
       "https://www.pastorwood.org/donations/givewp-donation-form/",
       "https://www.pastorwood.org/donate/",
@@ -42,26 +42,25 @@ describe("public donation destinations", () => {
   it("keeps donor dashboard configuration and allowlisting separate", () => {
     vi.stubEnv("PASTORWOOD_DONATION_ALLOWED_HOSTS", "give.example.org");
     vi.stubEnv("PASTORWOOD_DONOR_DASHBOARD_ALLOWED_HOSTS", "account.example.org");
-    expect(safeExternalDonorDashboardUrl(DEFAULT_DONOR_DASHBOARD_URL)).toBe(DEFAULT_DONOR_DASHBOARD_URL);
+    expect(safeExternalDonorDashboardUrl(LEGACY_DONOR_DASHBOARD_URL)).toBeNull();
     expect(safeExternalDonorDashboardUrl("https://www.pastorwood.org/donor-dashboard?redirect=evil")).toBeNull();
     expect(safeExternalDonorDashboardUrl("https://account.example.org/portal"))
       .toBe("https://account.example.org/portal");
     expect(safeExternalDonorDashboardUrl("https://give.example.org/portal")).toBeNull();
   });
 
-  it("falls back safely when configured values are invalid", () => {
+  it("fails closed when configured values are invalid", () => {
     vi.stubEnv("PASTORWOOD_DONATION_URL", "https://evil.example/pay");
     vi.stubEnv("PASTORWOOD_DONOR_DASHBOARD_URL", "https://evil.example/account");
-    expect(getPublicDonationUrl("https://evil.example/pay")).toBe(DEFAULT_DONATION_URL);
-    expect(getPublicDonorDashboardUrl("https://evil.example/account")).toBe(DEFAULT_DONOR_DASHBOARD_URL);
+    expect(getPublicDonationUrl("https://evil.example/pay")).toBeNull();
+    expect(getPublicDonorDashboardUrl("https://evil.example/account")).toBeNull();
   });
 
-  it("fails closed on canonical self-links in production even when the public URL is absent or wrong", () => {
-    vi.stubEnv("NODE_ENV", "production");
+  it("fails closed on canonical self-links in every environment", () => {
     for (const publicUrl of ["", "not-a-url", "https://preview.example.test"]) {
       vi.stubEnv("PASTORWOOD_PUBLIC_URL", publicUrl);
-      expect(safeExternalDonationUrl(DEFAULT_DONATION_URL)).toBeNull();
-      expect(safeExternalDonorDashboardUrl(DEFAULT_DONOR_DASHBOARD_URL)).toBeNull();
+      expect(safeExternalDonationUrl(LEGACY_DONATION_URL)).toBeNull();
+      expect(safeExternalDonorDashboardUrl(LEGACY_DONOR_DASHBOARD_URL)).toBeNull();
       expect(getPublicDonationUrl()).toBeNull();
       expect(getPublicDonorDashboardUrl()).toBeNull();
     }

@@ -5,6 +5,10 @@ import { PastorWoodSitePreview } from "@/components/pastor-wood-site";
 import { getManagedSiteSettings, type ManagedNavigationItem } from "@/lib/strapi-site-settings-management";
 import type { StrapiNavigationItem } from "@/lib/strapi-site-settings";
 import { requireContentManagerOrAdmin } from "@/lib/rbac";
+import {
+  publicSubscriptionCaptureEnabled,
+  subscriptionProviderConfigReady,
+} from "@/lib/subscription-provider-config";
 
 export const dynamic = "force-dynamic";
 
@@ -51,12 +55,22 @@ export default async function SiteSettingsDraftPreview() {
     notFound();
   }
 
+  const subscriptionReady = settings.subscriptionEnabled
+    && subscriptionProviderConfigReady()
+    && publicSubscriptionCaptureEnabled();
+
   return (
     <>
       <aside className="notice-card" role="status">
         <strong>Draft settings preview</strong>
-        <p>This protected preview is not the published site configuration.</p>
+        <p>This protected preview is not the published site configuration. Subscription forms remain hidden unless the draft request, provider configuration, and runtime gate are all enabled.</p>
       </aside>
+      {settings.subscriptionEnabled && !subscriptionReady ? (
+        <aside className="notice-card status-item--warn" role="status">
+          <strong>Subscription request is not operational</strong>
+          <p>The draft switch is on, but at least one protected provider or runtime gate is not ready. This preview matches the fail-closed public behavior.</p>
+        </aside>
+      ) : null}
       <PastorWoodSitePreview
         siteSettings={{
           siteName: settings.siteName,
@@ -75,7 +89,7 @@ export default async function SiteSettingsDraftPreview() {
             name: settings.headerLogo.name,
           } : null,
           subscriptionPublishedEnabled: settings.subscriptionEnabled,
-          subscriptionEnabled: settings.subscriptionEnabled,
+          subscriptionEnabled: subscriptionReady,
         }}
       />
     </>

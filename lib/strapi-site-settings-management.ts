@@ -260,12 +260,12 @@ function normalizeSettings(entity: StrapiEntity<ManagedSiteSettings>): ManagedSi
     utilityNavigation: normalizeNavigation(source.utilityNavigation),
     footerText: getString(source.footerText),
     copyrightText: getString(source.copyrightText),
-    showDonateButton: getBoolean(source.showDonateButton, true),
+    showDonateButton: getBoolean(source.showDonateButton, false),
     donateButtonLabel: getString(source.donateButtonLabel) || "Donate",
-    donateButtonUrl: getString(source.donateButtonUrl) || "/donate",
-    donorDashboardUrl: getString(source.donorDashboardUrl) || "https://www.pastorwood.org/donor-dashboard/",
+    donateButtonUrl: getString(source.donateButtonUrl),
+    donorDashboardUrl: getString(source.donorDashboardUrl),
     headerLogo: normalizeMedia(source.headerLogo),
-    subscriptionEnabled: getBoolean(source.subscriptionEnabled, true),
+    subscriptionEnabled: getBoolean(source.subscriptionEnabled, false),
     updatedAt: getString(source.updatedAt),
     publishedAt: getString(source.publishedAt),
     publicationStatus: getString(source.publishedAt) ? "published" : "draft",
@@ -353,6 +353,23 @@ export async function getManagedSiteSettings() {
     publishedAt: publishedSettings?.publishedAt ?? "",
     publicationStatus: publishedSettings ? "published" as const : "draft" as const,
   };
+}
+
+/** Read the published CMS switch directly for protected operational readiness.
+ * This intentionally bypasses all public-site cutover and projection fallbacks.
+ */
+export async function getPublishedManagedSiteSettings() {
+  const baseUrl = requireConfig();
+  const url = new URL("/api/site-setting", baseUrl);
+  url.searchParams.set("status", "published");
+  url.searchParams.set("populate[headerLogo]", "*");
+  try {
+    const payload = await strapiJson<StrapiSingleResponse<ManagedSiteSettings>>(url);
+    return payload.data ? normalizeSettings(payload.data) : null;
+  } catch (error) {
+    if (error instanceof StrapiSiteSettingsRequestError && error.status === 404) return null;
+    throw error;
+  }
 }
 
 export async function listSiteSettingsPageOptions() {

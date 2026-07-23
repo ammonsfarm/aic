@@ -1007,9 +1007,9 @@ export interface ApiSiteSettingSiteSetting extends Struct.SingleTypeSchema {
     donateButtonLabel: Schema.Attribute.String &
       Schema.Attribute.DefaultTo<'Donate'>;
     donateButtonUrl: Schema.Attribute.String &
-      Schema.Attribute.DefaultTo<'/donate'>;
+      Schema.Attribute.DefaultTo<''>;
     donorDashboardUrl: Schema.Attribute.String &
-      Schema.Attribute.DefaultTo<'https://www.pastorwood.org/donor-dashboard/'>;
+      Schema.Attribute.DefaultTo<''>;
     footerNavigation: Schema.Attribute.Component<
       'navigation.navigation-item',
       true
@@ -1024,12 +1024,12 @@ export interface ApiSiteSettingSiteSetting extends Struct.SingleTypeSchema {
       Schema.Attribute.Private;
     publishedAt: Schema.Attribute.DateTime;
     showDonateButton: Schema.Attribute.Boolean &
-      Schema.Attribute.DefaultTo<true>;
+      Schema.Attribute.DefaultTo<false>;
     siteName: Schema.Attribute.String &
       Schema.Attribute.Required &
       Schema.Attribute.DefaultTo<'Abiding in Christ'>;
     subscriptionEnabled: Schema.Attribute.Boolean &
-      Schema.Attribute.DefaultTo<true>;
+      Schema.Attribute.DefaultTo<false>;
     topNavigation: Schema.Attribute.Component<
       'navigation.navigation-item',
       true

@@ -10,7 +10,7 @@ vi.mock("@/lib/strapi-site-settings", async (importOriginal) => {
 });
 
 import { PastorWoodContentPage, PastorWoodShell } from "@/components/pastor-wood-site";
-import { DEFAULT_DONATION_URL, DEFAULT_DONOR_DASHBOARD_URL } from "@/lib/public-donation";
+import { LEGACY_DONATION_URL, LEGACY_DONOR_DASHBOARD_URL } from "@/lib/public-donation";
 import type { StrapiSiteSettings } from "@/lib/strapi-site-settings";
 
 function settings(overrides: Partial<StrapiSiteSettings> = {}): StrapiSiteSettings {
@@ -23,8 +23,8 @@ function settings(overrides: Partial<StrapiSiteSettings> = {}): StrapiSiteSettin
     copyrightText: "",
     showDonateButton: true,
     donateButtonLabel: "Donate",
-    donateButtonUrl: DEFAULT_DONATION_URL,
-    donorDashboardUrl: DEFAULT_DONOR_DASHBOARD_URL,
+    donateButtonUrl: LEGACY_DONATION_URL,
+    donorDashboardUrl: LEGACY_DONOR_DASHBOARD_URL,
     headerLogo: null,
     subscriptionPublishedEnabled: false,
     subscriptionEnabled: false,

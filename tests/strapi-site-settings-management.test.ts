@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createManagedSiteSettingsWithWorkflow,
   getManagedSiteSettings,
+  getPublishedManagedSiteSettings,
   listManagedSiteSettingsRevisions,
   rollbackManagedSiteSettings,
   type ManagedSiteSettingsInput,
@@ -77,6 +78,22 @@ describe("site-settings editorial management", () => {
       note: "Initial settings",
       data: { subscriptionEnabled: true, headerLogo: null },
     });
+  });
+
+  it("reads the raw published subscription gate independently of draft and public cutover state", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      data: { documentId: "settings-published", subscriptionEnabled: true, publishedAt: "2026-07-22T12:00:00.000Z" },
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getPublishedManagedSiteSettings()).resolves.toMatchObject({
+      documentId: "settings-published",
+      subscriptionEnabled: true,
+      publicationStatus: "published",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url] = fetchMock.mock.calls[0] as [URL];
+    expect(url.searchParams.get("status")).toBe("published");
   });
 
   it("rolls back through the workflow and exhaustively reads revision pages", async () => {

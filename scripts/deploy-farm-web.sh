@@ -180,6 +180,9 @@ fi
 .venv-pg/bin/python -m pip install -r requirements-postgres.txt
 
 echo "Running release tests and builds before database or service mutation..."
+NODE_ENV=production node scripts/check-pastorwood-launch-config.mjs \
+  --env-file /mnt/storage/aic/.env \
+  --subscription-worker-enabled "${INSTALL_SUBSCRIPTION_PROVIDER_WORKER}"
 npm test
 npm --prefix services/jimwood-cms test
 npm run lint
