@@ -429,7 +429,9 @@ test("coordinated backup quiesces Strapi and drops privileges for database acces
   assert.match(script, /with-aic-db-env\.sh/);
   assert.match(script, /http:\/\/127\.0\.0\.1:1337\/_health/);
   assert.match(script, /\/run\/aic-strapi\/aic-api-token/);
-  assert.match(script, /sync-aic-strapi-env\.sh/);
+  assert.match(script, /verify_managed_token_sync/);
+  assert.match(script, /configured_token.*runtime_token/);
+  assert.doesNotMatch(script, /sync-aic-strapi-env\.sh/);
   assert.match(script, /one read-only REPEATABLE READ snapshot/);
   const stopIndex = script.indexOf('systemctl stop "${strapi_service}"');
   const backupIndex = script.lastIndexOf('"${ops_root}/backup-strapi.sh"');

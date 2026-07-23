@@ -10,7 +10,7 @@ from pathlib import Path
 
 TOC_RELATION = re.compile(
     r"^\s*\d+;\s+\d+\s+\d+\s+"
-    r"(?P<kind>TABLE DATA|SEQUENCE SET|TABLE|SEQUENCE)\s+"
+    r"(?P<kind>TABLE DATA|SEQUENCE SET|TABLE|SEQUENCE(?! OWNED BY))\s+"
     r"(?P<schema>\S+)\s+(?P<name>\S+)\s+"
 )
 EXPECTED_KINDS = ("TABLE", "TABLE DATA", "SEQUENCE", "SEQUENCE SET")

@@ -389,9 +389,14 @@ test("offline TOC validation rejects any public relation outside the exact inven
     const name = qualifiedName.slice("public.".length);
     lines.push(`${identifier++}; 1259 ${identifier} SEQUENCE public ${name} owner`);
     lines.push(`${identifier++}; 0 ${identifier} SEQUENCE SET public ${name} owner`);
+    lines.push(`${identifier++}; 0 ${identifier} SEQUENCE OWNED BY public ${name} owner`);
   }
-  lines.push(`${identifier++}; 1259 ${identifier} TABLE public unexpected_table owner`);
   try {
+    writeFileSync(listing, `${lines.join("\n")}\n`, { mode: 0o600 });
+    const validResult = spawnSync("python3", [validator, "public", listing], { encoding: "utf8" });
+    assert.equal(validResult.status, 0, validResult.stderr || validResult.stdout);
+
+    lines.push(`${identifier++}; 1259 ${identifier} TABLE public unexpected_table owner`);
     writeFileSync(listing, `${lines.join("\n")}\n`, { mode: 0o600 });
     const result = spawnSync("python3", [validator, "public", listing], { encoding: "utf8" });
     assert.notEqual(result.status, 0);

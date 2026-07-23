@@ -13,13 +13,34 @@ service_was_active=0
 
 for required in \
   "${ops_root}/with-aic-db-env.sh" \
-  "${ops_root}/backup-strapi.sh" \
-  "${ops_root}/sync-aic-strapi-env.sh"; do
+  "${ops_root}/backup-strapi.sh"; do
   if [[ ! -x "${required}" ]]; then
     echo "Required backup command is missing or not executable: ${required}" >&2
     exit 1
   fi
 done
+
+verify_managed_token_sync() {
+  local aic_env="/mnt/storage/aic/.env"
+  local token_file="/run/aic-strapi/aic-api-token"
+  local runtime_token configured_token
+  if [[ -L "${aic_env}" || -L "${token_file}" ||
+        ! -f "${aic_env}" || ! -f "${token_file}" ]]; then
+    echo "Canonical AIC environment and managed Strapi token must be regular files." >&2
+    return 1
+  fi
+  if [[ "$(grep -Ec '^STRAPI_API_TOKEN=' "${aic_env}" || true)" != "1" ]]; then
+    echo "Canonical AIC environment must contain exactly one managed Strapi token." >&2
+    return 1
+  fi
+  runtime_token="$(tr -d '\r\n' < "${token_file}")"
+  configured_token="$(sed -n 's/^STRAPI_API_TOKEN=//p' "${aic_env}")"
+  if [[ ! "${runtime_token}" =~ ^[0-9a-f]{256}$ ||
+        "${configured_token}" != "${runtime_token}" ]]; then
+    echo "Managed Strapi token no longer matches the canonical AIC environment." >&2
+    return 1
+  fi
+}
 
 restart_strapi() {
   status="$1"
@@ -41,8 +62,8 @@ restart_strapi() {
       if [[ "${ready}" != "1" ]]; then
         echo "${strapi_service} restarted but did not become ready." >&2
         status=1
-      elif ! "${ops_root}/sync-aic-strapi-env.sh"; then
-        echo "Strapi restarted but its managed AIC token could not be synchronized." >&2
+      elif ! verify_managed_token_sync; then
+        echo "Strapi restarted but its managed AIC token could not be verified." >&2
         status=1
       fi
     fi
