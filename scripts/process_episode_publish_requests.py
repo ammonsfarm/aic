@@ -32,9 +32,14 @@ import psycopg
 from psycopg.rows import dict_row
 
 try:
-    from scripts.aic_database_env import database_dsn, load_canonical_aic_env
+    from scripts.aic_database_env import (
+        DATABASE_ENV_KEYS,
+        DATABASE_ROUTING_ENV_KEYS,
+        database_dsn,
+        load_canonical_aic_env,
+    )
 except ModuleNotFoundError:  # Direct execution from /mnt/storage/aic/scripts.
-    from aic_database_env import database_dsn, load_canonical_aic_env
+    from aic_database_env import DATABASE_ENV_KEYS, DATABASE_ROUTING_ENV_KEYS, database_dsn, load_canonical_aic_env
 
 
 DEFAULT_ENV_FILE = Path("/mnt/storage/aic/.env")
@@ -94,7 +99,10 @@ def load_supplemental_env(path: Path) -> None:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+        key = key.strip()
+        if key in (*DATABASE_ENV_KEYS, *DATABASE_ROUTING_ENV_KEYS):
+            continue
+        os.environ.setdefault(key, value.strip().strip('"').strip("'"))
 
 
 def dsn() -> str:

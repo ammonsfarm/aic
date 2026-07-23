@@ -5,12 +5,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 from pathlib import Path
 import re
 from typing import Any, Iterable
 
 import psycopg
+
+from scripts.aic_database_env import CANONICAL_AIC_ENV, database_dsn, load_canonical_aic_env
 
 
 DEFAULT_TRANSCRIPT_DIR = Path("/home/ammonsfarm/gemini-transcribe")
@@ -18,30 +19,17 @@ TRACK_ID_PATTERN = re.compile(r"^(?:[0-9]+|sa_[0-9]+|wp-sermon:[0-9]+|cms_[a-z0-
 
 
 def load_env(path: Path) -> None:
-    if not path.exists():
-        return
-    for raw_line in path.read_text().splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+    load_canonical_aic_env(path)
 
 
 def dsn() -> str:
-    return (
-        f"host={os.environ['DB_HOST']} "
-        f"port={os.environ.get('DB_PORT', '5432')} "
-        f"dbname={os.environ.get('DB_NAME', 'aic')} "
-        f"user={os.environ['DB_USER']} "
-        f"password={os.environ['DB_PASSWORD']}"
-    )
+    return database_dsn(application_name="aic-transcript-segment-sync")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Sync transcript JSON segments into the AIC Postgres serving DB.")
     parser.add_argument("--transcript-dir", type=Path, default=DEFAULT_TRANSCRIPT_DIR)
-    parser.add_argument("--env-file", type=Path, default=Path(".env"))
+    parser.add_argument("--env-file", type=Path, default=CANONICAL_AIC_ENV)
     parser.add_argument("--batch-size", type=int, default=1000)
     parser.add_argument("--commit-every", type=int, default=100)
     parser.add_argument("--limit", type=int, default=0, help="Optional max transcript files to process.")

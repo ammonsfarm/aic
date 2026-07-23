@@ -14,9 +14,9 @@ from pathlib import Path
 import psycopg
 
 try:
-    from scripts.aic_database_env import database_dsn, load_canonical_aic_env
+    from scripts.aic_database_env import CANONICAL_AIC_ENV, database_dsn, load_canonical_aic_env
 except ModuleNotFoundError:  # Direct execution from /mnt/storage/aic/scripts.
-    from aic_database_env import database_dsn, load_canonical_aic_env
+    from aic_database_env import CANONICAL_AIC_ENV, database_dsn, load_canonical_aic_env
 
 
 DEFAULT_MAX_ATTEMPTS = 5
@@ -34,7 +34,7 @@ def dsn() -> str:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--env-file", type=Path, default=Path(".env"))
+    parser.add_argument("--env-file", type=Path, default=CANONICAL_AIC_ENV)
     parser.add_argument("--limit", type=int, default=25)
     parser.add_argument("--edit-id", type=int, action="append", default=[])
     parser.add_argument("--embedding-model")

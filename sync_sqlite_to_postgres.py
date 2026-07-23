@@ -5,42 +5,30 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sqlite3
 from pathlib import Path
 from typing import Iterable
 
 import psycopg
 
+from scripts.aic_database_env import CANONICAL_AIC_ENV, database_dsn, load_canonical_aic_env
+
 
 DEFAULT_SQLITE_DB = Path("rag_test.sqlite3")
 
 
 def load_env(path: Path) -> None:
-    if not path.exists():
-        return
-    for raw_line in path.read_text().splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+    load_canonical_aic_env(path)
 
 
 def dsn() -> str:
-    return (
-        f"host={os.environ['DB_HOST']} "
-        f"port={os.environ.get('DB_PORT', '5432')} "
-        f"dbname={os.environ.get('DB_NAME', 'aic')} "
-        f"user={os.environ['DB_USER']} "
-        f"password={os.environ['DB_PASSWORD']}"
-    )
+    return database_dsn(application_name="aic-sqlite-serving-sync")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Sync SQLite staging data into the AIC Postgres serving DB.")
     parser.add_argument("--sqlite-db", type=Path, default=DEFAULT_SQLITE_DB)
-    parser.add_argument("--env-file", type=Path, default=Path(".env"))
+    parser.add_argument("--env-file", type=Path, default=CANONICAL_AIC_ENV)
     parser.add_argument("--batch-size", type=int, default=500)
     parser.add_argument("--skip-vectors", action="store_true")
     return parser.parse_args()

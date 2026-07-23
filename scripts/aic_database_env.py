@@ -23,6 +23,18 @@ DATABASE_ENV_KEYS = (
     "DB_USER",
     "DB_PASSWORD",
 )
+LIBPQ_ROUTING_ENV_KEYS = (
+    "PGHOST",
+    "PGHOSTADDR",
+    "PGPORT",
+    "PGDATABASE",
+    "PGUSER",
+    "PGPASSWORD",
+    "PGPASSFILE",
+    "PGSERVICE",
+    "PGSERVICEFILE",
+)
+DATABASE_ROUTING_ENV_KEYS = (*LIBPQ_ROUTING_ENV_KEYS, "DATABASE_URL")
 STRAPI_MUTATION_ENV_KEYS = (
     "STRAPI_URL",
     "STRAPI_MANAGEMENT_URL",
@@ -47,6 +59,8 @@ def _parse_env_file(path: Path) -> dict[str, str]:
         raise RuntimeError(f"Canonical AIC environment is missing: {path}")
 
     values: dict[str, str] = {}
+    sensitive_keys = {*DATABASE_ENV_KEYS, *DATABASE_ROUTING_ENV_KEYS}
+    seen_sensitive: set[str] = set()
     for raw_line in path.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
         if line.startswith("export "):
@@ -55,6 +69,10 @@ def _parse_env_file(path: Path) -> dict[str, str]:
             continue
         key, value = line.split("=", 1)
         key = key.strip()
+        if key in sensitive_keys:
+            if key in seen_sensitive:
+                raise RuntimeError(f"Canonical AIC environment contains duplicate sensitive key: {key}")
+            seen_sensitive.add(key)
         value = value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
             value = value[1:-1]
@@ -86,7 +104,12 @@ def load_canonical_aic_env(
             f"{EXPECTED_DB_HOST}:{EXPECTED_DB_PORT}."
         )
 
-    for key in (*DATABASE_ENV_KEYS, *STRAPI_MUTATION_ENV_KEYS, *SUBSCRIPTION_PROVIDER_ENV_KEYS):
+    for key in (
+        *DATABASE_ENV_KEYS,
+        *DATABASE_ROUTING_ENV_KEYS,
+        *STRAPI_MUTATION_ENV_KEYS,
+        *SUBSCRIPTION_PROVIDER_ENV_KEYS,
+    ):
         os.environ.pop(key, None)
     for key in DATABASE_ENV_KEYS:
         os.environ[key] = values[key]
@@ -106,6 +129,12 @@ def database_dsn(*, application_name: str, connect_timeout: int = DEFAULT_CONNEC
         raise RuntimeError(
             "AIC production database must remain the existing PostgreSQL target at "
             f"{EXPECTED_DB_HOST}:{EXPECTED_DB_PORT}."
+        )
+    inherited_routing = [key for key in DATABASE_ROUTING_ENV_KEYS if key in os.environ]
+    if inherited_routing:
+        raise RuntimeError(
+            "Independent libpq routing settings are forbidden after loading the canonical AIC environment: "
+            + ", ".join(inherited_routing)
         )
     def quote(value: str) -> str:
         return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"

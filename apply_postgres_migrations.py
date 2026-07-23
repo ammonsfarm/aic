@@ -10,6 +10,7 @@ import psycopg
 
 from scripts.aic_database_env import (
     CANONICAL_AIC_ENV,
+    DATABASE_ROUTING_ENV_KEYS,
     DATABASE_ENV_KEYS,
     EXPECTED_DB_HOST,
     EXPECTED_DB_PORT,

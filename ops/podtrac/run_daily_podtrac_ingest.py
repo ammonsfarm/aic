@@ -35,6 +35,21 @@ REPORTS = ("episode", "country", "client")
 DEFAULT_CURL_FILE = Path("podtrac-auth.curl")
 DEFAULT_ENV_FILE = Path(".env")
 DEFAULT_LOG_DIR = Path("run_logs")
+EXPECTED_DB_HOST = "192.168.1.106"
+EXPECTED_DB_PORT = "5432"
+DATABASE_ENV_KEYS = ("DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD")
+LIBPQ_ROUTING_ENV_KEYS = (
+    "PGHOST",
+    "PGHOSTADDR",
+    "PGPORT",
+    "PGDATABASE",
+    "PGUSER",
+    "PGPASSWORD",
+    "PGPASSFILE",
+    "PGSERVICE",
+    "PGSERVICEFILE",
+)
+DATABASE_ROUTING_ENV_KEYS = (*LIBPQ_ROUTING_ENV_KEYS, "DATABASE_URL")
 
 
 @dataclass(frozen=True)
@@ -65,24 +80,69 @@ class EpisodeMatch:
 
 
 def load_env(path: Path) -> None:
-    if not path.exists():
-        return
+    if not path.is_file():
+        raise RuntimeError(f"Declared Podtrac environment file is missing: {path}")
+    values: dict[str, str] = {}
+    sensitive_keys = {*DATABASE_ENV_KEYS, *DATABASE_ROUTING_ENV_KEYS}
+    seen_sensitive: set[str] = set()
     for raw_line in path.read_text().splitlines():
         line = raw_line.strip()
+        if line.startswith("export "):
+            line = line.removeprefix("export ").lstrip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+        key = key.strip()
+        if key in sensitive_keys:
+            if key in seen_sensitive:
+                raise RuntimeError(f"Declared Podtrac environment contains duplicate sensitive key: {key}")
+            seen_sensitive.add(key)
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        values[key] = value
+
+    missing = [key for key in DATABASE_ENV_KEYS if not values.get(key)]
+    if missing:
+        raise RuntimeError("Declared Podtrac environment is missing database settings: " + ", ".join(missing))
+    if values["DB_HOST"] != EXPECTED_DB_HOST or values["DB_PORT"] != EXPECTED_DB_PORT:
+        raise RuntimeError(
+            f"Podtrac ingest must use the existing AIC PostgreSQL target at {EXPECTED_DB_HOST}:{EXPECTED_DB_PORT}."
+        )
+
+    for key in (*DATABASE_ENV_KEYS, *DATABASE_ROUTING_ENV_KEYS):
+        os.environ.pop(key, None)
+    for key in DATABASE_ENV_KEYS:
+        os.environ[key] = values[key]
+    for key, value in values.items():
+        if key not in (*DATABASE_ENV_KEYS, *DATABASE_ROUTING_ENV_KEYS):
+            os.environ.setdefault(key, value)
 
 
 def dsn() -> str:
-    return (
-        f"host={os.environ['DB_HOST']} "
-        f"port={os.environ.get('DB_PORT', '5432')} "
-        f"dbname={os.environ.get('DB_NAME', 'aic')} "
-        f"user={os.environ['DB_USER']} "
-        f"password={os.environ['DB_PASSWORD']}"
-    )
+    missing = [key for key in DATABASE_ENV_KEYS if not os.environ.get(key)]
+    if missing:
+        raise RuntimeError("Podtrac database environment has not been loaded: " + ", ".join(missing))
+    if os.environ["DB_HOST"] != EXPECTED_DB_HOST or os.environ["DB_PORT"] != EXPECTED_DB_PORT:
+        raise RuntimeError(
+            f"Podtrac ingest must use the existing AIC PostgreSQL target at {EXPECTED_DB_HOST}:{EXPECTED_DB_PORT}."
+        )
+    inherited_routing = [key for key in DATABASE_ROUTING_ENV_KEYS if key in os.environ]
+    if inherited_routing:
+        raise RuntimeError("Independent libpq routing settings are forbidden: " + ", ".join(inherited_routing))
+
+    def quote(value: str) -> str:
+        return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+    settings = {
+        "host": os.environ["DB_HOST"],
+        "port": os.environ["DB_PORT"],
+        "dbname": os.environ["DB_NAME"],
+        "user": os.environ["DB_USER"],
+        "password": os.environ["DB_PASSWORD"],
+        "application_name": "aic-podtrac-daily-ingest",
+    }
+    return " ".join(f"{key}={quote(value)}" for key, value in settings.items())
 
 
 def connect_pg(args: argparse.Namespace) -> psycopg.Connection:

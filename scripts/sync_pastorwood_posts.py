@@ -7,7 +7,6 @@ import argparse
 import hashlib
 import html
 import json
-import os
 import re
 import sys
 import urllib.parse
@@ -19,6 +18,11 @@ from typing import Any
 
 import psycopg
 from psycopg.rows import dict_row
+
+try:
+    from scripts.aic_database_env import CANONICAL_AIC_ENV, database_dsn, load_canonical_aic_env
+except ModuleNotFoundError:  # Direct execution from /mnt/storage/aic/scripts.
+    from aic_database_env import CANONICAL_AIC_ENV, database_dsn, load_canonical_aic_env
 
 
 DEFAULT_SOURCE_BASE_URL = "https://www.pastorwood.org"
@@ -58,29 +62,16 @@ class HtmlTextExtractor(HTMLParser):
 
 
 def load_env(path: Path) -> None:
-    if not path.exists():
-        return
-    for raw_line in path.read_text().splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+    load_canonical_aic_env(path)
 
 
 def dsn() -> str:
-    return (
-        f"host={os.environ['DB_HOST']} "
-        f"port={os.environ.get('DB_PORT', '5432')} "
-        f"dbname={os.environ.get('DB_NAME', 'aic')} "
-        f"user={os.environ['DB_USER']} "
-        f"password={os.environ['DB_PASSWORD']}"
-    )
+    return database_dsn(application_name="aic-pastorwood-wordpress-sync")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--env-file", type=Path, default=Path(".env"))
+    parser.add_argument("--env-file", type=Path, default=CANONICAL_AIC_ENV)
     parser.add_argument("--source-base-url", default=DEFAULT_SOURCE_BASE_URL)
     parser.add_argument("--source-type", choices=["pastorwood_devotional", "pastorwood_resource"], default="pastorwood_devotional")
     parser.add_argument("--category-id", type=int, default=DEFAULT_CATEGORY_ID)

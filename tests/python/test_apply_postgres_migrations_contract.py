@@ -55,6 +55,16 @@ class MigrationDatabaseContractTests(unittest.TestCase):
             "DB_NAME": "copied_database",
             "DB_USER": "inherited_user",
             "DB_PASSWORD": "inherited-password",
+            "PGHOST": "wrong-pg-host.invalid",
+            "PGHOSTADDR": "127.0.0.1",
+            "PGPORT": "6543",
+            "PGDATABASE": "copied_database",
+            "PGUSER": "inherited_pg_user",
+            "PGPASSWORD": "inherited-pg-password",
+            "PGPASSFILE": "/tmp/wrong-pg-pass",
+            "PGSERVICE": "wrong-service",
+            "PGSERVICEFILE": "/tmp/wrong-pg-service",
+            "DATABASE_URL": "postgresql://wrong-target.invalid/copied_database",
         }
 
         with patch.dict(os.environ, inherited, clear=True):
@@ -65,6 +75,8 @@ class MigrationDatabaseContractTests(unittest.TestCase):
             self.assertEqual(os.environ["DB_NAME"], "aic")
             self.assertEqual(os.environ["DB_USER"], "aic_user")
             self.assertEqual(os.environ["DB_PASSWORD"], "canonical-password")
+            for key in migrations.DATABASE_ROUTING_ENV_KEYS:
+                self.assertNotIn(key, os.environ)
             self.assertIn("host='192.168.1.106' port='5432' dbname='aic'", migrations.dsn())
             self.assertIn("connect_timeout='5'", migrations.dsn())
 
@@ -86,6 +98,19 @@ class MigrationDatabaseContractTests(unittest.TestCase):
                 with patch.dict(os.environ, {}, clear=True):
                     with self.assertRaisesRegex(RuntimeError, r"192\.168\.1\.106:5432"):
                         migrations.load_env(env_file, allow_test_path=True)
+
+    def test_duplicate_sensitive_database_key_is_rejected(self) -> None:
+        env_file = self.env_file(
+            "DB_HOST=192.168.1.106\n"
+            "DB_PORT=5432\n"
+            "DB_NAME=aic\n"
+            "DB_USER=aic\n"
+            "DB_PASSWORD=test\n"
+            "DB_HOST=127.0.0.1\n"
+        )
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, r"duplicate sensitive key: DB_HOST"):
+                migrations.load_env(env_file, allow_test_path=True)
 
     def test_missing_env_file_value_cannot_fall_back_to_inherited_database_value(self) -> None:
         env_file = self.env_file(
@@ -110,6 +135,16 @@ class MigrationDatabaseContractTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(RuntimeError, r"/mnt/storage/aic/\.env"):
             migrations.load_env(env_file)
+
+    def test_dsn_rejects_a_routing_override_added_after_canonical_load(self) -> None:
+        env_file = self.env_file(
+            "DB_HOST=192.168.1.106\nDB_PORT=5432\nDB_NAME=aic\nDB_USER=aic\nDB_PASSWORD=test\n"
+        )
+        with patch.dict(os.environ, {}, clear=True):
+            migrations.load_env(env_file, allow_test_path=True)
+            os.environ["PGHOSTADDR"] = "127.0.0.1"
+            with self.assertRaisesRegex(RuntimeError, r"PGHOSTADDR"):
+                migrations.dsn()
 
 
 if __name__ == "__main__":
