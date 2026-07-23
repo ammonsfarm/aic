@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
 
 import { getEpisodeArchiveRows } from "@/lib/podcast-insights";
 import { searchEpisodesByText, searchEpisodesWithVectorFallback } from "@/lib/podcast-data";
 import type { EpisodeSearchScope, EpisodeSortOrder } from "@/lib/podcast-data";
+import { getInternalReadApiUser } from "@/lib/rbac";
 
 type EpisodeSearchResponse = {
   query: string;
@@ -64,8 +64,14 @@ function parseSort(value: string | null): EpisodeSortOrder {
 }
 
 export async function GET(request: NextRequest) {
+  const appUser = await getInternalReadApiUser();
+  if (!appUser) {
+    return NextResponse.json(
+      { error: "This role cannot access the internal episode archive." },
+      { status: 403, headers: { "Cache-Control": "private, no-store" } },
+    );
+  }
   const params = request.nextUrl.searchParams;
-  await auth.protect();
   const rawQuery = params.get("q")?.trim() ?? "";
   const mode = parseMode(params.get("mode"));
   const topK = parseTopK(params.get("top_k"));

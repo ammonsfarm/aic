@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
 
 import { getEpisodeDetail } from "@/lib/podcast-data";
+import { getInternalReadApiUser } from "@/lib/rbac";
 
 type RouteParams = {
   trackId: string;
@@ -12,8 +12,14 @@ type RouteContext = {
 };
 
 export async function GET(_request: NextRequest, { params }: RouteContext) {
+  const appUser = await getInternalReadApiUser();
+  if (!appUser) {
+    return NextResponse.json(
+      { error: "This role cannot access internal episode details." },
+      { status: 403, headers: { "Cache-Control": "private, no-store" } },
+    );
+  }
   const { trackId } = await params;
-  await auth.protect();
 
   if (!trackId) {
     return NextResponse.json({ error: "track_id is required" }, { status: 400 });

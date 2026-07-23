@@ -71,8 +71,11 @@ test("generation-only pages reject roles without research-console access", async
 
 test("internal read routes enforce the same role boundary advertised by navigation", async () => {
   const access = await source("lib/console-access.ts");
+  const rbac = await source("lib/rbac.ts");
   assert.match(access, /canUseInternalReadConsole\(appUser\.role\)/);
   assert.match(access, /redirect\(roleLandingPath\(appUser\.role\)\)/);
+  assert.match(rbac, /getInternalReadApiUser/);
+  assert.match(rbac, /canUseInternalReadConsole\(appUser\.role\) \? appUser : null/);
 
   for (const path of [
     "app/(private)/archive/page.tsx",
@@ -89,6 +92,20 @@ test("internal read routes enforce the same role boundary advertised by navigati
     assert.match(await source(path), /requireSignedInAppUser\(\)/);
     assert.doesNotMatch(await source(path), /requireInternalReadConsoleUser\(\)/);
   }
+
+  for (const path of [
+    "app/api/episodes/search/route.ts",
+    "app/api/episodes/[trackId]/route.ts",
+    "app/api/audio/[trackId]/route.ts",
+  ]) {
+    const route = await source(path);
+    assert.match(route, /await getInternalReadApiUser\(\)/);
+    assert.match(route, /status: 403/);
+    assert.doesNotMatch(route, /auth\.protect\(\)/);
+  }
+
+  const publicAudio = await source("app/media/episodes/[trackId]/route.ts");
+  assert.doesNotMatch(publicAudio, /getInternalReadApiUser/);
 });
 
 test("protected root routes remove inherited canonical metadata and opt out of indexing", async () => {

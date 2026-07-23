@@ -13,6 +13,17 @@ function hrefsFor(role: AicNavRole) {
 }
 
 describe("role-aware console navigation", () => {
+  it.each([
+    ["Admin", true],
+    ["Content Manager", true],
+    ["Research User", true],
+    ["Read Only", true],
+    ["User", false],
+  ] satisfies Array<[AicNavRole, boolean]>)
+  ("applies the internal-read role matrix to %s", (role, allowed) => {
+    expect(canUseInternalReadConsole(role)).toBe(allowed);
+  });
+
   it("gives administrators the complete console", () => {
     expect(hrefsFor("Admin")).toEqual([
       "/overview",

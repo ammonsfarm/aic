@@ -4,6 +4,7 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
 import { queryRows } from "@/lib/db";
+import { canUseInternalReadConsole } from "@/lib/navigation";
 import { assignLocalUserRole, getLocalUserRole, listLocalAppUsers } from "./local-role-store";
 
 export type AicRole = "User" | "Admin" | "Content Manager" | "Research User" | "Read Only";
@@ -362,6 +363,11 @@ export async function requireGenerationApiUser(): Promise<CurrentAppUser> {
   }
 
   return appUser;
+}
+
+export async function getInternalReadApiUser(): Promise<CurrentAppUser | null> {
+  const appUser = await requireSignedInAppUser();
+  return canUseInternalReadConsole(appUser.role) ? appUser : null;
 }
 
 export async function getGenerationApiUser(): Promise<CurrentAppUser | null> {
