@@ -720,3 +720,34 @@ test("PastorWood cutover defaults to the pinned snapshot, imports drafts, and se
   assert.doesNotMatch(cutover, /status_query = "\?status=published"/);
   assert.doesNotMatch(cutover, /docker/i);
 });
+
+test("PastorWood cutover authority uses only the existing AIC catalog and MinIO inventory", () => {
+  const cutover = source("scripts/pastorwood_cutover_import.py");
+  const episodeStart = cutover.indexOf("def build_episodes(");
+  const episodeEnd = cutover.indexOf("\ndef reconcile_episode_media(", episodeStart);
+  const buildPlanStart = cutover.indexOf("def build_plan(");
+  const buildPlanEnd = cutover.indexOf("\ndef validate_cutover_authority(", buildPlanStart);
+  const applyStart = cutover.indexOf("def apply_plan(");
+  const applyEnd = cutover.indexOf("\ndef expected_cutover_entries(", applyStart);
+  const episodes = cutover.slice(episodeStart, episodeEnd);
+  const buildPlan = cutover.slice(buildPlanStart, buildPlanEnd);
+  const applyPlan = cutover.slice(applyStart, applyEnd);
+
+  assert.match(cutover, /CUTOVER_AUTHORITY = "aic-postgresql-and-minio-canonical-v1"/);
+  assert.match(episodes, /WordPress sermons are intentionally report-only/);
+  assert.match(episodes, /"externalAudioUrl": public_episode_media_url\(track_id\)/);
+  assert.match(episodes, /"status": "excluded-wordpress-sermon"/);
+  assert.match(episodes, /return sorted\(episodes,[\s\S]*\), \[\]/);
+  assert.doesNotMatch(episodes, /match_episodes\(/);
+  assert.doesNotMatch(episodes, /build_sermon_audio_content_evidence\(/);
+  assert.doesNotMatch(episodes, /"trackId": f"wp-sermon:/);
+  assert.match(buildPlan, /media_records: list\[MediaRecord\] = \[\]/);
+  assert.match(buildPlan, /redirects: list\[dict\[str, Any\]\] = \[\]/);
+  assert.match(buildPlan, /validate_cutover_authority\(plan\)/);
+  assert.doesNotMatch(buildPlan, /build_media_records\(/);
+  assert.doesNotMatch(buildPlan, /build_redirects\(/);
+  assert.match(applyPlan, /Cutover authority prohibits WordPress media-asset mutations/);
+  assert.match(applyPlan, /Cutover authority prohibits legacy redirect mutations/);
+  assert.match(cutover, /--copy-media is prohibited: the existing canonical media inventory wins/);
+  assert.match(cutover, /--apply requires --verify-episode-audio/);
+});

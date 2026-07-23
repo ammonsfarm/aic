@@ -322,8 +322,11 @@ class CutoverIdentityTests(unittest.TestCase):
         )
         self.assertIsNone(update_payload["data"]["scheduledFor"])
 
-    def test_apply_requires_complete_media_rehearsal_flags(self):
+    def test_apply_requires_exact_minio_inventory_verification(self):
         self.assertEqual(MODULE.main(["--apply"]), 1)
+
+    def test_media_copy_is_prohibited_by_canonical_inventory_authority(self):
+        self.assertEqual(MODULE.main(["--copy-media"]), 1)
 
     def test_numeric_database_id_is_a_stable_text_identity(self):
         self.assertEqual(MODULE.text(14759), "14759")
@@ -439,45 +442,42 @@ class CutoverIdentityTests(unittest.TestCase):
             with self.subTest(unsafe=unsafe):
                 self.assertEqual(MODULE.public_episode_track_id_from_url(unsafe), "")
 
-    def test_build_episodes_imports_genuinely_unique_wordpress_sermon(self):
-        aic = [{"trackId": "canonical", "title": "Canonical Episode", "publishDate": "2024-04-05", "sourceFile": "canonical.json", "detail": ""}]
+    def test_build_episodes_excludes_genuinely_unique_wordpress_sermon(self):
+        aic = [{"trackId": "100", "title": "Canonical Episode", "publishDate": "2024-04-05", "sourceFile": "100.mp3", "detail": "Canonical detail"}]
         wordpress = [{"id": "12", "type": "wpfc_sermon", "title": "Unmatched Legacy Title", "slug": "unmatched-legacy-title", "date": "2020-01-01 00:00:00", "meta": {}}]
 
         reconciliation = []
         episodes, matches = MODULE.build_episodes(wordpress, aic, reconciliation)
 
-        self.assertEqual({episode["trackId"] for episode in episodes}, {"canonical", "wp-sermon:12"})
+        self.assertEqual({episode["trackId"] for episode in episodes}, {"100"})
+        self.assertEqual(episodes[0]["title"], "Canonical Episode")
+        self.assertEqual(episodes[0]["description"], "Canonical detail")
+        self.assertEqual(episodes[0]["externalAudioUrl"], "/media/episodes/100")
+        self.assertEqual(episodes[0]["wpSermonId"], "")
         self.assertEqual(matches, [])
-        self.assertEqual(reconciliation[0]["status"], "imported-unique")
+        self.assertEqual(reconciliation[0]["status"], "excluded-wordpress-sermon")
+        self.assertEqual(reconciliation[0]["reason"], "aic-postgresql-catalog-is-authoritative")
 
-    def test_episode_audio_sha256_dedupes_renamed_cross_set_and_residual_replays(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / "sermons").mkdir()
-            payload = (b"verified identical sermon audio" * 10000)
-            (root / "sermons" / "canonical.mp3").write_bytes(payload)
-            (root / "sermons" / "renamed.mp3").write_bytes(payload)
-            (root / "sermons" / "replay.mp3").write_bytes(payload)
-            sermons = [
-                {"id": "1", "type": "wpfc_sermon", "title": "Canonical Program", "slug": "canonical", "date": "2024-01-01", "meta": {"sermon_audio": "/wp-content/uploads/sermons/canonical.mp3"}},
-                {"id": "2", "type": "wpfc_sermon", "title": "Renamed Replay", "slug": "renamed", "date": "2024-02-01", "meta": {"sermon_audio": "/wp-content/uploads/sermons/renamed.mp3"}},
-                {"id": "3", "type": "wpfc_sermon", "title": "Another Replay", "slug": "replay", "date": "2024-03-01", "meta": {"sermon_audio": "/wp-content/uploads/sermons/replay.mp3"}},
-            ]
-            aic = [{"trackId": "100", "title": "Canonical Program", "publishDate": "2024-01-01", "sourceFile": "100.mp3", "detail": ""}]
-            reconciliation = []
-            report = {}
+    def test_wordpress_episode_audio_is_never_opened_or_hashed(self):
+        sermons = [
+            {"id": "1", "type": "wpfc_sermon", "title": "Canonical Program", "meta": {"sermon_audio": "/wp-content/uploads/missing/canonical.mp3"}},
+            {"id": "2", "type": "wpfc_sermon", "title": "Replay", "meta": {"sermon_audio": "/wp-content/uploads/missing/replay.mp3"}},
+        ]
+        aic = [{"trackId": "100", "title": "Canonical Program", "publishDate": "2024-01-01", "sourceFile": "100.mp3", "detail": ""}]
+        reconciliation = []
+        report = {}
 
-            episodes, matches = MODULE.build_episodes(sermons, aic, reconciliation, root, True, report)
+        episodes, matches = MODULE.build_episodes(
+            sermons, aic, reconciliation, Path("/does/not/exist"), True, report,
+        )
 
-            self.assertEqual([(match.aic_track_id, match.wp_sermon_id) for match in matches], [("100", "1")])
-            self.assertEqual([episode["trackId"] for episode in episodes], ["100"])
-            duplicates = {row["wpSermonId"]: row for row in reconciliation}
-            self.assertEqual(duplicates["2"]["reason"], "aic-audio-content-sha256")
-            self.assertEqual(duplicates["3"]["reason"], "aic-audio-content-sha256")
-            self.assertRegex(duplicates["2"]["audioContentSha256"], r"^[a-f0-9]{64}$")
-            self.assertEqual(report["fullHashedPaths"], 3)
+        self.assertEqual(matches, [])
+        self.assertEqual([episode["trackId"] for episode in episodes], ["100"])
+        self.assertEqual({row["status"] for row in reconciliation}, {"excluded-wordpress-sermon"})
+        self.assertEqual(report["reason"], "wordpress-sermons-excluded-by-authority")
+        self.assertEqual(report["fullHashedPaths"], 0)
 
-    def test_baseline_episode_identity_is_preserved_when_rest_copy_changes_title(self):
+    def test_wordpress_baseline_and_rest_copy_cannot_change_aic_episode_fields(self):
         aic = [
             {"trackId": "100", "title": "Original Program", "publishDate": "2024-01-01", "sourceFile": "100.mp3", "detail": ""},
             {"trackId": "200", "title": "Changed Program", "publishDate": "2024-01-01", "sourceFile": "200.mp3", "detail": ""},
@@ -485,11 +485,13 @@ class CutoverIdentityTests(unittest.TestCase):
         baseline = [{"id": "10", "type": "wpfc_sermon", "title": "Original Program", "slug": "original", "date": "2024-01-01", "meta": {}}]
         merged = [{"id": "10", "type": "wpfc_sermon", "title": "Changed Program", "slug": "changed", "date": "2024-01-01", "meta": {}}]
 
-        _episodes, matches = MODULE.build_episodes(merged, aic, baseline_wp_content=baseline)
+        episodes, matches = MODULE.build_episodes(merged, aic, baseline_wp_content=baseline)
 
-        self.assertEqual([(match.aic_track_id, match.wp_sermon_id) for match in matches], [("100", "10")])
+        self.assertEqual(matches, [])
+        self.assertEqual([episode["title"] for episode in episodes], ["Original Program", "Changed Program"])
+        self.assertTrue(all(not episode["wpSermonId"] for episode in episodes))
 
-    def test_rest_only_explicit_bestof_replay_aliases_to_existing_aic_episode(self):
+    def test_rest_only_bestof_replay_is_excluded_without_alias(self):
         aic = [{"trackId": "100", "title": "Faithful Life", "publishDate": "2024-01-01", "sourceFile": "100.mp3", "detail": ""}]
         baseline = [{"id": "10", "type": "wpfc_sermon", "title": "Faithful Life", "slug": "faithful-life", "date": "2024-01-01", "meta": {}}]
         merged = [
@@ -501,9 +503,9 @@ class CutoverIdentityTests(unittest.TestCase):
         episodes, _matches = MODULE.build_episodes(merged, aic, reconciliation, baseline_wp_content=baseline)
 
         self.assertEqual([episode["trackId"] for episode in episodes], ["100"])
-        self.assertEqual(reconciliation[0]["wpSermonId"], "11")
-        self.assertEqual(reconciliation[0]["reason"], "explicit-bestof-canonical-title")
-        self.assertEqual(reconciliation[0]["canonicalTrackId"], "100")
+        self.assertEqual({row["wpSermonId"] for row in reconciliation}, {"10", "11"})
+        self.assertEqual({row["status"] for row in reconciliation}, {"excluded-wordpress-sermon"})
+        self.assertTrue(all(not row["canonicalTrackId"] for row in reconciliation))
 
     def test_wordpress_rest_merge_preserves_database_only_plugin_meta(self):
         database_content = [{"id": 1, "type": "post", "title": "Old", "meta": {"_aioseo_title": "SEO", "shared": "db"}}]
@@ -519,8 +521,8 @@ class CutoverIdentityTests(unittest.TestCase):
         self.assertEqual(report["restOnlyContentCounts"], {"post": 1})
         self.assertEqual(report["restOnlyMediaIds"], ["11"])
 
-    def test_extra_wordpress_copy_of_aic_episode_is_reported_not_imported(self):
-        aic = [{"trackId": "canonical", "title": "Same Episode", "publishDate": "2024-04-05", "sourceFile": "canonical.json", "detail": ""}]
+    def test_all_wordpress_copies_of_aic_episode_are_reported_as_excluded(self):
+        aic = [{"trackId": "100", "title": "Same Episode", "publishDate": "2024-04-05", "sourceFile": "100.mp3", "detail": ""}]
         wordpress = [
             {"id": "12", "type": "wpfc_sermon", "title": "Same Episode", "slug": "same-episode", "date": "2024-04-05 00:00:00", "meta": {}},
             {"id": "13", "type": "wpfc_sermon", "title": "Same Episode", "slug": "same-episode-copy", "date": "2024-04-05 00:00:00", "meta": {}},
@@ -530,8 +532,9 @@ class CutoverIdentityTests(unittest.TestCase):
         episodes, matches = MODULE.build_episodes(wordpress, aic, reconciliation)
 
         self.assertEqual(len(episodes), 1)
-        self.assertEqual(len(matches), 1)
-        self.assertEqual(reconciliation[0]["status"], "duplicate-aic")
+        self.assertEqual(matches, [])
+        self.assertEqual(len(reconciliation), 2)
+        self.assertEqual({row["status"] for row in reconciliation}, {"excluded-wordpress-sermon"})
 
     def test_aic_post_wins_over_wordpress_same_identity(self):
         wordpress = [{
@@ -694,6 +697,15 @@ class CutoverIdentityTests(unittest.TestCase):
         imported_person = {"status": "imported"}
         malformed_endorsement = {"status": "excluded", "reason": "missing-attribution"}
         plan = {
+            "cutoverAuthority": {
+                "id": MODULE.CUTOVER_AUTHORITY,
+                "episodeSeed": "canonical-aic-postgresql-only",
+                "episodeAudio": "exact-canonical-minio-inventory-only",
+                "wordpressSermons": "excluded-from-episode-seeding",
+                "wordpressMediaRows": "excluded",
+                "legacyRedirects": "excluded",
+            },
+            "sourceCounts": {"aicEpisodes": 0, "wordpressPublishedSermons": 0},
             "episodeAudioCoverage": {
                 "enabled": True, "objects": 0, "aicTrackIds": 0,
                 "missing": [], "orphanObjects": [], "zeroByteObjectIds": [], "invalidObjectIds": [],
@@ -707,7 +719,14 @@ class CutoverIdentityTests(unittest.TestCase):
             "episodeAudioDeduplication": {"enabled": True},
             "redirectIntegrity": {"selfLoops": 0, "reservedSources": 0, "nonexistentMediaTargets": 0},
             "redirectFailures": [],
-            "plannedCounts": {"people": 1, "endorsements": 0},
+            "plannedCounts": {
+                "episodes": 0, "episodeMatches": 0,
+                "uniqueWordpressSermonsImported": 0, "duplicateWordpressSermons": 0,
+                "excludedWordpressSermons": 0,
+                "people": 1, "endorsements": 0,
+                "media": 0, "publicMedia": 0, "privateMedia": 0, "redirects": 0,
+            },
+            "episodeReconciliation": {"counts": {}, "aliasRedirects": 0, "records": []},
             "structuredContentCoverage": {
                 "people": {
                     "encountered": 1, "imported": 1, "deduplicated": 0, "excluded": 0,
@@ -719,6 +738,12 @@ class CutoverIdentityTests(unittest.TestCase):
                 },
             },
             "excludedEndorsements": [malformed_endorsement],
+            "peopleMediaCoverage": {
+                "people": 1, "verifiedPublicPhotos": 0, "legacyPhotosRetained": 0,
+                "withoutPhotoSource": [], "unverifiedPhotoSource": [],
+            },
+            "missingEpisodeMedia": [],
+            "missingPublicMedia": [],
             "mediaReferenceCoverage": {
                 "enabled": True,
                 "encountered": 0,
@@ -932,6 +957,53 @@ class CutoverBoundaryTests(unittest.TestCase):
         self.assertEqual(audit["blockingTargets"][0]["relativePath"], "hidden/photo.jpg")
         with self.assertRaisesRegex(RuntimeError, "final public payload"):
             MODULE.validate_final_public_media_targets(audit)
+
+    def test_authority_removes_all_wordpress_media_references_from_retained_drafts(self):
+        groups = {
+            "page": [{
+                "pageKey": "about",
+                "body": '<img src="https://www.pastorwood.org/wp-content/uploads/board/photo.jpg">',
+            }],
+            "post": [{
+                "legacyId": "7",
+                "body": '<a href="/media/legacy/docs/legacy.pdf">Document</a>',
+            }],
+            "person": [{
+                "legacyId": "person:1",
+                "legacyPhotoUrl": "/media/legacy/board/person.jpg",
+            }],
+        }
+        MODULE.localize_final_payload_uploads(groups)
+        rejected = []
+        references = MODULE.extract_final_payload_upload_references(groups, rejected)
+
+        MODULE.apply_verified_media_replacements(
+            (groups["page"], groups["post"], groups["person"]), {}, set(references),
+        )
+        audit = MODULE.audit_final_public_media_targets(groups, [], True)
+
+        MODULE.validate_final_public_media_targets(audit)
+        serialized = json.dumps(groups)
+        self.assertNotIn("/wp-content/uploads/", serialized)
+        self.assertNotIn("/media/legacy/", serialized)
+        self.assertEqual(groups["person"][0]["legacyPhotoUrl"], "")
+        self.assertEqual(audit["targets"], 0)
+
+    def test_apply_rejects_media_and_redirect_payloads_before_opening_strapi(self):
+        args = SimpleNamespace(
+            confirm=MODULE.APPLY_CONFIRMATION,
+            copy_media=False,
+        )
+        media = MODULE.MediaRecord(
+            "42", "Legacy", "legacy.jpg", "https://www.pastorwood.org/wp-content/uploads/legacy.jpg",
+            "image/jpeg", "public", ("page:about",), True, 10,
+        )
+        common = (args, {}, [], [], [], [], [])
+
+        with self.assertRaisesRegex(RuntimeError, "prohibits WordPress media-asset mutations"):
+            MODULE.apply_plan(*common, [media], [], "a" * 64, {}, set())
+        with self.assertRaisesRegex(RuntimeError, "prohibits legacy redirect mutations"):
+            MODULE.apply_plan(*common, [], [{"fromPath": "/old/", "toPath": "/new/"}], "a" * 64, {}, set())
 
     def test_media_replacement_is_token_exact_and_final_episode_urls_are_validated(self):
         records = [{

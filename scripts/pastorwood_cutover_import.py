@@ -121,6 +121,7 @@ RESERVED_REDIRECT_PREFIXES = (
 APPLY_CONFIRMATION = "APPLY_PASTORWOOD_PUBLIC_CUTOVER"
 PUBLISH_REVIEWED_CONFIRMATION = "PUBLISH_REVIEWED_PASTORWOOD_CUTOVER"
 WORDPRESS_REFRESH_CONFIRMATION = "REFRESH_FROM_LIVE_WORDPRESS_DATABASE"
+CUTOVER_AUTHORITY = "aic-postgresql-and-minio-canonical-v1"
 DIRECT_WORDPRESS_REFRESH_TEST_MODE_ENV = "PASTORWOOD_DIRECT_DATABASE_REFRESH_TEST_MODE"
 PUBLIC_CACHE_INVALIDATION_URL = "http://127.0.0.1:8087/api/revalidate/strapi"
 PUBLIC_CACHE_INVALIDATION_SOURCE = "pastorwood-cutover"
@@ -306,7 +307,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--mutation-manifest", type=Path, default=Path(".migration-state/pastorwood-cutover-mutations.json"))
     parser.add_argument("--publication-manifest", type=Path, default=Path(".migration-state/pastorwood-cutover-publications.json"))
     parser.add_argument("--failure-report", type=Path, default=Path(".migration-state/pastorwood-cutover-failures.json"))
-    parser.add_argument("--apply", action="store_true", help="Write to Strapi and the distinct public media root")
+    parser.add_argument("--apply", action="store_true", help="Create or update Strapi drafts; never copy media or publish")
     parser.add_argument("--confirm", default="", help=f"Required with --apply: {APPLY_CONFIRMATION}")
     parser.add_argument("--publish-reviewed", action="store_true", help="Separate phase 2: publish only reviewed eligible drafts and activate redirects last")
     parser.add_argument(
@@ -323,7 +324,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--verify-episode-audio", action="store_true", help="Read MinIO object names and reconcile all AIC track IDs")
     parser.add_argument("--mc-bin", default=os.environ.get("AIC_AUDIO_MC_BIN", "/usr/local/bin/mc"))
     parser.add_argument("--mc-audio-target", default=os.environ.get("AIC_AUDIO_MC_TARGET", "local-minio/aic/podcasts"))
-    parser.add_argument("--copy-media", action="store_true", help="Copy/checksum public allowlisted media while applying")
+    parser.add_argument("--copy-media", action="store_true", help="Prohibited by the current canonical-media authority")
     parser.add_argument("--no-resume", action="store_true", help="Ignore (but do not delete) a prior checkpoint")
     return parser.parse_args(argv)
 
@@ -1525,46 +1526,40 @@ def build_episodes(
     audio_deduplication_report: dict[str, Any] | None = None,
     baseline_wp_content: Sequence[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[EpisodeMatch]]:
+    """Build the seed episode set exclusively from the canonical AIC catalog.
+
+    WordPress sermons are intentionally report-only under the current cutover
+    authority.  They cannot add an episode or override any canonical field.
+    Future ``cms_*`` track IDs remain valid when they already exist in AIC, but
+    this migration never manufactures them.
+    """
     sermons = [row for row in wp_content if text(row.get("type")) == "wpfc_sermon"]
-    sermons_by_id = {text(row.get("id")): row for row in sermons}
-    baseline_sermons = [row for row in (baseline_wp_content or []) if text(row.get("type")) == "wpfc_sermon"]
-    baseline_wp_ids = {text(row.get("id")) for row in baseline_sermons}
-    if baseline_sermons:
-        preserved_matches = [match for match in match_episodes(aic_episodes, baseline_sermons) if match.wp_sermon_id in sermons_by_id]
-        preserved_track_ids = {match.aic_track_id for match in preserved_matches}
-        remaining_aic = [row for row in aic_episodes if text(row.get("trackId")) not in preserved_track_ids]
-        rest_only_sermons = [row for row in sermons if text(row.get("id")) not in baseline_wp_ids]
-        matches = sorted([*preserved_matches, *match_episodes(remaining_aic, rest_only_sermons)], key=lambda match: match.aic_track_id)
-    else:
-        matches = match_episodes(aic_episodes, sermons)
-    wp_by_track = {match.aic_track_id: sermons_by_id[match.wp_sermon_id] for match in matches}
     episodes: list[dict[str, Any]] = []
 
     for row in aic_episodes:
         track_id = text(row.get("trackId"))
-        sermon = wp_by_track.get(track_id)
-        meta = sermon.get("meta") if sermon and isinstance(sermon.get("meta"), dict) else {}
-        slug = slugify(text(sermon.get("slug")) if sermon else text(row.get("title")), f"episode-{track_id}")
-        relative_audio = sermon_audio_relative(sermon) if sermon else None
-        summary = text(meta.get("sermon_description")) or strip_markup(text(row.get("detail")))[:600]
-        program_date = wordpress_sermon_date(sermon) if sermon else iso_date(row.get("publishDate"))
-        wp_id = text(sermon.get("id")) if sermon else ""
+        if not PUBLIC_EPISODE_TRACK_ID_PATTERN.fullmatch(track_id):
+            raise RuntimeError(f"Canonical AIC episode has an unsafe track ID: {track_id}")
+        title = text(row.get("title")) or track_id
+        detail = text(row.get("detail"))
+        summary = strip_markup(detail)[:600]
+        slug = slugify(title, f"episode-{track_id}")
         record = {
             "trackId": track_id,
             "legacyId": f"aic:{track_id}",
-            "wpSermonId": wp_id,
-            "title": text(row.get("title")) or text(sermon.get("title")) or track_id,
+            "wpSermonId": "",
+            "title": title,
             "slug": slug,
-            "programDate": program_date or None,
+            "programDate": iso_date(row.get("publishDate")) or None,
             "summary": summary,
-            "description": text(meta.get("sermon_description")) or text(row.get("detail")),
+            "description": detail,
             "externalAudioUrl": public_episode_media_url(track_id),
             "publishDate": iso_datetime(row.get("publishDate")),
-            "legacyUrl": f"{LEGACY_ORIGIN}/radio/{slug}/" if sermon else "",
+            "legacyUrl": "",
             "canonicalUrl": f"{LEGACY_ORIGIN}/radio/{slug}/",
             "seo": {
-                "title": text(meta.get("_aioseo_title")) or text(row.get("title")),
-                "description": text(meta.get("_aioseo_description")) or summary[:175],
+                "title": title,
+                "description": summary[:175],
                 "canonicalUrl": f"{LEGACY_ORIGIN}/radio/{slug}/",
                 "noIndex": False,
             },
@@ -1573,183 +1568,38 @@ def build_episodes(
         record["sourceFingerprint"] = stable_fingerprint(record)
         episodes.append(record)
 
-    matched_wp_ids = {match.wp_sermon_id for match in matches}
-    audio_content_evidence, audio_content_report = build_sermon_audio_content_evidence(
-        sermons,
-        matched_wp_ids,
-        restricted_media_root,
-        verify_audio_content,
-    )
     if audio_deduplication_report is not None:
-        audio_deduplication_report.update(audio_content_report)
-    aic_audio: defaultdict[str, list[str]] = defaultdict(list)
-    aic_title_date: defaultdict[tuple[str, str], list[str]] = defaultdict(list)
-    aic_title_only: defaultdict[str, list[tuple[str, str]]] = defaultdict(list)
-    for row in aic_episodes:
-        track_id = text(row.get("trackId"))
-        audio_key = basename_key(text(row.get("sourceFile")))
-        if audio_key:
-            aic_audio[audio_key].append(track_id)
-        title_date = (canonical_episode_title(text(row.get("title"))), iso_date(row.get("publishDate")))
-        if all(title_date):
-            aic_title_date[title_date].append(track_id)
-        if title_date[0]:
-            aic_title_only[title_date[0]].append((track_id, title_date[1]))
+        audio_deduplication_report.update({
+            "enabled": False,
+            "reason": "wordpress-sermons-excluded-by-authority",
+            "audioReferences": 0,
+            "existingPaths": 0,
+            "missingOrRejectedPaths": 0,
+            "edgeHashedPaths": 0,
+            "fullHashedPaths": 0,
+            "fullHashedBytes": 0,
+        })
 
-    matched_audio_paths: defaultdict[str, list[EpisodeMatch]] = defaultdict(list)
-    matched_content_hashes: defaultdict[str, list[EpisodeMatch]] = defaultdict(list)
-    for match in matches:
-        matched_sermon = sermons_by_id[match.wp_sermon_id]
-        matched_relative_audio = sermon_audio_relative(matched_sermon)
-        if matched_relative_audio:
-            matched_audio_paths[matched_relative_audio].append(match)
-        matched_content_sha256 = text(audio_content_evidence.get(match.wp_sermon_id, {}).get("contentSha256"))
-        if matched_content_sha256:
-            matched_content_hashes[matched_content_sha256].append(match)
-
-    seen_wp_evidence: dict[tuple[str, ...], str] = {}
-    seen_wp_content_hashes: dict[str, str] = {}
     for sermon in sorted(sermons, key=lambda row: int(text(row.get("id"))) if text(row.get("id")).isdigit() else 0):
         wp_id = text(sermon.get("id"))
-        if wp_id in matched_wp_ids:
-            continue
-        relative_audio = sermon_audio_relative(sermon)
-        audio_key = basename_key(relative_audio or "")
-        title_key = canonical_episode_title(text(sermon.get("title")))
-        program_date = wordpress_sermon_date(sermon)
-        audio_evidence = audio_content_evidence.get(wp_id, {})
-        content_sha256 = text(audio_evidence.get("contentSha256"))
-        evidence_fingerprint = stable_fingerprint({
-            "audio": relative_audio or "",
-            "audioContentSha256": content_sha256,
-            "audioSizeBytes": audio_evidence.get("sizeBytes"),
-            "title": title_key,
-            "date": program_date,
-        })
-        duplicate_matches = matched_audio_paths.get(relative_audio or "", []) if relative_audio else []
-        duplicate_reason = "aic-audio-path" if duplicate_matches else ""
-        if not duplicate_matches and content_sha256:
-            duplicate_matches = matched_content_hashes.get(content_sha256, [])
-            duplicate_reason = "aic-audio-content-sha256" if duplicate_matches else ""
-        if duplicate_matches:
-            canonical_match = sorted(duplicate_matches, key=lambda item: (item.aic_track_id, item.wp_sermon_id))[0]
-            if reconciliation is not None:
-                reconciliation.append({
-                    "wpSermonId": wp_id,
-                    "status": "duplicate-aic",
-                    "reason": duplicate_reason,
-                    "canonicalTrackId": canonical_match.aic_track_id,
-                    "canonicalWpSermonId": canonical_match.wp_sermon_id,
-                    "audioContentSha256": content_sha256,
-                    "evidenceFingerprint": evidence_fingerprint,
-                })
-            continue
-        explicit_bestof_replay = (
-            wp_id not in baseline_wp_ids
-            and bool(relative_audio)
-            and bool(re.search(r"(?:^|[-_])best[-_]?of(?:[-_]|$)|bestof", PurePosixPath(relative_audio or "").name, re.I))
-        )
-        if explicit_bestof_replay and title_key:
-            replay_candidates = aic_title_only.get(title_key, [])
-            if replay_candidates:
-                prior_candidates = [item for item in replay_candidates if item[1] and item[1] <= program_date]
-                canonical_track_id = sorted(prior_candidates or replay_candidates, key=lambda item: (item[1], item[0]))[-1][0]
-                if reconciliation is not None:
-                    reconciliation.append({
-                        "wpSermonId": wp_id,
-                        "status": "duplicate-aic",
-                        "reason": "explicit-bestof-canonical-title",
-                        "canonicalTrackId": canonical_track_id,
-                        "audioContentSha256": content_sha256,
-                        "evidenceFingerprint": evidence_fingerprint,
-                    })
-                continue
-        duplicate_tracks = aic_audio.get(audio_key, []) if audio_key else []
-        duplicate_reason = "aic-audio-basename" if duplicate_tracks else ""
-        if not duplicate_tracks and title_key and program_date:
-            duplicate_tracks = aic_title_date.get((title_key, program_date), [])
-            duplicate_reason = "aic-canonical-title-date" if duplicate_tracks else ""
-        if duplicate_tracks:
-            if reconciliation is not None:
-                reconciliation.append({
-                    "wpSermonId": wp_id,
-                    "status": "duplicate-aic",
-                    "reason": duplicate_reason,
-                    "canonicalTrackId": sorted(duplicate_tracks)[0],
-                    "audioContentSha256": content_sha256,
-                    "evidenceFingerprint": evidence_fingerprint,
-                })
-            continue
-
-        wp_key = ("audio-path", relative_audio) if relative_audio else (("title-date", title_key, program_date) if title_key and program_date else ("wp-id", wp_id))
-        representative = seen_wp_evidence.get(wp_key)
-        if representative:
-            if reconciliation is not None:
-                reconciliation.append({
-                    "wpSermonId": wp_id,
-                    "status": "duplicate-wordpress",
-                    "reason": wp_key[0],
-                    "canonicalWpSermonId": representative,
-                    "audioContentSha256": content_sha256,
-                    "evidenceFingerprint": evidence_fingerprint,
-                })
-            continue
-        content_representative = seen_wp_content_hashes.get(content_sha256) if content_sha256 else None
-        if content_representative:
-            if reconciliation is not None:
-                reconciliation.append({
-                    "wpSermonId": wp_id,
-                    "status": "duplicate-wordpress",
-                    "reason": "audio-content-sha256",
-                    "canonicalWpSermonId": content_representative,
-                    "audioContentSha256": content_sha256,
-                    "evidenceFingerprint": evidence_fingerprint,
-                })
-            continue
-        seen_wp_evidence[wp_key] = wp_id
-        if content_sha256:
-            seen_wp_content_hashes[content_sha256] = wp_id
-        meta = sermon.get("meta") if isinstance(sermon.get("meta"), dict) else {}
-        slug = slugify(text(sermon.get("slug")), f"sermon-{wp_id}")
-        summary = text(meta.get("sermon_description")) or strip_markup(clean_legacy_content(text(sermon.get("content"))))[:600]
-        record = {
-            "trackId": f"wp-sermon:{wp_id}",
-            "legacyId": f"wp-sermon:{wp_id}",
-            "wpSermonId": wp_id,
-            "title": text(sermon.get("title")) or f"Legacy radio episode {wp_id}",
-            "slug": slug,
-            "programDate": program_date or None,
-            "summary": summary,
-            "description": text(meta.get("sermon_description")) or clean_legacy_content(text(sermon.get("content"))),
-            "externalAudioUrl": f"/media/legacy/{relative_audio}" if relative_audio else "",
-            "publishDate": iso_datetime(sermon.get("dateGmt") or sermon.get("date")),
-            "legacyUrl": f"{LEGACY_ORIGIN}/radio/{slug}/",
-            "canonicalUrl": f"{LEGACY_ORIGIN}/radio/{slug}/",
-            "seo": {
-                "title": text(meta.get("_aioseo_title")) or text(sermon.get("title")),
-                "description": text(meta.get("_aioseo_description")) or summary[:175],
-                "canonicalUrl": f"{LEGACY_ORIGIN}/radio/{slug}/",
-                "noIndex": False,
-            },
-            "sourceFingerprint": "",
-        }
-        record["sourceFingerprint"] = stable_fingerprint(record)
-        episodes.append(record)
         if reconciliation is not None:
             reconciliation.append({
                 "wpSermonId": wp_id,
-                "status": "imported-unique",
-                "reason": wp_key[0],
-                "canonicalTrackId": record["trackId"],
-                "audioContentSha256": content_sha256,
-                "evidenceFingerprint": evidence_fingerprint,
+                "status": "excluded-wordpress-sermon",
+                "reason": "aic-postgresql-catalog-is-authoritative",
+                "canonicalTrackId": "",
+                "evidenceFingerprint": stable_fingerprint({
+                    "id": wp_id,
+                    "title": text(sermon.get("title")),
+                    "date": text(sermon.get("dateGmt") or sermon.get("date")),
+                }),
             })
 
     unique_slugs(episodes, "trackId")
     for record in episodes:
         record["sourceFingerprint"] = ""
         record["sourceFingerprint"] = stable_fingerprint(record)
-    return sorted(episodes, key=lambda row: text(row.get("trackId"))), matches
+    return sorted(episodes, key=lambda row: text(row.get("trackId"))), []
 
 
 def reconcile_episode_media(episodes: list[dict[str, Any]], media_records: Sequence[MediaRecord]) -> list[dict[str, str]]:
@@ -2657,7 +2507,8 @@ def apply_verified_media_replacements(
 
     unavailable_markup = "<span>Media unavailable.</span>"
     url_value_fields = {
-        "externalAudioUrl", "legacyPhotoUrl", "publicPath", "imageUrl", "audioUrl", "videoUrl", "posterUrl",
+        "externalAudioUrl", "legacyPhotoUrl", "publicPath", "sourceUrl",
+        "imageUrl", "audioUrl", "videoUrl", "posterUrl",
     }
 
     def remove_reviewed_target(value: str, target: str, field_name: str) -> str:
@@ -3678,6 +3529,12 @@ def apply_plan(
 ) -> dict[str, Any]:
     if args.confirm != APPLY_CONFIRMATION:
         raise RuntimeError(f"--apply requires --confirm {APPLY_CONFIRMATION}")
+    if args.copy_media:
+        raise RuntimeError("Media copy is prohibited: the existing canonical media inventory wins")
+    if media_records or media_public_paths or metadata_only_media_ids:
+        raise RuntimeError("Cutover authority prohibits WordPress media-asset mutations")
+    if redirects:
+        raise RuntimeError("Cutover authority prohibits legacy redirect mutations")
     client = canonical_strapi_client(env_values)
     completed = load_checkpoint(args.checkpoint, plan_fingerprint, args.no_resume)
     mutation_records = load_mutation_manifest(args.mutation_manifest, plan_fingerprint, args.no_resume)
@@ -4283,8 +4140,6 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]
         )
         rest_snapshot_evidence.update(wordpress_merge_report)
         rest_snapshot_evidence["sourceMode"] = "direct-database-refresh-plus-verified-snapshot"
-        rest_media_increment_ids: Sequence[str] | None = rest_snapshot_evidence.get("restOnlyMediaIds", [])
-        episode_identity_baseline = database_wp_content
     else:
         if args.confirm_wordpress_refresh:
             raise RuntimeError("--confirm-wordpress-refresh is only valid with direct-database-refresh mode")
@@ -4309,33 +4164,26 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]
             "mergedContent": len(rest_wp_content),
             "mergedMedia": rest_snapshot_evidence.get("totals", {}).get("media"),
         })
-        rest_media_increment_ids = None
-        episode_identity_baseline = rest_wp_content
     aic_episodes, aic_posts = fetch_aic()
     episode_audio_inventory = fetch_episode_audio_inventory(args.mc_bin, args.mc_audio_target) if args.verify_episode_audio else {}
     episode_audio_object_ids = set(episode_audio_inventory)
-    legacy_public_urls = read_manifest_urls(args.legacy_urls)
-    legacy_urls = list(dict.fromkeys([
-        *legacy_public_urls,
-        *(text(row.get("sourceUrl")) for row in rest_wp_content if text(row.get("sourceUrl"))),
-        *(text(row.get("sourceUrl")) for row in rest_attachments if text(row.get("sourceUrl"))),
-    ]))
-    attachment_urls = list(dict.fromkeys([
-        *read_manifest_urls(args.attachment_manifest),
-        *(text(row.get("sourceUrl")) for row in rest_attachments if text(row.get("sourceUrl"))),
-    ]))
+    # Legacy redirect and attachment manifests are deliberately not opened.
+    # They are outside the adopted authority and cannot affect this plan.
+    legacy_public_urls: list[str] = []
+    legacy_urls: list[str] = []
+    attachment_urls: list[str] = []
     raw_rejected_upload_references: list[dict[str, str]] = []
     raw_upload_references = extract_upload_references(
         [*wp_content, *aic_posts],
         raw_rejected_upload_references,
     )
-    reviewed_media_dispositions, approved_reference_removals = load_reviewed_media_dispositions(
-        args.reviewed_media_dispositions,
-        text(rest_snapshot_evidence.get("sha256")),
-        args.apply or args.publish_reviewed,
-    )
+    reviewed_media_dispositions = {
+        "enabled": False,
+        "reason": "wordpress-media-excluded-by-authority",
+        "records": [],
+    }
     external_image_references = extract_external_image_references(rest_wp_content)
-    external_image_backup_verification, external_image_paths, external_media_records = verify_external_image_backup_manifest(
+    external_image_backup_verification, external_image_paths, _external_media_records = verify_external_image_backup_manifest(
         args.external_image_backup_manifest,
         text(rest_snapshot_evidence.get("sha256")),
         external_image_references,
@@ -4351,10 +4199,10 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]
         wp_content,
         aic_episodes,
         episode_reconciliation,
-        args.restricted_media_root,
-        args.verify_media,
+        None,
+        False,
         episode_audio_deduplication,
-        episode_identity_baseline,
+        None,
     )
     excluded_endorsements: list[dict[str, str]] = []
     structured_content_coverage: dict[str, Any] = {}
@@ -4363,7 +4211,6 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]
         excluded_endorsements,
         structured_content_coverage,
     )
-    rejected_upload_references: list[dict[str, str]] = []
     final_payload_groups = {
         "page": pages,
         "post": posts,
@@ -4372,7 +4219,17 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]
         "endorsement": endorsements,
     }
     localize_final_payload_uploads(final_payload_groups)
-    pre_removal_payload_fingerprint = stable_fingerprint(final_payload_groups)
+    excluded_reference_rejections: list[dict[str, str]] = []
+    excluded_upload_references = extract_final_payload_upload_references(
+        final_payload_groups,
+        excluded_reference_rejections,
+    )
+    apply_verified_media_replacements(
+        (pages, posts, episodes, people, endorsements),
+        {},
+        set(excluded_upload_references),
+    )
+    rejected_upload_references: list[dict[str, str]] = []
     upload_references = extract_final_payload_upload_references(
         final_payload_groups,
         rejected_upload_references,
@@ -4382,131 +4239,60 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]
         upload_references,
         raw_rejected_upload_references,
     )
-    media_records, rejected_media = build_media_records(
-        attachments,
-        attachment_urls,
-        legacy_public_urls,
-        upload_references,
-        args.restricted_media_root,
-        args.verify_media,
-    )
-    media_records = merge_external_media_records(media_records, external_media_records)
+    excluded_wordpress_media = {
+        "authority": CUTOVER_AUTHORITY,
+        "referencesRemoved": len(excluded_upload_references),
+        "rejectedReferencesBeforeRemoval": excluded_reference_rejections,
+        "records": [
+            {
+                "relativePath": relative_path,
+                "referencedBy": sorted(referenced_by),
+                "disposition": "removed-from-retained-draft-by-authority",
+            }
+            for relative_path, referenced_by in sorted(excluded_upload_references.items())
+        ],
+    }
+    media_records: list[MediaRecord] = []
+    rejected_media: list[dict[str, str]] = []
     missing_episode_media = reconcile_episode_media(episodes, media_records)
     aic_track_ids = {
         text(row.get("trackId"))
         for row in aic_episodes
         if PUBLIC_EPISODE_TRACK_ID_PATTERN.fullmatch(text(row.get("trackId")))
     }
-    wordpress_sermons_by_id = {
-        text(row.get("id")): row
-        for row in wp_content
-        if text(row.get("type")) == "wpfc_sermon"
-    }
-    matched_tracks_by_audio_path: defaultdict[str, list[str]] = defaultdict(list)
-    for match in matches:
-        relative_audio = sermon_audio_relative(wordpress_sermons_by_id.get(match.wp_sermon_id, {}))
-        if relative_audio:
-            matched_tracks_by_audio_path[relative_audio].append(match.aic_track_id)
-    episodes_by_track_id = {text(row.get("trackId")): row for row in episodes}
-    sermon_alias_targets: dict[str, str] = {}
-    for row in episode_reconciliation:
-        if text(row.get("status")) not in {"duplicate-aic", "duplicate-wordpress"}:
-            continue
-        canonical_track_id = text(row.get("canonicalTrackId"))
-        if not canonical_track_id:
-            canonical_wp_id = text(row.get("canonicalWpSermonId"))
-            canonical_track_id = f"wp-sermon:{canonical_wp_id}" if canonical_wp_id else ""
-        canonical_episode = episodes_by_track_id.get(canonical_track_id)
-        if canonical_episode:
-            sermon_alias_targets[text(row.get("wpSermonId"))] = f"/radio/{text(canonical_episode.get('slug'))}/"
-    missing_public_media_disposition: list[dict[str, Any]] = []
-    replacement_media_targets: dict[str, str] = {}
-    for record in media_records:
-        if record.visibility != "public" or record.exists:
-            continue
-        replacement_track_ids = sorted(set(matched_tracks_by_audio_path.get(record.relative_path, [])))
-        object_id = replacement_track_ids[0] if replacement_track_ids else ""
-        replacement_verified = (
-            record.relative_path.casefold().endswith(".mp3")
-            and object_id in aic_track_ids
-            and episode_audio_inventory.get(object_id, 0) > 0
-        )
-        if replacement_verified:
-            replacement_url = public_episode_media_url(object_id)
-            replacement_media_targets[record.relative_path] = replacement_url
-            disposition = "served-by-verified-aic-audio-object"
-        elif record.relative_path in approved_reference_removals:
-            replacement_url = ""
-            disposition = "reviewed-remove-public-reference"
-        else:
-            replacement_url = ""
-            disposition = "blocking-missing-public-media"
-        missing_public_media_disposition.append({
-            "legacyAttachmentId": record.attachment_id,
-            "relativePath": record.relative_path,
-            "disposition": disposition,
-            "replacementUrl": replacement_url,
-        })
-    media_public_paths = {
-        record.attachment_id: f"/media/legacy/{record.relative_path}"
-        for record in media_records
-        if record.visibility == "public" and record.exists
-    }
-    media_public_paths.update({
-        text(row.get("legacyAttachmentId")): text(row.get("replacementUrl"))
-        for row in missing_public_media_disposition
-        if text(row.get("replacementUrl"))
-    })
-    metadata_only_media_ids = {
-        text(row.get("legacyAttachmentId"))
-        for row in missing_public_media_disposition
-        if text(row.get("disposition")) in {
-            "blocking-missing-public-media",
-            "reviewed-remove-public-reference",
-        }
-    }
+    media_public_paths: dict[str, str] = {}
+    metadata_only_media_ids: set[str] = set()
     media_reference_coverage = build_media_reference_coverage(
         upload_references,
         media_records,
-        replacement_media_targets,
-        approved_reference_removals,
-        text(reviewed_media_dispositions.get("finalPayloadFingerprint")),
-        pre_removal_payload_fingerprint,
+        {},
+        {},
+        "",
+        stable_fingerprint(final_payload_groups),
         rejected_upload_references,
-        args.verify_media,
+        True,
     )
-    applied_reference_removals = {
-        text(record.get("relativePath"))
-        for record in media_reference_coverage["records"]
-        if text(record.get("disposition")) == "reviewed-reference-removal"
-    }
-    apply_verified_media_replacements(
-        (pages, posts, episodes, people, endorsements),
-        replacement_media_targets,
-        applied_reference_removals,
-    )
+    missing_public_media_disposition: list[dict[str, Any]] = []
     final_media_target_audit = audit_final_public_media_targets(
         final_payload_groups,
         media_records,
-        args.verify_media,
-        {track_id for track_id, size in episode_audio_inventory.items() if size > 0},
+        True,
+        {track_id for track_id, size in episode_audio_inventory.items() if size > 0}
+        if args.verify_episode_audio else None,
     )
-    rest_media_backup_verification = verify_rest_media_backup_manifest(
-        args.rest_media_backup_manifest,
-        text(rest_snapshot_evidence.get("sha256")),
-        rest_media_increment_ids,
-        args.restricted_media_root,
-    )
-    redirects, redirect_failures, unmatched_redirects = build_redirects(
-        legacy_urls,
-        wp_content,
-        posts,
-        episodes,
-        media_records,
-        replacement_media_targets,
-        sermon_alias_targets,
-    )
+    rest_media_backup_verification = {
+        "enabled": False,
+        "reason": "wordpress-media-excluded-by-authority",
+        "manifestPath": "",
+        "verifiedFiles": 0,
+        "verifiedBytes": 0,
+        "missingMediaIds": [],
+    }
+    redirects: list[dict[str, Any]] = []
+    redirect_failures: list[dict[str, str]] = []
+    unmatched_redirects: list[dict[str, str]] = []
     plan_fingerprint = stable_fingerprint({
+        "authority": CUTOVER_AUTHORITY,
         "pages": pages,
         "posts": posts,
         "episodes": episodes,
@@ -4519,6 +4305,7 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]
         "mediaReferenceCoverage": media_reference_coverage,
         "reviewedMediaDispositions": reviewed_media_dispositions,
         "rawMediaReferenceInventory": raw_media_reference_inventory,
+        "excludedWordpressMedia": excluded_wordpress_media,
         "finalMediaTargetAudit": final_media_target_audit,
     })
     wp_counts = Counter(text(row.get("type")) for row in wp_content)
@@ -4545,24 +4332,33 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]
         for person in people
         if not text(person.get("legacyPhotoUrl"))
     ]
-    people_with_unverified_photo = [
+    people_with_legacy_photo = [
         {
             "legacyId": text(person.get("legacyId")),
             "name": text(person.get("name")),
             "legacyPhotoUrl": text(person.get("legacyPhotoUrl")),
         }
         for person in people
-        if text(person.get("legacyPhotoUrl")) and text(person.get("legacyPhotoUrl")) not in verified_public_media_targets
+        if text(person.get("legacyPhotoUrl"))
     ]
     plan = {
         "version": 1,
         "generatedAt": datetime.now(timezone.utc).isoformat(),
         "mode": "apply" if args.apply else "publish-reviewed" if args.publish_reviewed else "dry-run",
         "planFingerprint": plan_fingerprint,
+        "cutoverAuthority": {
+            "id": CUTOVER_AUTHORITY,
+            "episodeSeed": "canonical-aic-postgresql-only",
+            "episodeAudio": "exact-canonical-minio-inventory-only",
+            "wordpressSermons": "excluded-from-episode-seeding",
+            "wordpressMediaRows": "excluded",
+            "legacyRedirects": "excluded",
+        },
         "precedence": {
             "posts": "AIC pastorwood_posts supersede WordPress posts by legacy id, then source URL",
-            "episodes": "AIC episodes are canonical; WordPress sermons enrich one AIC episode each by audio basename, then normalized title plus date; genuinely unique unmatched WordPress sermons are imported, while duplicate leftovers are reported without creating another episode",
-            "media": "WordPress uploads require an explicit attachment manifest or verified published-content derivative; external Mailchimp images require an exact immutable backup manifest; published-content reference is required for public visibility",
+            "episodes": "Only canonical AIC PostgreSQL episode rows seed Strapi; WordPress sermons are report-only and cannot add or override fields",
+            "media": "The existing canonical MinIO episode inventory wins; WordPress attachment/media rows are not planned",
+            "redirects": "Legacy redirect records are outside this cutover authority and are not planned",
         },
         "sourceCounts": {
             "legacyPublicUrls": len(legacy_urls),
@@ -4579,14 +4375,16 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]
         "externalImageBackup": external_image_backup_verification,
         "reviewedMediaDispositions": reviewed_media_dispositions,
         "rawMediaReferenceInventory": raw_media_reference_inventory,
+        "excludedWordpressMedia": excluded_wordpress_media,
         "plannedCounts": {
             "pages": len(pages),
             "posts": len(posts),
             "episodes": len(episodes),
             "episodeMatches": len(matches),
-            "unmatchedWordpressSermons": max(0, wp_counts["wpfc_sermon"] - len(matches)),
-            "uniqueWordpressSermonsImported": episode_reconciliation_counts["imported-unique"],
-            "duplicateWordpressSermons": episode_reconciliation_counts["duplicate-aic"] + episode_reconciliation_counts["duplicate-wordpress"],
+            "unmatchedWordpressSermons": wp_counts["wpfc_sermon"],
+            "excludedWordpressSermons": episode_reconciliation_counts["excluded-wordpress-sermon"],
+            "uniqueWordpressSermonsImported": 0,
+            "duplicateWordpressSermons": 0,
             "people": len(people),
             "endorsements": len(endorsements),
             "media": len(media_records),
@@ -4604,7 +4402,7 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]
         },
         "episodeReconciliation": {
             "counts": dict(sorted(episode_reconciliation_counts.items())),
-            "aliasRedirects": len(sermon_alias_targets),
+            "aliasRedirects": 0,
             "records": episode_reconciliation,
         },
         "episodeAudioDeduplication": episode_audio_deduplication,
@@ -4627,18 +4425,19 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]
             "nonexistentMediaTargets": nonexistent_media_targets,
         },
         "mediaVerification": {
-            "enabled": args.verify_media,
-            "existing": sum(1 for record in media_records if record.exists),
-            "missing": sum(1 for record in media_records if args.verify_media and not record.exists),
-            "checksums": "computed during phase-one copy and rehashed from mutation evidence before phase-two publication",
+            "enabled": True,
+            "existing": 0,
+            "missing": 0,
+            "checksums": "not applicable: WordPress media rows and media copy are excluded by authority",
         },
         "mediaReferenceCoverage": media_reference_coverage,
         "finalMediaTargetAudit": final_media_target_audit,
         "peopleMediaCoverage": {
             "people": len(people),
-            "verifiedPublicPhotos": len(people) - len(people_without_photo_source) - len(people_with_unverified_photo),
+            "verifiedPublicPhotos": 0,
+            "legacyPhotosRetained": len(people_with_legacy_photo),
             "withoutPhotoSource": people_without_photo_source,
-            "unverifiedPhotoSource": people_with_unverified_photo,
+            "unverifiedPhotoSource": people_with_legacy_photo,
         },
         "episodeAudioCoverage": {
             "enabled": args.verify_episode_audio,
@@ -4676,10 +4475,62 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]
         "mediaPublicPaths": media_public_paths,
         "metadataOnlyMediaIds": metadata_only_media_ids,
     }
+    validate_cutover_authority(plan)
+    validate_media_reference_coverage(plan["mediaReferenceCoverage"])
+    validate_final_public_media_targets(plan["finalMediaTargetAudit"])
     return plan, payloads
 
 
+def validate_cutover_authority(plan: dict[str, Any]) -> None:
+    authority = plan.get("cutoverAuthority", {})
+    counts = plan.get("plannedCounts", {})
+    source_counts = plan.get("sourceCounts", {})
+    reconciliation = plan.get("episodeReconciliation", {})
+    reconciliation_records = reconciliation.get("records", [])
+    final_audit = plan.get("finalMediaTargetAudit", {})
+    media_coverage = plan.get("mediaReferenceCoverage", {})
+    if (
+        authority.get("id") != CUTOVER_AUTHORITY
+        or authority.get("episodeSeed") != "canonical-aic-postgresql-only"
+        or authority.get("episodeAudio") != "exact-canonical-minio-inventory-only"
+        or authority.get("wordpressSermons") != "excluded-from-episode-seeding"
+        or authority.get("wordpressMediaRows") != "excluded"
+        or authority.get("legacyRedirects") != "excluded"
+        or counts.get("episodes") != source_counts.get("aicEpisodes")
+        or counts.get("episodeMatches") != 0
+        or counts.get("uniqueWordpressSermonsImported") != 0
+        or counts.get("duplicateWordpressSermons") != 0
+        or counts.get("excludedWordpressSermons") != source_counts.get("wordpressPublishedSermons")
+        or counts.get("media") != 0
+        or counts.get("publicMedia") != 0
+        or counts.get("privateMedia") != 0
+        or counts.get("redirects") != 0
+        or reconciliation.get("aliasRedirects") != 0
+        or not isinstance(reconciliation_records, list)
+        or len(reconciliation_records) != source_counts.get("wordpressPublishedSermons")
+        or any(
+            not isinstance(record, dict)
+            or text(record.get("status")) != "excluded-wordpress-sermon"
+            or text(record.get("reason")) != "aic-postgresql-catalog-is-authoritative"
+            or text(record.get("canonicalTrackId"))
+            for record in reconciliation_records
+        )
+        or final_audit.get("targets") != 0
+        or final_audit.get("verifiedTargets") != 0
+        or final_audit.get("blockingTargets")
+        or final_audit.get("invalidTargets")
+        or media_coverage.get("encountered") != 0
+        or media_coverage.get("records") != []
+        or plan.get("missingEpisodeMedia")
+        or plan.get("missingPublicMedia")
+    ):
+        raise RuntimeError(
+            "Cutover authority validation failed: retained drafts must use only canonical AIC episodes/MinIO audio and contain no WordPress media rows, legacy media targets, or redirects"
+        )
+
+
 def validate_apply_preflight(plan: dict[str, Any]) -> None:
+    validate_cutover_authority(plan)
     validate_media_reference_coverage(plan.get("mediaReferenceCoverage", {}))
     validate_final_public_media_targets(plan.get("finalMediaTargetAudit", {}))
     coverage = plan.get("episodeAudioCoverage", {})
@@ -4708,14 +4559,6 @@ def validate_apply_preflight(plan: dict[str, Any]) -> None:
             or any(text(row.get("disposition")) != "excluded-rest-forbidden-no-public-record" for row in dispositions)
         ):
             raise RuntimeError("Apply preflight failed: snapshot-inaccessible media is not explicitly dispositioned")
-    backup = plan.get("wordpressRestMediaBackup", {})
-    expected_backup_files = (
-        len(backup.get("verifiedMediaIds", []))
-        if snapshot.get("sourceMode") == "verified-snapshot-only"
-        else len(snapshot.get("restOnlyMediaIds", []))
-    )
-    if not backup.get("enabled") or backup.get("missingMediaIds") or backup.get("verifiedFiles") != expected_backup_files:
-        raise RuntimeError("Apply preflight failed: REST-only media backup is incomplete")
     external_backup = plan.get("externalImageBackup", {})
     if (
         not external_backup.get("enabled")
@@ -4724,9 +4567,6 @@ def validate_apply_preflight(plan: dict[str, Any]) -> None:
         or external_backup.get("verifiedReferences") != external_backup.get("expectedReferences")
     ):
         raise RuntimeError("Apply preflight failed: external legacy image backup is incomplete")
-    deduplication = plan.get("episodeAudioDeduplication", {})
-    if not deduplication.get("enabled"):
-        raise RuntimeError("Apply preflight failed: canonical-root episode content hashing was not enabled")
     redirect_integrity = plan.get("redirectIntegrity", {})
     if any(redirect_integrity.get(key) for key in ("selfLoops", "reservedSources", "nonexistentMediaTargets")) or plan.get("redirectFailures"):
         raise RuntimeError("Apply preflight failed: redirect integrity checks did not pass")
@@ -4756,16 +4596,19 @@ def validate_apply_preflight(plan: dict[str, Any]) -> None:
     people_media = plan.get("peopleMediaCoverage", {})
     if (
         people_media.get("people") != plan.get("plannedCounts", {}).get("people")
-        or people_media.get("verifiedPublicPhotos") != people_media.get("people")
-        or people_media.get("withoutPhotoSource")
+        or people_media.get("verifiedPublicPhotos") != 0
+        or people_media.get("legacyPhotosRetained") != 0
         or people_media.get("unverifiedPhotoSource")
     ):
-        raise RuntimeError("Apply preflight failed: an imported board portrait is not a verified public legacy asset")
+        raise RuntimeError("Apply preflight failed: an imported person retains an excluded WordPress media reference")
     reconciliation = plan.get("episodeReconciliation", {})
     reconciliation_counts = reconciliation.get("counts", {})
-    expected_aliases = int(reconciliation_counts.get("duplicate-aic", 0)) + int(reconciliation_counts.get("duplicate-wordpress", 0))
-    if reconciliation.get("aliasRedirects") != expected_aliases:
-        raise RuntimeError("Apply preflight failed: a discarded sermon lacks a canonical redirect alias")
+    if (
+        reconciliation.get("aliasRedirects") != 0
+        or int(reconciliation_counts.get("excluded-wordpress-sermon", 0))
+        != int(plan.get("sourceCounts", {}).get("wordpressPublishedSermons", 0))
+    ):
+        raise RuntimeError("Apply preflight failed: WordPress sermons are not fully excluded from episode seeding")
     dispositions = plan.get("missingPublicMediaDisposition", {})
     disposition_records = dispositions.get("records", [])
     reviewed_removal_paths = {
@@ -4795,10 +4638,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.apply and args.publish_reviewed:
             raise ValueError("--apply and --publish-reviewed are separate phases and cannot run together")
-        if args.apply and not (args.verify_media and args.verify_episode_audio and args.copy_media):
-            raise ValueError("--apply requires --verify-media --verify-episode-audio --copy-media")
-        if args.publish_reviewed and not (args.verify_media and args.verify_episode_audio):
-            raise ValueError("--publish-reviewed requires --verify-media --verify-episode-audio")
+        if args.copy_media:
+            raise ValueError("--copy-media is prohibited: the existing canonical media inventory wins")
+        if args.apply and not args.verify_episode_audio:
+            raise ValueError("--apply requires --verify-episode-audio")
+        if args.publish_reviewed and not args.verify_episode_audio:
+            raise ValueError("--publish-reviewed requires --verify-episode-audio")
         if args.publish_reviewed and not re.fullmatch(r"[a-f0-9]{64}", text(args.reviewed_mutation_manifest_sha256)):
             raise ValueError("--publish-reviewed requires --reviewed-mutation-manifest-sha256 with the exact phase-one SHA-256")
         plan, payloads = build_plan(args)
