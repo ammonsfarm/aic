@@ -4,8 +4,9 @@ import { TopRail } from "@/components/top-rail";
 import { RoutePanel } from "@/components/route-panel";
 import { RagChatWidget } from "@/components/rag-chat-widget";
 import { TranscriptReader } from "@/components/transcript-reader";
+import { requireInternalReadConsoleUser } from "@/lib/console-access";
 import { getEpisodeDetail } from "@/lib/podcast-data";
-import { canMutateForRole, requireSignedInAppUser } from "@/lib/rbac";
+import { canGenerateForRole, canMutateForRole } from "@/lib/rbac";
 
 function formatDate(value: string | null) {
   if (!value) {
@@ -29,14 +30,14 @@ export default async function EpisodeDetailPage({
   params: Promise<{ trackId: string }>;
 }) {
   const { trackId } = await params;
-  const appUser = await requireSignedInAppUser();
+  const appUser = await requireInternalReadConsoleUser();
   const detail = await getEpisodeDetail(trackId);
 
   if (!detail) {
     return (
       <>
-        <TopRail variant="public" />
-        <main className="public-shell">
+        <TopRail variant="private" role={appUser.role} />
+        <main className="public-shell" id="main-content" tabIndex={-1}>
           <RoutePanel
             eyebrow="Episode not found"
             title="Episode not found"
@@ -64,8 +65,8 @@ export default async function EpisodeDetailPage({
 
   return (
     <>
-      <TopRail variant="public" />
-      <main className="public-shell">
+      <TopRail variant="private" role={appUser.role} />
+      <main className="public-shell" id="main-content" tabIndex={-1}>
         <RoutePanel
           eyebrow="Episode detail"
           title={detail.episode.title}
@@ -113,17 +114,23 @@ export default async function EpisodeDetailPage({
             </div>
 
             <div>
-              <RagChatWidget
-                action={`/api/episodes/${detail.episode.trackId}/chat`}
-                defaultQuestion=""
-                heading="Research"
-                description="Ask questions that should be answered from this episode only."
-                submitLabel="Ask episode"
-                sourceLabel="Episode sources"
-                compactMode
-                historyScope="episode"
-                historyTrackId={detail.episode.trackId}
-              />
+              {canGenerateForRole(appUser.role) ? (
+                <RagChatWidget
+                  action={`/api/episodes/${detail.episode.trackId}/chat`}
+                  defaultQuestion=""
+                  heading="Research"
+                  description="Ask questions that should be answered from this episode only."
+                  submitLabel="Ask episode"
+                  sourceLabel="Episode sources"
+                  compactMode
+                  historyScope="episode"
+                  historyTrackId={detail.episode.trackId}
+                />
+              ) : (
+                <p className="empty-state" role="status">
+                  Episode questions are not available for your role. The episode record and transcript remain available below.
+                </p>
+              )}
             </div>
           </section>
 

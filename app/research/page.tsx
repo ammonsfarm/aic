@@ -2,8 +2,10 @@ import { TopRail } from "@/components/top-rail";
 import { RoutePanel } from "@/components/route-panel";
 import { RagChatWidget } from "@/components/rag-chat-widget";
 import { requireResearchConsoleUser } from "@/lib/console-access";
+import { privateConsoleMetadata } from "@/lib/private-console-metadata";
 
 export const dynamic = "force-dynamic";
+export const metadata = privateConsoleMetadata;
 
 const starterQuestions = [
   "How many episodes are Pastor Wood interviewing someone?",
@@ -13,12 +15,12 @@ const starterQuestions = [
 ];
 
 export default async function ResearchPage() {
-  await requireResearchConsoleUser();
+  const appUser = await requireResearchConsoleUser();
 
   return (
     <>
-      <TopRail variant="public" />
-      <main className="public-shell">
+      <TopRail variant="private" role={appUser.role} />
+      <main className="public-shell" id="main-content" tabIndex={-1}>
         <RoutePanel
           eyebrow="Research"
           title="Ask the full archive"

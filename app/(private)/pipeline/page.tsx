@@ -2,6 +2,7 @@ import { RoutePanel } from "@/components/route-panel";
 import { DataFreshnessNotice } from "@/components/data-freshness";
 import { PipelineOperations } from "@/components/pipeline-operations";
 import { getOperationalDashboard, listMatchedPodtracEpisodes, listUnmatchedPodtracEpisodes } from "@/lib/admin-operations";
+import { requireInternalReadConsoleUser } from "@/lib/console-access";
 import { getPodtracDashboard } from "@/lib/podcast-data";
 import { addReportDays } from "@/lib/podcast-reporting";
 import { isCurrentUserAdministrator } from "@/lib/rbac";
@@ -40,6 +41,7 @@ function statusClass(status: string) {
 export const dynamic = "force-dynamic";
 
 export default async function PipelinePage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
+  await requireInternalReadConsoleUser();
   const params = await searchParams;
   const query = params.q?.trim().slice(0, 120) ?? "";
   const [operations, dashboard, unmatched, matched, isAdministrator] = await Promise.all([

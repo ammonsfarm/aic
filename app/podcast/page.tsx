@@ -135,6 +135,14 @@ function RangeForm({
 }
 
 function LineChart({ rows }: { rows: PodcastStatsDashboard["dailyTrend"] }) {
+  if (rows.length === 0) {
+    return (
+      <p className="empty-state" role="status">
+        No daily download data is available for this reporting window.
+      </p>
+    );
+  }
+
   const width = 760;
   const height = 260;
   const padding = { top: 18, right: 28, bottom: 36, left: 56 };
@@ -156,7 +164,15 @@ function LineChart({ rows }: { rows: PodcastStatsDashboard["dailyTrend"] }) {
 
   return (
     <div className="chart-frame">
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Daily downloads line chart">
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-labelledby="daily-downloads-chart-title daily-downloads-chart-description"
+      >
+        <title id="daily-downloads-chart-title">Daily downloads line chart</title>
+        <desc id="daily-downloads-chart-description">
+          {`${rows.length} daily values from ${formatDate(rows[0].activityDate)} through ${formatDate(rows[rows.length - 1].activityDate)}. Exact values follow in an accessible table.`}
+        </desc>
         <line x1={padding.left} y1={padding.top} x2={padding.left} y2={padding.top + chartHeight} className="chart-axis" />
         <line
           x1={padding.left}
@@ -193,11 +209,32 @@ function LineChart({ rows }: { rows: PodcastStatsDashboard["dailyTrend"] }) {
           );
         })}
       </svg>
+      <table className="sr-only">
+        <caption>Daily podcast download values</caption>
+        <thead>
+          <tr>
+            <th scope="col">Date</th>
+            <th scope="col">Downloads</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={`${row.activityDate}-accessible-value`}>
+              <th scope="row">{formatDate(row.activityDate)}</th>
+              <td>{formatCount(row.downloads)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
 
 function TopEpisodeBars({ rows }: { rows: PodcastStatsDashboard["topEpisodes"] }) {
+  if (rows.length === 0) {
+    return <p className="empty-state">No episode download data is available for this reporting window.</p>;
+  }
+
   const maxDownloads = Math.max(...rows.map((row) => row.totalDownloads), 1);
 
   return (
@@ -217,6 +254,10 @@ function TopEpisodeBars({ rows }: { rows: PodcastStatsDashboard["topEpisodes"] }
 }
 
 function CountryPie({ rows }: { rows: PodcastStatsDashboard["countryDownloads"] }) {
+  if (rows.length === 0) {
+    return <p className="empty-state">No country download data is available for this reporting window.</p>;
+  }
+
   const total = rows.reduce((sum, row) => sum + row.downloads, 0);
   let cursor = 0;
   const segments = rows.map((row, index) => {
@@ -267,7 +308,7 @@ export default async function PodcastStatsPage({
   return (
     <>
       <TopRail variant="private" isAdmin={isAdministrator} role={appUser.role} />
-      <main className="public-shell">
+      <main className="public-shell" id="main-content" tabIndex={-1}>
         <RoutePanel
           eyebrow="Podcast"
           title="Podcast statistics"

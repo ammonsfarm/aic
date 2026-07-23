@@ -2,16 +2,18 @@ import { TopRail } from "@/components/top-rail";
 import { RoutePanel } from "@/components/route-panel";
 import { ReadingPlanBuilder } from "@/components/reading-plan-builder";
 import { requireResearchConsoleUser } from "@/lib/console-access";
+import { privateConsoleMetadata } from "@/lib/private-console-metadata";
 
 export const dynamic = "force-dynamic";
+export const metadata = privateConsoleMetadata;
 
 export default async function ReadingPlanPage() {
-  await requireResearchConsoleUser();
+  const appUser = await requireResearchConsoleUser();
 
   return (
     <>
-      <TopRail variant="public" />
-      <main className="public-shell">
+      <TopRail variant="private" role={appUser.role} />
+      <main className="public-shell" id="main-content" tabIndex={-1}>
         <RoutePanel
           eyebrow="Reading plan"
           title="Build a source-backed Bible reading plan"

@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { RoutePanel } from "@/components/route-panel";
 import { TopRail } from "@/components/top-rail";
+import { requireInternalReadConsoleUser } from "@/lib/console-access";
 import { getSermonCatalog } from "@/lib/sermon-catalog";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +25,7 @@ function formatDate(value: string) {
 }
 
 export default async function SermonsPage() {
+  const appUser = await requireInternalReadConsoleUser();
   const catalog = await getSermonCatalog();
   const oldTestament = catalog.books.filter((book) => book.testament === "Old Testament");
   const newTestament = catalog.books.filter((book) => book.testament === "New Testament");
@@ -32,8 +34,8 @@ export default async function SermonsPage() {
 
   return (
     <>
-      <TopRail variant="public" />
-      <main className="public-shell">
+      <TopRail variant="private" role={appUser.role} />
+      <main className="public-shell" id="main-content" tabIndex={-1}>
         <RoutePanel
           eyebrow="Sermon scripture index"
           title="Sermons by Bible book and chapter"

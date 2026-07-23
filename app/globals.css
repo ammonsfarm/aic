@@ -124,6 +124,23 @@ p {
   transition: box-shadow 0.2s var(--ease-out);
 }
 
+.console-skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 200;
+  padding: 10px 14px;
+  transform: translateY(-160%);
+  border-radius: 6px;
+  background: var(--soft-ink);
+  color: var(--parchment);
+  font-weight: 800;
+}
+
+.console-skip-link:focus {
+  transform: translateY(0);
+}
+
 /* ─── Brand mark ────────────────────────────────────────────────────── */
 .brand-mark {
   display: inline-flex;

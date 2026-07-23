@@ -20,6 +20,11 @@ export function TopRail({ variant, isAdmin = false, role }: TopRailProps) {
 
   return (
     <header className="top-rail">
+      {variant === "private" ? (
+        <a className="console-skip-link" href="#main-content">
+          Skip to main content
+        </a>
+      ) : null}
       <Link href={brandHref} className="brand-mark" aria-label="Pastor Jim Wood — Abiding in Christ">
         <span className="brand-mark__avatar">
           <Image
@@ -47,19 +52,25 @@ export function TopRail({ variant, isAdmin = false, role }: TopRailProps) {
                 <Link
                   href={item.href}
                   aria-current={active ? "page" : undefined}
-                  aria-haspopup="true"
                   className="top-rail__menu-trigger"
                 >
                   {item.label}
-                  <span aria-hidden="true">v</span>
+                  <span aria-hidden="true">▾</span>
                 </Link>
-                <div className="top-rail__submenu" role="menu">
-                  {item.children.map((child) => (
-                    <Link href={child.href} key={child.href} role="menuitem">
-                      <strong>{child.label}</strong>
-                      <small>{child.description}</small>
-                    </Link>
-                  ))}
+                <div className="top-rail__submenu" aria-label={`${item.label} navigation`}>
+                  {item.children.map((child) => {
+                    const childPath = child.href.split("#")[0];
+                    const childActive = !child.href.includes("#") && (
+                      child.href === item.href ? pathname === childPath : pathname.startsWith(childPath)
+                    );
+
+                    return (
+                      <Link href={child.href} key={child.href} aria-current={childActive ? "page" : undefined}>
+                        <strong>{child.label}</strong>
+                        <small>{child.description}</small>
+                      </Link>
+                    );
+                  })}
                 </div>
               </div>
             );

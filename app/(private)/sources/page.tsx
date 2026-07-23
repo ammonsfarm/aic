@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { RoutePanel } from "@/components/route-panel";
+import { requireInternalReadConsoleUser } from "@/lib/console-access";
 import { getSourceBrowserData } from "@/lib/podcast-insights";
 
 function formatText(value: string) {
@@ -12,6 +13,7 @@ function formatText(value: string) {
 }
 
 export default async function SourcesPage() {
+  await requireInternalReadConsoleUser();
   const data = await getSourceBrowserData();
 
   return (

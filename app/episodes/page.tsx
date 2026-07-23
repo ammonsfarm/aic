@@ -2,8 +2,10 @@ import { EpisodeSearchPanel } from "@/components/episode-search";
 import { TopRail } from "@/components/top-rail";
 import { RoutePanel } from "@/components/route-panel";
 import { RagChatWidget } from "@/components/rag-chat-widget";
+import { requireInternalReadConsoleUser } from "@/lib/console-access";
 import { getEpisodeArchiveRows } from "@/lib/podcast-insights";
 import { searchEpisodesWithVectorFallback, type EpisodeSearchScope, type EpisodeSortOrder } from "@/lib/podcast-data";
+import { canGenerateForRole } from "@/lib/rbac";
 
 type SearchMode = "text" | "hybrid";
 
@@ -72,7 +74,7 @@ function toPublicSearchRow(row: EpisodeRow) {
   };
 }
 
-export default async function PublicEpisodesPage({
+export default async function EpisodesPage({
   searchParams,
 }: {
   searchParams: Promise<{
@@ -93,6 +95,7 @@ export default async function PublicEpisodesPage({
   const dateStart = parseDateFilter(date_start);
   const dateEnd = parseDateFilter(date_end);
   const parsedSort = parseSort(sort);
+  const appUser = await requireInternalReadConsoleUser();
   const rows = query && parsedMode === "hybrid"
     ? await searchEpisodesWithVectorFallback(query, {
         limit: topK + 20,
@@ -112,8 +115,8 @@ export default async function PublicEpisodesPage({
 
   return (
     <>
-      <TopRail variant="public" />
-      <main className="public-shell">
+      <TopRail variant="private" role={appUser.role} />
+      <main className="public-shell" id="main-content" tabIndex={-1}>
         <RoutePanel
           eyebrow="AIC Episodes"
           title="Search and browse all episodes"
@@ -137,14 +140,20 @@ export default async function PublicEpisodesPage({
           title="Source-backed corpus chat"
           aside={<p className="note">Answers are grounded in retrieved transcript and summary context from the indexed episode archive.</p>}
         >
-          <RagChatWidget
-            action="/api/rag/chat"
-            heading="Archive RAG chat"
-            description="Ask about scripture, topics, guests, sermon illustrations, or repeated themes across episodes."
-            submitLabel="Ask archive"
-            sourceLabel="Retrieved sources"
-            historyScope="archive"
-          />
+          {canGenerateForRole(appUser.role) ? (
+            <RagChatWidget
+              action="/api/rag/chat"
+              heading="Archive RAG chat"
+              description="Ask about scripture, topics, guests, sermon illustrations, or repeated themes across episodes."
+              submitLabel="Ask archive"
+              sourceLabel="Retrieved sources"
+              historyScope="archive"
+            />
+          ) : (
+            <p className="empty-state" role="status">
+              Archive questions are not available for your role. You can still search and browse episode records above.
+            </p>
+          )}
         </RoutePanel>
       </main>
     </>

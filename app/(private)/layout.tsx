@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 
 import { TopRail } from "@/components/top-rail";
+import { privateConsoleMetadata } from "@/lib/private-console-metadata";
 import { requireSignedInAppUser } from "@/lib/rbac";
 
 export const metadata: Metadata = {
+  ...privateConsoleMetadata,
   title: "Publishing Console",
-  robots: { index: false, follow: false, noarchive: true },
 };
 
 export default async function PrivateLayout({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -14,7 +15,7 @@ export default async function PrivateLayout({ children }: Readonly<{ children: R
   return (
     <>
       <TopRail variant="private" isAdmin={appUser.role === "Admin"} role={appUser.role} />
-      <main className="public-shell">{children}</main>
+      <main className="public-shell" id="main-content" tabIndex={-1}>{children}</main>
     </>
   );
 }

@@ -1,5 +1,6 @@
 import { EpisodeSearchPanel } from "@/components/episode-search";
 import { RoutePanel } from "@/components/route-panel";
+import { requireInternalReadConsoleUser } from "@/lib/console-access";
 import { getEpisodeArchiveRows } from "@/lib/podcast-insights";
 import { searchEpisodesWithVectorFallback, type EpisodeSearchScope } from "@/lib/podcast-data";
 
@@ -35,6 +36,7 @@ export default async function ArchivePage({
 }: {
   searchParams: Promise<{ q?: string; mode?: SearchMode; top_k?: string; scope?: EpisodeSearchScope }>;
 }) {
+  await requireInternalReadConsoleUser();
   const { q, mode, top_k, scope } = await searchParams;
   const query = q?.trim() ?? "";
   const parsedMode = parseMode(mode);

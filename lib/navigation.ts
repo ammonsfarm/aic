@@ -143,6 +143,14 @@ export function consoleNavForRole(role: AicNavRole) {
   return consoleNav.filter((item) => item.roles?.includes(role) ?? false);
 }
 
+export function canUseInternalReadConsole(role: AicNavRole) {
+  return internalReadRoles.includes(role);
+}
+
+export function canUseResearchConsole(role: AicNavRole) {
+  return researchConsoleRoles.includes(role);
+}
+
 export function consoleHomeHref(role: AicNavRole) {
   if (role === "Admin") {
     return "/overview";

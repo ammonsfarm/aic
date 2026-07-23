@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  canUseInternalReadConsole,
+  canUseResearchConsole,
   consoleHomeHref,
   consoleNavForRole,
   type AicNavRole,
@@ -47,17 +49,22 @@ describe("role-aware console navigation", () => {
       "/podcast",
       "/pipeline",
     ]);
+    expect(canUseResearchConsole("Research User")).toBe(true);
   });
 
   it("keeps read-only users on non-generating views", () => {
     expect(hrefsFor("Read Only")).toEqual(["/archive", "/sources", "/podcast", "/pipeline"]);
     expect(hrefsFor("Read Only")).not.toContain("/compose");
     expect(consoleHomeHref("Read Only")).toBe("/podcast");
+    expect(canUseInternalReadConsole("Read Only")).toBe(true);
+    expect(canUseResearchConsole("Read Only")).toBe(false);
   });
 
   it("gives the default User role only its safe landing dashboard", () => {
     expect(hrefsFor("User")).toEqual(["/podcast"]);
     expect(consoleHomeHref("User")).toBe("/podcast");
+    expect(canUseInternalReadConsole("User")).toBe(false);
+    expect(canUseResearchConsole("User")).toBe(false);
   });
 
   it("includes every active content-management destination", () => {

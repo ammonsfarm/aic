@@ -111,6 +111,10 @@ function EpisodeTrend({
   trackId?: string;
   selectedDownloadDate: string | null;
 }) {
+  if (rows.length === 0) {
+    return <p className="empty-state">No daily episode downloads are available for this reporting window.</p>;
+  }
+
   const maxDownloads = Math.max(...rows.map((row) => row.downloads), 1);
 
   return (
@@ -226,7 +230,7 @@ export default async function EpisodeStatisticsPage({
   return (
     <>
       <TopRail variant="private" isAdmin={isAdministrator} role={appUser.role} />
-      <main className="public-shell">
+      <main className="public-shell" id="main-content" tabIndex={-1}>
         <RoutePanel
           eyebrow="Podcast"
           title="Episode Statistics"
@@ -329,23 +333,31 @@ export default async function EpisodeStatisticsPage({
                 <div>
                   <p className="note">Top countries, podcast-wide</p>
                   <div className="status-list status-list--compact">
-                    {dashboard.countryDownloads.map((row) => (
-                      <span key={row.country}>
-                        <strong>{row.country}</strong>
-                        {formatCount(row.downloads)}
-                      </span>
-                    ))}
+                    {dashboard.countryDownloads.length > 0 ? (
+                      dashboard.countryDownloads.map((row) => (
+                        <span key={row.country}>
+                          <strong>{row.country}</strong>
+                          {formatCount(row.downloads)}
+                        </span>
+                      ))
+                    ) : (
+                      <p className="empty-state">No country data is available for this reporting window.</p>
+                    )}
                   </div>
                 </div>
                 <div>
                   <p className="note">Top clients, podcast-wide</p>
                   <div className="status-list status-list--compact">
-                    {dashboard.clientDownloads.map((row) => (
-                      <span key={row.client}>
-                        <strong>{row.client}</strong>
-                        {formatCount(row.downloads)}
-                      </span>
-                    ))}
+                    {dashboard.clientDownloads.length > 0 ? (
+                      dashboard.clientDownloads.map((row) => (
+                        <span key={row.client}>
+                          <strong>{row.client}</strong>
+                          {formatCount(row.downloads)}
+                        </span>
+                      ))
+                    ) : (
+                      <p className="empty-state">No client data is available for this reporting window.</p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -376,37 +388,41 @@ export default async function EpisodeStatisticsPage({
               </form>
             </div>
             <div className="episode-stat-table">
-	              {dashboard.episodes.map((episode) => {
-	                const selectedRow = episode.trackId === selected?.trackId;
-	                return (
-	                  <Link
-	                    key={episode.trackId}
-	                    href={episodeStatsHref({
-	                      state: reportState,
-	                      trackId: episode.trackId,
-	                      downloadDate: dashboard.selectedDownloadDate,
-	                    })}
-	                    className={selectedRow ? "episode-stat-row episode-stat-row--selected" : "episode-stat-row"}
-	                    aria-current={selectedRow ? "page" : undefined}
-	                  >
-                    <span className="episode-stat-row__title">
-                      <strong>{episode.title}</strong>
-                      <small>{formatDate(episode.publishDate)}</small>
-                    </span>
-                    <span className="episode-stat-row__bar" aria-hidden="true">
-                      <i style={{ width: `${Math.max(2, Math.round((episode.rangeDownloads / maxEpisodeDownloads) * 100))}%` }} />
-                    </span>
-                    <span>
-                      <strong>{formatCount(episode.importedDownloads)}</strong>
-                      <small>imported</small>
-                    </span>
-                    <span>
-                      <strong>{formatCount(episode.rangeDownloads)}</strong>
-                      <small>{dashboard.range.label}</small>
-                    </span>
-                  </Link>
-                );
-              })}
+              {dashboard.episodes.length > 0 ? (
+                dashboard.episodes.map((episode) => {
+                  const selectedRow = episode.trackId === selected?.trackId;
+                  return (
+                    <Link
+                      key={episode.trackId}
+                      href={episodeStatsHref({
+                        state: reportState,
+                        trackId: episode.trackId,
+                        downloadDate: dashboard.selectedDownloadDate,
+                      })}
+                      className={selectedRow ? "episode-stat-row episode-stat-row--selected" : "episode-stat-row"}
+                      aria-current={selectedRow ? "page" : undefined}
+                    >
+                      <span className="episode-stat-row__title">
+                        <strong>{episode.title}</strong>
+                        <small>{formatDate(episode.publishDate)}</small>
+                      </span>
+                      <span className="episode-stat-row__bar" aria-hidden="true">
+                        <i style={{ width: `${Math.max(2, Math.round((episode.rangeDownloads / maxEpisodeDownloads) * 100))}%` }} />
+                      </span>
+                      <span>
+                        <strong>{formatCount(episode.importedDownloads)}</strong>
+                        <small>imported</small>
+                      </span>
+                      <span>
+                        <strong>{formatCount(episode.rangeDownloads)}</strong>
+                        <small>{dashboard.range.label}</small>
+                      </span>
+                    </Link>
+                  );
+                })
+              ) : (
+                <p className="empty-state">No episodes match this reporting window and search.</p>
+              )}
             </div>
             <div className="podcast-subnav" aria-label="Episode result pages">
               <span>Page {dashboard.pagination.page} of {Math.max(dashboard.pagination.totalPages, 1)} · {formatCount(dashboard.pagination.totalEpisodes)} episodes</span>
