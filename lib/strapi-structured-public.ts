@@ -305,7 +305,7 @@ export async function getPublishedPostBySlugResult(slug: string): Promise<Publis
   if (!result.available) return { status: "unavailable" };
   if (!result.items[0]) return { status: "not-found" };
   const post = publishedPost(result.items[0]);
-  if (!post.title || !post.slug) {
+  if (!post.title || !post.slug || post.slug !== slug) {
     console.error("Published Strapi post detail lookup returned a malformed item.");
     return { status: "unavailable" };
   }
@@ -353,21 +353,33 @@ export async function getPublishedEpisodeBySlug(slug: string) {
   return result.status === "found" ? result.item : null;
 }
 
-export async function getPublishedEpisodeBySlugResult(slug: string): Promise<PublishedLookupResult<PublishedEpisode>> {
-  const result = await publishedCollectionPage("episodes", { filters: { slug }, pageSize: 1 });
+async function publishedEpisodeLookupResult(filters: Record<string, string>): Promise<PublishedLookupResult<PublishedEpisode>> {
+  const result = await publishedCollectionPage("episodes", { filters, pageSize: 1 });
   if (!result.available) return { status: "unavailable" };
   if (!result.items[0]) return { status: "not-found" };
   const episode = publishedEpisode(result.items[0]);
-  if (!episode.title || !episode.slug || !episode.trackId) {
+  if (
+    !episode.title || !episode.slug || !episode.trackId ||
+    (filters.slug !== undefined && episode.slug !== filters.slug) ||
+    (filters.trackId !== undefined && episode.trackId !== filters.trackId)
+  ) {
     console.error("Published Strapi episode detail lookup returned a malformed item.");
     return { status: "unavailable" };
   }
   return { status: "found", item: episode };
 }
 
+export function getPublishedEpisodeBySlugResult(slug: string): Promise<PublishedLookupResult<PublishedEpisode>> {
+  return publishedEpisodeLookupResult({ slug });
+}
+
 export async function getPublishedEpisodeByTrackId(trackId: string) {
-  const result = await publishedCollectionPage("episodes", { filters: { trackId }, pageSize: 1 });
-  return result.items[0] ? publishedEpisode(result.items[0]) : null;
+  const result = await getPublishedEpisodeByTrackIdResult(trackId);
+  return result.status === "found" ? result.item : null;
+}
+
+export function getPublishedEpisodeByTrackIdResult(trackId: string): Promise<PublishedLookupResult<PublishedEpisode>> {
+  return publishedEpisodeLookupResult({ trackId });
 }
 
 export async function listAllPublishedEpisodes(): Promise<PublishedEpisode[]> {

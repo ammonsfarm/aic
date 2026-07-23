@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   getPublishedEpisodeByTrackId,
+  getPublishedEpisodeByTrackIdResult,
   getPublishedEpisodeBySlug,
   getPublishedEpisodeBySlugResult,
   getPublishedPostBySlugResult,
@@ -182,11 +183,13 @@ describe("published Strapi archive pagination", () => {
     }), { status: 200 })));
 
     await expect(getPublishedEpisodeBySlugResult("missing")).resolves.toEqual({ status: "not-found" });
+    await expect(getPublishedEpisodeByTrackIdResult("missing")).resolves.toEqual({ status: "not-found" });
     await expect(getPublishedPostBySlugResult("missing")).resolves.toEqual({ status: "not-found" });
 
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     vi.stubGlobal("fetch", vi.fn(async () => new Response("unavailable", { status: 503 })));
     await expect(getPublishedEpisodeBySlugResult("temporarily-down")).resolves.toEqual({ status: "unavailable" });
+    await expect(getPublishedEpisodeByTrackIdResult("temporarily-down")).resolves.toEqual({ status: "unavailable" });
     await expect(getPublishedPostBySlugResult("temporarily-down")).resolves.toEqual({ status: "unavailable" });
 
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
@@ -194,7 +197,16 @@ describe("published Strapi archive pagination", () => {
       meta: { pagination: { page: 1, pageSize: 1, pageCount: 1, total: 1 } },
     }), { status: 200 })));
     await expect(getPublishedEpisodeBySlugResult("malformed")).resolves.toEqual({ status: "unavailable" });
+    await expect(getPublishedEpisodeByTrackIdResult("malformed")).resolves.toEqual({ status: "unavailable" });
     await expect(getPublishedPostBySlugResult("malformed")).resolves.toEqual({ status: "unavailable" });
+
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      data: [episode(42)],
+      meta: { pagination: { page: 1, pageSize: 1, pageCount: 1, total: 1 } },
+    }), { status: 200 })));
+    await expect(getPublishedEpisodeBySlugResult("wrong-slug")).resolves.toEqual({ status: "unavailable" });
+    await expect(getPublishedEpisodeByTrackIdResult("43")).resolves.toEqual({ status: "unavailable" });
+    await expect(getPublishedPostBySlugResult("wrong-post")).resolves.toEqual({ status: "unavailable" });
   });
 
   it("preserves valid-empty and unavailable collection states for board members and endorsements", async () => {
