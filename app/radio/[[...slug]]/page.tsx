@@ -5,7 +5,7 @@ import { publicArchiveCanonicalPath, publicArchivePage } from "@/lib/public-pagi
 import { parsePublicRadioArchiveState, publicRadioArchivePath } from "@/lib/public-radio-search";
 import { publicCmsPageMetadata, publicMetadata } from "@/lib/public-seo";
 import { getStrapiPageByPageKey } from "@/lib/strapi";
-import { getPublishedEpisodeBySlugResult, type PublishedEpisode } from "@/lib/strapi-structured-public";
+import { getPublishedEpisodeBySlugResult } from "@/lib/strapi-structured-public";
 
 type PageProps = {
   params: Promise<{ slug?: string[] }>;
@@ -20,10 +20,6 @@ async function getRadioPage() {
     console.error("Strapi lookup failed for radio; using the public fallback.", error);
     return null;
   }
-}
-
-function episodeSeo(episode: PublishedEpisode) {
-  return episode.seo && typeof episode.seo === "object" ? episode.seo as Record<string, unknown> : {};
 }
 
 export async function generateMetadata({ params, searchParams }: PageProps): Promise<Metadata> {
@@ -53,14 +49,15 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
   }
   if (result.status === "not-found") return { robots: { index: false } };
   const episode = result.item;
-  const seo = episodeSeo(episode);
-  const seoTitle = typeof seo.title === "string" ? seo.title.trim() : "";
-  const seoDescription = typeof seo.description === "string" ? seo.description.trim() : "";
+  const seo = episode.seo || { title: "", description: "", canonicalUrl: "", noIndex: false, socialImageUrl: "" };
   return publicMetadata({
-    title: seoTitle || episode.title,
-    description: seoDescription || episode.summary || episode.description || "An Abiding in Christ radio broadcast from Pastor Jim Wood.",
+    title: seo.title || episode.title,
+    description: seo.description || episode.summary || episode.description || "An Abiding in Christ radio broadcast from Pastor Jim Wood.",
     path: `/radio/${episode.slug}/`,
     type: "article",
+    canonicalUrl: seo.canonicalUrl,
+    noIndex: seo.noIndex,
+    imageUrl: seo.socialImageUrl || episode.featuredImageUrl,
   });
 }
 

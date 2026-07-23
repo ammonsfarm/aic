@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   deleteStructuredFile,
+  getStructuredEntry,
   getStructuredInventorySummary,
   listStructuredEntriesPage,
   transitionStructuredEntry,
@@ -26,6 +27,28 @@ afterEach(() => {
 });
 
 describe("structured Strapi inventory", () => {
+  it("deep-populates nested SEO media when loading an editor draft", async () => {
+    const fetchMock = vi.fn(async (input: URL | RequestInfo) => {
+      const url = new URL(String(input));
+      expect(url.searchParams.get("populate[seo][populate]")).toBe("*");
+      expect(url.searchParams.get("populate[featuredImage]")).toBe("*");
+      expect(url.searchParams.get("populate[author]")).toBe("*");
+      const published = url.searchParams.get("status") === "published";
+      return new Response(JSON.stringify({
+        data: published ? null : {
+          documentId: "post-1",
+          updatedAt: "2026-07-22T12:00:00.000Z",
+          seo: { id: 17, socialImage: { id: 23, name: "share.jpg" } },
+        },
+      }), { status: published ? 404 : 200, headers: { "content-type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const entry = await getStructuredEntry("posts", "post-1");
+
+    expect(entry?.seo).toMatchObject({ id: 17, socialImage: { id: 23 } });
+  });
+
   it("paginates the canonical draft inventory and joins published state by document id", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(payload([

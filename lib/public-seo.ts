@@ -21,31 +21,56 @@ export function canonicalPublicUrl(pathname: string) {
   return new URL(path, `${publicSiteOrigin()}/`).toString();
 }
 
+function safeMetadataUrl(value: string | null | undefined, fallback: string) {
+  const candidate = value?.trim() || "";
+  if (!candidate) return fallback;
+  if (candidate.startsWith("/") && !candidate.startsWith("//")) {
+    return canonicalPublicUrl(candidate);
+  }
+  try {
+    const parsed = new URL(candidate);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.toString() : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export function publicMetadata({
   title,
   description,
   path,
   type = "website",
   absoluteTitle = false,
+  canonicalUrl,
+  noIndex = false,
+  imageUrl,
 }: {
   title: string;
   description: string;
   path: string;
   type?: "website" | "article";
   absoluteTitle?: boolean;
+  canonicalUrl?: string | null;
+  noIndex?: boolean;
+  imageUrl?: string | null;
 }): Metadata {
-  const canonical = canonicalPublicUrl(path);
+  const canonical = safeMetadataUrl(canonicalUrl, canonicalPublicUrl(path));
+  const socialImage = safeMetadataUrl(
+    imageUrl,
+    canonicalPublicUrl("/images/pastorwood/smoky-mountain-church.png"),
+  );
   return {
     title: absoluteTitle ? { absolute: title } : title,
     description,
     alternates: { canonical },
+    ...(noIndex ? { robots: { index: false, follow: true } } : {}),
     openGraph: {
       type,
       title,
       description,
       url: canonical,
       siteName: "Abiding in Christ with Jim Wood",
-      images: [{ url: canonicalPublicUrl("/images/pastorwood/smoky-mountain-church.png"), alt: "Abiding in Christ" }],
+      images: [{ url: socialImage, alt: title }],
     },
   };
 }

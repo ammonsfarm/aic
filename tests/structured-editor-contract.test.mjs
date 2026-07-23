@@ -144,6 +144,9 @@ test("all editorial mutations carry a version and editors warn before discarding
     assert.match(editor, /beforeunload/);
     assert.match(editor, /You have unsaved changes/);
     assert.match(editor, /aria-live="polite"/);
+    assert.match(editor, /addEventListener\("submit", confirmSiblingSubmission, true\)/);
+    assert.match(editor, /isSiblingEditorForm\(event\.target, formRef\.current\)/);
+    assert.match(editor, /stopImmediatePropagation/);
   }
 });
 
@@ -161,11 +164,15 @@ test("custom editors expose the structured fields already present in Strapi", as
   assert.match(form, /multiple=\{field\.multiple\}/);
   assert.match(form, /Search description/);
   assert.match(form, /scriptureValue/);
+  assert.match(form, /socialImageFile/);
+  assert.match(form, /Leave empty to preserve it/);
 
   const actions = await source("app/(private)/content/structured/actions.ts");
   assert.match(actions, /return \{ set: field\.multiple \? documentIds : documentIds\.slice\(0, 1\) \}/);
   assert.match(actions, /delimitedLines/);
   assert.match(actions, /canonical URL/);
+  assert.match(actions, /structuredSeoPayload/);
+  assert.match(actions, /existingEntry/);
 
   const management = await source("lib/strapi-structured-management.ts");
   assert.match(management, /listStructuredPeopleOptions/);
@@ -183,10 +190,13 @@ test("scheduled publication is bounded, versioned, and timer driven", async () =
   assert.match(worker, /safeLimit/);
   assert.match(worker, /expectedUpdatedAt/);
   assert.match(worker, /system:scheduled-publication/);
+  assert.match(worker, /IDEMPOTENT_SKIP_CODES/);
+  assert.match(worker, /UNCLASSIFIED_HTTP_ERROR/);
   assert.doesNotMatch(worker, /DB_HOST|DB_PASSWORD|postgres/i);
 
   await stat(resolve(root, "systemd/aic-scheduled-publication-worker.service"));
   await stat(resolve(root, "systemd/aic-scheduled-publication-worker.timer"));
+  assert.match(await source("systemd/aic-scheduled-publication-worker.service"), /TimeoutStartSec=10m/);
   assert.match(await source("scripts/deploy-farm-web.sh"), /install-scheduled-publication-worker\.sh/);
   assert.doesNotMatch(await source("scripts/deploy-farm-web.sh"), /restore-drill|RUN_STRAPI_BACKUP_DRILL/);
 });

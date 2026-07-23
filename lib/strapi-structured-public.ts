@@ -29,6 +29,37 @@ type PublicEntryPage = PublishedPage<PublicEntry>;
 
 const STRAPI_MAX_PAGE_SIZE = 100;
 
+export type PublishedPersonReference = {
+  documentId: string;
+  name: string;
+  title: string;
+  organization: string;
+};
+
+export type PublishedScriptureReference = {
+  label: string;
+  book: string;
+  chapter: number | null;
+  verseStart: number | null;
+  verseEnd: number | null;
+  translation: string;
+  url: string;
+};
+
+export type PublishedExternalLink = {
+  label: string;
+  url: string;
+  description: string;
+};
+
+export type PublishedStructuredSeo = {
+  title: string;
+  description: string;
+  canonicalUrl: string;
+  noIndex: boolean;
+  socialImageUrl: string;
+};
+
 export type PublishedPost = PublicEntry & {
   title: string;
   slug: string;
@@ -36,6 +67,13 @@ export type PublishedPost = PublicEntry & {
   summary: string;
   body: string;
   publishDate: string | null;
+  author: PublishedPersonReference | null;
+  scriptureReferences: PublishedScriptureReference[];
+  relatedLinks: PublishedExternalLink[];
+  featuredImageUrl: string;
+  featuredImageAlt: string;
+  featuredImageCaption: string;
+  seo: PublishedStructuredSeo;
 };
 
 export type PublishedEpisode = PublicEntry & {
@@ -47,6 +85,12 @@ export type PublishedEpisode = PublicEntry & {
   description: string;
   audioUrl: string;
   durationSeconds: number | null;
+  guests: PublishedPersonReference[];
+  scriptureReferences: PublishedScriptureReference[];
+  featuredImageUrl: string;
+  featuredImageAlt: string;
+  featuredImageCaption: string;
+  seo: PublishedStructuredSeo;
 };
 
 export type PublishedPerson = PublicEntry & {
@@ -106,14 +150,29 @@ function normalizeEntry(value: unknown): PublicEntry | null {
   return merged as PublicEntry;
 }
 
-function media(value: unknown) {
+function recordValue(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
-  if (record.data) return media(record.data);
+  if (record.data && typeof record.data === "object" && !Array.isArray(record.data)) {
+    return recordValue(record.data);
+  }
   if (record.attributes && typeof record.attributes === "object") {
     return { ...(record.attributes as Record<string, unknown>), ...record };
   }
   return record;
+}
+
+function recordValues(value: unknown): Record<string, unknown>[] {
+  if (Array.isArray(value)) return value.flatMap(recordValues);
+  if (!value || typeof value !== "object") return [];
+  const raw = value as Record<string, unknown>;
+  if ("data" in raw) return recordValues(raw.data);
+  const record = recordValue(value);
+  return record ? [record] : [];
+}
+
+function media(value: unknown) {
+  return recordValue(value);
 }
 
 function absoluteMediaUrl(value: unknown) {
@@ -127,6 +186,93 @@ function text(value: unknown) {
 function number(value: unknown) {
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function positiveInteger(value: unknown) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+export function safePublicContentUrl(value: unknown) {
+  const candidate = text(value).trim();
+  if (!candidate) return "";
+  if (candidate.startsWith("/") && !candidate.startsWith("//")) return candidate;
+  try {
+    const parsed = new URL(candidate);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.toString() : "";
+  } catch {
+    return "";
+  }
+}
+
+function people(value: unknown): PublishedPersonReference[] {
+  return recordValues(value).flatMap((person) => {
+    const name = text(person.name).trim();
+    if (!name) return [];
+    return [{
+      documentId: text(person.documentId),
+      name,
+      title: text(person.title),
+      organization: text(person.organization),
+    }];
+  });
+}
+
+function scriptureReferences(value: unknown): PublishedScriptureReference[] {
+  return recordValues(value).flatMap((reference) => {
+    const label = text(reference.label).trim();
+    if (!label) return [];
+    return [{
+      label,
+      book: text(reference.book),
+      chapter: positiveInteger(reference.chapter),
+      verseStart: positiveInteger(reference.verseStart),
+      verseEnd: positiveInteger(reference.verseEnd),
+      translation: text(reference.translation),
+      url: safePublicContentUrl(reference.url),
+    }];
+  });
+}
+
+function externalLinks(value: unknown): PublishedExternalLink[] {
+  return recordValues(value).flatMap((link) => {
+    const label = text(link.label).trim();
+    const url = safePublicContentUrl(link.url);
+    if (!label || !url) return [];
+    return [{ label, url, description: text(link.description) }];
+  });
+}
+
+function featuredImage(value: unknown, fallbackAlt: string) {
+  const image = media(value);
+  return {
+    url: absoluteMediaUrl(image),
+    alt: text(image?.alternativeText).trim() || fallbackAlt,
+    caption: text(image?.caption).trim(),
+  };
+}
+
+function structuredSeo(value: unknown): PublishedStructuredSeo {
+  const seo = recordValue(value);
+  return {
+    title: text(seo?.title).trim(),
+    description: text(seo?.description).trim(),
+    canonicalUrl: safePublicContentUrl(seo?.canonicalUrl),
+    noIndex: seo?.noIndex === true,
+    socialImageUrl: absoluteMediaUrl(seo?.socialImage),
+  };
+}
+
+function addPublicPopulate(query: URLSearchParams, definition: (typeof STRUCTURED_COLLECTIONS)[StructuredCollectionKey]) {
+  for (const field of definition.fields) {
+    if (field.type === "seo") {
+      query.set(`populate[${field.name}][populate]`, "*");
+    } else if (field.type === "relation" || field.type === "scripture" || field.type === "external-links") {
+      query.set(`populate[${field.name}]`, "*");
+    } else if (field.type === "file" && field.mediaTarget) {
+      query.set(`populate[${field.mediaTarget}]`, "*");
+    }
+  }
 }
 
 function strapiPageSize(value: number | undefined) {
@@ -158,7 +304,7 @@ async function publishedCollectionPage(
   if (definition.publishable) {
     query.set("status", "published");
   }
-  query.set("populate", "*");
+  addPublicPopulate(query, definition);
   query.set("pagination[page]", String(requestedPage));
   query.set("pagination[pageSize]", String(requestedPageSize));
   query.set("sort", options.sort || "updatedAt:desc");
@@ -257,28 +403,45 @@ async function allPublishedEntries(key: StructuredCollectionKey, options: Parame
 }
 
 function publishedPost(entry: PublicEntry): PublishedPost {
+  const title = text(entry.title);
+  const image = featuredImage(entry.featuredImage, title);
   return {
     ...entry,
-    title: text(entry.title),
+    title,
     slug: text(entry.slug),
     contentType: text(entry.contentType),
     summary: text(entry.summary),
     body: text(entry.body),
     publishDate: text(entry.publishDate) || null,
+    author: people(entry.author)[0] || null,
+    scriptureReferences: scriptureReferences(entry.scriptureReferences),
+    relatedLinks: externalLinks(entry.relatedLinks),
+    featuredImageUrl: image.url,
+    featuredImageAlt: image.alt,
+    featuredImageCaption: image.caption,
+    seo: structuredSeo(entry.seo),
   };
 }
 
 function publishedEpisode(entry: PublicEntry): PublishedEpisode {
+  const title = text(entry.title);
+  const image = featuredImage(entry.featuredImage, title);
   return {
     ...entry,
-    title: text(entry.title),
+    title,
     slug: text(entry.slug),
     trackId: text(entry.trackId),
     programDate: text(entry.programDate) || null,
     summary: text(entry.summary),
     description: text(entry.description),
-    audioUrl: absoluteMediaUrl(entry.audio) || text(entry.externalAudioUrl),
+    audioUrl: absoluteMediaUrl(entry.audio) || safePublicContentUrl(entry.externalAudioUrl),
     durationSeconds: entry.durationSeconds === null || entry.durationSeconds === undefined ? null : number(entry.durationSeconds),
+    guests: people(entry.guests),
+    scriptureReferences: scriptureReferences(entry.scriptureReferences),
+    featuredImageUrl: image.url,
+    featuredImageAlt: image.alt,
+    featuredImageCaption: image.caption,
+    seo: structuredSeo(entry.seo),
   };
 }
 

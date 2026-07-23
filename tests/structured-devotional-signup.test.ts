@@ -22,6 +22,7 @@ vi.mock("@/lib/strapi-structured-public", () => ({
   listPublishedEndorsementsResult: vi.fn(),
   listPublishedEpisodesPage: vi.fn(),
   listPublishedPostsPage: mocks.listPublishedPostsPage,
+  safePublicContentUrl: (value: unknown) => typeof value === "string" ? value : "",
 }));
 
 import { PastorWoodStructuredPostsPage } from "@/components/pastor-wood-structured-listings";

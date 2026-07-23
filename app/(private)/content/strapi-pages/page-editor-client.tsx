@@ -8,6 +8,8 @@ import StarterKit from "@tiptap/starter-kit";
 import type { FormEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { isSiblingEditorForm } from "@/lib/unsaved-editor-guard";
+
 type PageCoreFieldsProps = {
   initialTitle?: string;
   initialSlug?: string;
@@ -178,6 +180,7 @@ function markdownToHtml(value: string) {
 export function PageEditorForm({ action, children }: PageEditorFormProps) {
   const [uploadError, setUploadError] = useState("");
   const [dirty, setDirty] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
   const submitting = useRef(false);
 
   useEffect(() => {
@@ -199,11 +202,26 @@ export function PageEditorForm({ action, children }: PageEditorFormProps) {
       }
     }
 
+    function confirmSiblingSubmission(event: SubmitEvent) {
+      if (!dirty || submitting.current || event.defaultPrevented) return;
+      if (!isSiblingEditorForm(event.target, formRef.current)) return;
+      if (!window.confirm("You have unsaved changes. Continue and discard them?")) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        return;
+      }
+      submitting.current = true;
+      setDirty(false);
+    }
+
     window.addEventListener("beforeunload", warnBeforeUnload);
     document.addEventListener("click", confirmNavigation, true);
+    document.addEventListener("submit", confirmSiblingSubmission, true);
     return () => {
       window.removeEventListener("beforeunload", warnBeforeUnload);
       document.removeEventListener("click", confirmNavigation, true);
+      document.removeEventListener("submit", confirmSiblingSubmission, true);
     };
   }, [dirty]);
 
@@ -232,6 +250,7 @@ export function PageEditorForm({ action, children }: PageEditorFormProps) {
 
   return (
     <form
+      ref={formRef}
       className="editor-form"
       action={action}
       onInput={() => setDirty(true)}

@@ -18,6 +18,13 @@ function post(overrides: Partial<PublishedPost> = {}): PublishedPost {
     summary: "A <strong>short</strong> summary.",
     body: '<p>Safe body</p><script>alert("no")</script><a href="javascript:alert(1)">Unsafe link</a>',
     publishDate: "2026-07-20T12:00:00.000Z",
+    author: null,
+    scriptureReferences: [],
+    relatedLinks: [],
+    featuredImageUrl: "",
+    featuredImageAlt: "Faith & Hope",
+    featuredImageCaption: "",
+    seo: { title: "", description: "", canonicalUrl: "", noIndex: false, socialImageUrl: "" },
     ...overrides,
   };
 }

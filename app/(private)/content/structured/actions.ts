@@ -24,6 +24,7 @@ import {
   normalizeLegacyRequestPath,
 } from "@/lib/legacy-redirects";
 import { requireContentManagerApiUser } from "@/lib/rbac";
+import { structuredSeoPayload } from "@/lib/structured-seo";
 import {
   MAX_AUDIO_BYTES,
   MAX_IMAGE_BYTES,
@@ -91,7 +92,12 @@ function delimitedLines(value: string, label: string, maximum = 100) {
   return lines.map((line) => line.split("|").map((part) => part.trim()));
 }
 
-function parseField(field: StructuredFieldDefinition, formData: FormData) {
+function parseField(
+  field: StructuredFieldDefinition,
+  formData: FormData,
+  existingValue?: unknown,
+  replacementSocialImageId?: number | null,
+) {
   if (field.type === "file") {
     return undefined;
   }
@@ -154,8 +160,13 @@ function parseField(field: StructuredFieldDefinition, formData: FormData) {
     const rawCanonicalUrl = formString(formData, `${field.name}.canonicalUrl`);
     const canonicalUrl = rawCanonicalUrl ? validateUrl(rawCanonicalUrl, `${field.label} canonical URL`) : null;
     const noIndex = formData.get(`${field.name}.noIndex`) === "on";
-    if (!title && !description && !canonicalUrl && !noIndex) return null;
-    return { title, description, canonicalUrl, noIndex };
+    return structuredSeoPayload(existingValue, {
+      title,
+      description,
+      canonicalUrl,
+      noIndex,
+      replacementSocialImageId,
+    });
   }
 
   const value = formString(formData, field.name);
@@ -245,7 +256,7 @@ function validateFile(field: StructuredFieldDefinition, file: File) {
 async function structuredPayload(
   key: StructuredCollectionKey,
   formData: FormData,
-  options: { creating: boolean },
+  options: { creating: boolean; existingEntry?: Record<string, unknown> | null },
 ) {
   const definition = getStructuredCollection(key);
   if (!definition) {
@@ -272,6 +283,25 @@ async function structuredPayload(
       } else if (field.required && options.creating) {
         throw new Error(`${field.label} is required.`);
       }
+      continue;
+    }
+
+    if (field.type === "seo") {
+      const candidate = formData.get(`${field.name}.socialImageFile`);
+      let replacementSocialImageId: number | null = null;
+      if (candidate instanceof File && candidate.size > 0) {
+        validateFile(
+          { ...field, type: "file", label: "Social sharing image", accept: "image/*" },
+          candidate,
+        );
+        replacementSocialImageId = (await uploadStructuredFile(candidate))?.id || null;
+      }
+      data[field.name] = parseField(
+        field,
+        formData,
+        options.existingEntry?.[field.name],
+        replacementSocialImageId,
+      );
       continue;
     }
 
@@ -365,7 +395,11 @@ export async function saveStructuredEntryAction(
   formData: FormData,
 ) {
   const user = await requireContentManagerApiUser();
-  const data = await structuredPayload(key, formData, { creating: false });
+  const existingEntry = await getStructuredEntry(key, documentId);
+  if (!existingEntry) {
+    throw new Error("The content item no longer exists in Strapi.");
+  }
+  const data = await structuredPayload(key, formData, { creating: false, existingEntry });
   await updateStructuredEntry(
     key,
     documentId,

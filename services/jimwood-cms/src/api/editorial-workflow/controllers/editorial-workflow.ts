@@ -41,8 +41,8 @@ type EditorialContext = {
   request?: { body?: unknown };
   status: number;
   body: unknown;
-  badRequest(message: string): unknown;
-  notFound(message: string): unknown;
+  badRequest(message: string, details?: Record<string, unknown>): unknown;
+  notFound(message: string, details?: Record<string, unknown>): unknown;
 };
 
 type ContentTypeSchema = {
@@ -352,6 +352,7 @@ function versionMatches(
       entityType === 'site-setting'
         ? 'Site settings changed after this editor was loaded. Reload before saving.'
         : 'This content item changed after this editor was loaded. Reload before saving.',
+      { code: 'EDITORIAL_VERSION_CONFLICT' },
     );
     return false;
   }
@@ -460,7 +461,7 @@ const editorialWorkflowController = {
     return withEditorialTransaction(entityType, documentId, async () => {
       let current = await findDraft(model, documentId);
       if (!current) {
-        return ctx.notFound('Content item was not found.');
+        return ctx.notFound('Content item was not found.', { code: 'EDITORIAL_NOT_FOUND' });
       }
 
       if (action === 'baseline') {
@@ -503,15 +504,24 @@ const editorialWorkflowController = {
           return ctx.badRequest('Scheduled publication is only available for pages, posts, and episodes.');
         }
         if (!model.publishable || current.archivedAt) {
-          return ctx.badRequest('This content item is not eligible for scheduled publication.');
+          return ctx.badRequest(
+            'This content item is not eligible for scheduled publication.',
+            { code: 'EDITORIAL_SCHEDULE_INELIGIBLE' },
+          );
         }
         const scheduledFor = typeof current.scheduledFor === 'string' ? current.scheduledFor : '';
         const scheduledAt = Date.parse(scheduledFor);
         if (!scheduledFor || !Number.isFinite(scheduledAt) || scheduledAt > Date.now()) {
-          return ctx.badRequest('This content item is not due for scheduled publication.');
+          return ctx.badRequest(
+            'This content item is not due for scheduled publication.',
+            { code: 'EDITORIAL_SCHEDULE_NOT_DUE' },
+          );
         }
         if (entityType === 'episode' && !operationalTrackId(current.trackId)) {
-          return ctx.badRequest('Episode publication requires a valid permanent Track ID.');
+          return ctx.badRequest(
+            'Episode publication requires a valid permanent Track ID.',
+            { code: 'EDITORIAL_INVALID_TRACK_ID' },
+          );
         }
         const scheduleUpdate: Record<string, unknown> = { scheduledFor: null };
         if (contentTypeAttributes(model.uid).publishDate && !current.publishDate) {
@@ -644,6 +654,9 @@ const editorialWorkflowController = {
         };
         if (contentTypeAttributes(model.uid).active) {
           data.active = false;
+        }
+        if (contentTypeAttributes(model.uid).scheduledFor) {
+          data.scheduledFor = null;
         }
         const archived = await documents(model.uid).update({ documentId, data, status: 'draft', populate: editorialPopulate(model) });
         if (model.publishable) {

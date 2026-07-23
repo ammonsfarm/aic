@@ -23,6 +23,7 @@ vi.mock("@/lib/strapi-structured-public", () => ({
   listPublishedEndorsementsResult: mocks.endorsements,
   listPublishedEpisodesPage: vi.fn(),
   listPublishedPostsPage: mocks.posts,
+  safePublicContentUrl: (value: unknown) => typeof value === "string" ? value : "",
 }));
 
 import {

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import * as PastorWoodModule from "@/components/pastor-wood-site";
 import type { PastorWoodCmsPage } from "@/components/pastor-wood-site";
+import { sanitizeCmsHtml } from "@/lib/cms-html";
 import {
   PUBLIC_RADIO_MAX_YEAR,
   PUBLIC_RADIO_MIN_YEAR,
@@ -16,6 +17,7 @@ import {
   getPublishedEpisodeBySlugResult,
   listPublishedEpisodesPage,
   listPublishedPostsPage,
+  safePublicContentUrl,
   type PublishedEpisode,
 } from "@/lib/strapi-structured-public";
 import { getStrapiSiteSettings } from "@/lib/strapi-site-settings";
@@ -301,6 +303,48 @@ function EpisodeCard({ episode }: { episode: PublishedEpisode }) {
   );
 }
 
+function EpisodeStructuredDetails({ episode }: { episode: PublishedEpisode }) {
+  const guests = episode.guests || [];
+  const references = episode.scriptureReferences || [];
+  if (!episode.featuredImageUrl && !guests.length && !episode.description && !references.length) return null;
+
+  return (
+    <div className="pw-structured-detail">
+      {episode.featuredImageUrl ? (
+        <figure className="pw-structured-featured-image">
+          <img src={episode.featuredImageUrl} alt={episode.featuredImageAlt} />
+          {episode.featuredImageCaption ? <figcaption>{episode.featuredImageCaption}</figcaption> : null}
+        </figure>
+      ) : null}
+      {guests.length ? (
+        <p className="pw-structured-byline">
+          <strong>{guests.length === 1 ? "Guest" : "Guests"}:</strong>{" "}
+          {guests.map((guest) => guest.name).join(", ")}
+        </p>
+      ) : null}
+      {episode.description ? (
+        <div className="pw-rich-text" dangerouslySetInnerHTML={{ __html: sanitizeCmsHtml(episode.description) }} />
+      ) : null}
+      {references.length ? (
+        <section className="pw-structured-references" aria-labelledby="episode-scripture-title">
+          <h2 id="episode-scripture-title">Scripture references</h2>
+          <ul>
+            {references.map((reference, index) => {
+              const href = safePublicContentUrl(reference.url);
+              return (
+                <li key={`${reference.label}-${index}`}>
+                  {href ? <a href={href}>{reference.label}</a> : <span>{reference.label}</span>}
+                  {reference.translation ? <small>{reference.translation}</small> : null}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
 export async function PastorWoodStructuredRadioPage({
   slug = [],
   archive = { page: 1, query: "", year: null, hasFilters: false },
@@ -342,6 +386,7 @@ export async function PastorWoodStructuredRadioPage({
         <Hero eyebrow="Radio Archive" title={episode.title} body={episode.summary || "Listen to this Abiding in Christ broadcast."} />
         <section className="pw-section">
           <div className="pw-audio-list"><EpisodeCard episode={episode} /></div>
+          <EpisodeStructuredDetails episode={episode} />
         </section>
       </Shell>
     );

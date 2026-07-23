@@ -22,6 +22,7 @@ vi.mock("@/lib/strapi-structured-public", () => ({
   listPublishedEndorsementsResult: vi.fn(),
   listPublishedEpisodesPage,
   listPublishedPostsPage: vi.fn(),
+  safePublicContentUrl: (value: unknown) => typeof value === "string" ? value : "",
 }));
 
 import { PastorWoodStructuredRadioPage } from "@/components/pastor-wood-structured-listings";
@@ -37,6 +38,51 @@ describe("public radio detail route", () => {
     await expect(PastorWoodStructuredRadioPage({ slug: ["missing-episode"] })).rejects.toThrow("NEXT_NOT_FOUND");
     expect(getPublishedEpisodeBySlugResult).toHaveBeenCalledWith("missing-episode");
     expect(notFound).toHaveBeenCalledOnce();
+  });
+
+  it("renders guests, scripture, featured imagery, and sanitized detail content", async () => {
+    getPublishedEpisodeBySlugResult.mockResolvedValue({
+      status: "found",
+      item: {
+        documentId: "episode-1",
+        title: "Grace and truth",
+        slug: "grace-and-truth",
+        trackId: "42",
+        programDate: "2026-07-22",
+        summary: "A broadcast",
+        description: '<p>Episode notes.</p><script>alert("bad")</script>',
+        audioUrl: "/media/cms/audio-doc/episode.mp3",
+        durationSeconds: 1200,
+        guests: [
+          { documentId: "person-1", name: "Guest One", title: "", organization: "" },
+          { documentId: "person-2", name: "Guest Two", title: "", organization: "" },
+        ],
+        scriptureReferences: [{
+          label: "Romans 8:1",
+          book: "Romans",
+          chapter: 8,
+          verseStart: 1,
+          verseEnd: null,
+          translation: "ESV",
+          url: "/scripture/romans-8/",
+        }],
+        featuredImageUrl: "/media/cms/image-doc/radio.jpg",
+        featuredImageAlt: "Radio microphone",
+        featuredImageCaption: "In the studio",
+        seo: { title: "", description: "", canonicalUrl: "", noIndex: false, socialImageUrl: "" },
+      },
+    });
+
+    const markup = renderToStaticMarkup(await PastorWoodStructuredRadioPage({ slug: ["grace-and-truth"] }));
+
+    expect(markup).toContain('alt="Radio microphone"');
+    expect(markup).toContain("Guests:");
+    expect(markup).toContain("Guest One, Guest Two");
+    expect(markup).toContain("Scripture references");
+    expect(markup).toContain('href="/scripture/romans-8/"');
+    expect(markup).toContain("Episode notes.");
+    expect(markup).not.toContain("<script");
+    expect(markup).not.toContain("alert");
   });
 
   it("renders a retryable outage instead of a false 404 when episode lookup is unavailable", async () => {

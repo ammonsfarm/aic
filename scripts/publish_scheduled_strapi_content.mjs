@@ -9,6 +9,13 @@ const ENTITY_COLLECTIONS = [
   { entityType: "episode", collection: "episodes" },
 ];
 
+const IDEMPOTENT_SKIP_CODES = new Set([
+  "EDITORIAL_NOT_FOUND",
+  "EDITORIAL_SCHEDULE_INELIGIBLE",
+  "EDITORIAL_SCHEDULE_NOT_DUE",
+  "EDITORIAL_VERSION_CONFLICT",
+]);
+
 function unquote(value) {
   const trimmed = value.trim();
   if (trimmed.length >= 2 && trimmed[0] === trimmed.at(-1) && ["\"", "'"].includes(trimmed[0])) {
@@ -61,12 +68,36 @@ async function jsonRequest(fetchImpl, url, token, init = {}) {
     },
     signal: AbortSignal.timeout(20_000),
   });
+  const text = await response.text();
+  let payload = null;
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = null;
+    }
+  }
   if (!response.ok) {
     const error = new Error(`Strapi scheduled-publication request failed with HTTP ${response.status}.`);
     error.status = response.status;
+    const code = payload?.error?.details?.code;
+    error.classification = typeof code === "string" && /^[A-Z0-9_]{1,64}$/.test(code) ? code : "UNCLASSIFIED_HTTP_ERROR";
     throw error;
   }
-  return response.json();
+  return payload;
+}
+
+function safeFailureContext(entityType, documentId, error) {
+  return {
+    worker: "scheduled-publication",
+    event: "publication-failed",
+    entityType,
+    documentId: /^[A-Za-z0-9_-]{1,120}$/.test(documentId) ? documentId : "invalid-document-id",
+    status: Number.isInteger(error?.status) ? error.status : null,
+    classification: typeof error?.classification === "string" && /^[A-Z0-9_]{1,64}$/.test(error.classification)
+      ? error.classification
+      : "REQUEST_FAILURE",
+  };
 }
 
 export async function runScheduledPublications({
@@ -96,7 +127,7 @@ export async function runScheduledPublications({
     for (const entry of entries.slice(0, remaining)) {
       const documentId = typeof entry?.documentId === "string" ? entry.documentId : "";
       const expectedUpdatedAt = typeof entry?.updatedAt === "string" ? entry.updatedAt : "";
-      if (!documentId || !expectedUpdatedAt) {
+      if (!/^[A-Za-z0-9_-]{1,120}$/.test(documentId) || !expectedUpdatedAt) {
         summary.skipped += 1;
         summary.considered += 1;
         continue;
@@ -122,10 +153,11 @@ export async function runScheduledPublications({
         );
         summary.published += 1;
       } catch (error) {
-        if (error?.status === 400 || error?.status === 404) {
+        if (IDEMPOTENT_SKIP_CODES.has(error?.classification)) {
           summary.skipped += 1;
         } else {
           summary.failed += 1;
+          console.error(JSON.stringify(safeFailureContext(entityType, documentId, error)));
         }
       }
     }

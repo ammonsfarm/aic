@@ -8,6 +8,7 @@ import type {
   StructuredCollectionDefinition,
   StructuredFieldDefinition,
 } from "@/lib/structured-content-config";
+import { isSiblingEditorForm } from "@/lib/unsaved-editor-guard";
 
 function unwrappedMedia(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object") {
@@ -178,6 +179,9 @@ function StandardField({
 
   if (field.type === "seo") {
     const seo = recordValue(rawFieldValue(entry, field)) || {};
+    const socialImage = unwrappedMedia(seo.socialImage);
+    const socialImageName = typeof socialImage?.name === "string" ? socialImage.name : "";
+    const socialImageUrl = typeof socialImage?.url === "string" ? socialImage.url : "";
     return (
       <fieldset className="editor-field-group">
         <legend>{field.label}</legend>
@@ -196,6 +200,16 @@ function StandardField({
         <label className="checkbox-row checkbox-row--form">
           <input name={`${field.name}.noIndex`} type="checkbox" defaultChecked={Boolean(seo.noIndex)} />
           <span>Hide from search engines</span>
+        </label>
+        <label>
+          <span>Social sharing image</span>
+          <input name={`${field.name}.socialImageFile`} type="file" accept="image/*" />
+          <small>
+            {socialImageName
+              ? `Current image: ${socialImageName}. Leave empty to preserve it.`
+              : "Choose an image for social sharing, or leave empty to use the site default."}
+            {socialImageUrl ? <> · <a href={socialImageUrl}>Open current image</a></> : null}
+          </small>
         </label>
       </fieldset>
     );
@@ -345,11 +359,26 @@ export function StructuredContentForm({
       }
     }
 
+    function confirmSiblingSubmission(event: SubmitEvent) {
+      if (!dirty || submitting.current || event.defaultPrevented) return;
+      if (!isSiblingEditorForm(event.target, formRef.current)) return;
+      if (!window.confirm("You have unsaved changes. Continue and discard them?")) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        return;
+      }
+      submitting.current = true;
+      setDirty(false);
+    }
+
     window.addEventListener("beforeunload", warnBeforeUnload);
     document.addEventListener("click", confirmNavigation, true);
+    document.addEventListener("submit", confirmSiblingSubmission, true);
     return () => {
       window.removeEventListener("beforeunload", warnBeforeUnload);
       document.removeEventListener("click", confirmNavigation, true);
+      document.removeEventListener("submit", confirmSiblingSubmission, true);
     };
   }, [dirty]);
 

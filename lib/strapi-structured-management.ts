@@ -181,6 +181,18 @@ function searchFields(definition: StructuredCollectionDefinition) {
   return [definition.titleField, definition.slugField].filter((field): field is string => Boolean(field));
 }
 
+function addEditorPopulate(query: URLSearchParams, definition: StructuredCollectionDefinition) {
+  for (const field of definition.fields) {
+    if (field.type === "seo") {
+      query.set(`populate[${field.name}][populate]`, "*");
+    } else if (field.type === "relation" || field.type === "scripture" || field.type === "external-links") {
+      query.set(`populate[${field.name}]`, "*");
+    } else if (field.type === "file" && field.mediaTarget) {
+      query.set(`populate[${field.mediaTarget}]`, "*");
+    }
+  }
+}
+
 function listPath(
   definition: StructuredCollectionDefinition,
   options: {
@@ -354,7 +366,8 @@ async function getVersion(
   documentId: string,
   status?: "draft" | "published",
 ) {
-  const query = new URLSearchParams({ populate: "*" });
+  const query = new URLSearchParams();
+  addEditorPopulate(query, definition);
   if (status) {
     query.set("status", status);
   }

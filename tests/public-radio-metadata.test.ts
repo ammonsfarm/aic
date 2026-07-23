@@ -41,4 +41,37 @@ describe("public radio detail metadata availability", () => {
       robots: { index: false, follow: true, noarchive: true },
     });
   });
+
+  it("honors all structured episode SEO controls", async () => {
+    mocks.episode.mockResolvedValue({
+      status: "found",
+      item: {
+        documentId: "episode-1",
+        title: "Episode title",
+        slug: "episode-title",
+        summary: "Episode summary",
+        featuredImageUrl: "",
+        seo: {
+          title: "Search title",
+          description: "Search description",
+          canonicalUrl: "/radio/canonical-episode/",
+          noIndex: true,
+          socialImageUrl: "/media/cms/share/episode.jpg",
+        },
+      },
+    });
+
+    const metadata = await generateMetadata({
+      params: Promise.resolve({ slug: ["episode-title"] }),
+      searchParams: Promise.resolve({}),
+    });
+
+    expect(metadata).toMatchObject({
+      title: "Search title",
+      description: "Search description",
+      alternates: { canonical: "https://www.pastorwood.org/radio/canonical-episode/" },
+      robots: { index: false, follow: true },
+      openGraph: { images: [{ url: "https://www.pastorwood.org/media/cms/share/episode.jpg" }] },
+    });
+  });
 });

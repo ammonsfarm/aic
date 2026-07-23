@@ -120,6 +120,66 @@ describe("published Strapi archive pagination", () => {
     expect(result.items[0]?.audioUrl).toBe("/media/cms/audio-doc/new.mp3");
   });
 
+  it("normalizes populated post relations, references, media, and nested SEO safely", async () => {
+    process.env.STRAPI_URL = "http://127.0.0.1:1337";
+    const fetchMock = vi.fn(async (input: URL | RequestInfo) => {
+      const url = new URL(String(input));
+      expect(url.searchParams.get("populate[author]")).toBe("*");
+      expect(url.searchParams.get("populate[scriptureReferences]")).toBe("*");
+      expect(url.searchParams.get("populate[relatedLinks]")).toBe("*");
+      expect(url.searchParams.get("populate[featuredImage]")).toBe("*");
+      expect(url.searchParams.get("populate[seo][populate]")).toBe("*");
+      return new Response(JSON.stringify({
+        data: [{
+          documentId: "post-1",
+          title: "Structured post",
+          slug: "structured-post",
+          contentType: "article",
+          body: "<p>Body</p>",
+          author: { documentId: "person-1", name: "Pastor Wood" },
+          scriptureReferences: [
+            { label: "John 1:1", translation: "ESV", url: "https://example.test/john" },
+            { label: "Unsafe reference", url: "javascript:alert(1)" },
+          ],
+          relatedLinks: [
+            { label: "Safe resource", url: "/resource/", description: "Read it" },
+            { label: "Unsafe resource", url: "data:text/html,bad" },
+          ],
+          featuredImage: { documentId: "image-doc", url: "/uploads/image.jpg", alternativeText: "Bible" },
+          seo: {
+            title: "Search title",
+            canonicalUrl: "/canonical/",
+            noIndex: true,
+            socialImage: { documentId: "share-doc", url: "/uploads/share.jpg" },
+          },
+        }],
+        meta: { pagination: { page: 1, pageSize: 1, pageCount: 1, total: 1 } },
+      }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getPublishedPostBySlugResult("structured-post");
+
+    expect(result).toMatchObject({
+      status: "found",
+      item: {
+        author: { name: "Pastor Wood" },
+        featuredImageUrl: "/media/cms/image-doc/image.jpg",
+        featuredImageAlt: "Bible",
+        relatedLinks: [{ label: "Safe resource", url: "/resource/" }],
+        seo: {
+          title: "Search title",
+          canonicalUrl: "/canonical/",
+          noIndex: true,
+          socialImageUrl: "/media/cms/share-doc/share.jpg",
+        },
+      },
+    });
+    if (result.status === "found") {
+      expect(result.item.scriptureReferences[1]?.url).toBe("");
+    }
+  });
+
   it("applies bounded server-side archive search and year filters with Strapi pagination", async () => {
     process.env.STRAPI_URL = "http://127.0.0.1:1337";
     const fetchMock = vi.fn(async (input: URL | RequestInfo) => {

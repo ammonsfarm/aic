@@ -19,7 +19,10 @@ vi.mock("@/components/pastor-wood-site", () => ({
     React.createElement("p", null, body),
   ),
 }));
-vi.mock("@/lib/strapi-structured-public", () => ({ getPublishedPostBySlugResult: mocks.lookup }));
+vi.mock("@/lib/strapi-structured-public", () => ({
+  getPublishedPostBySlugResult: mocks.lookup,
+  safePublicContentUrl: (value: unknown) => typeof value === "string" ? value : "",
+}));
 
 import WritingDetailPage, { generateMetadata } from "@/app/writings/[slug]/page";
 
@@ -54,5 +57,59 @@ describe("public writing detail availability", () => {
       robots: { index: false, follow: true, noarchive: true },
     });
     expect(mocks.notFound).not.toHaveBeenCalled();
+  });
+
+  it("renders published structured fields and honors writing SEO", async () => {
+    mocks.lookup.mockResolvedValue({
+      status: "found",
+      item: {
+        documentId: "post-1",
+        title: "Grace and truth",
+        slug: "grace-and-truth",
+        contentType: "article",
+        summary: "A summary",
+        body: "<p>Main <strong>writing</strong>.</p>",
+        publishDate: "2026-07-22T12:00:00.000Z",
+        author: { documentId: "person-1", name: "Pastor Jim Wood", title: "", organization: "" },
+        scriptureReferences: [{
+          label: "John 1:14",
+          book: "John",
+          chapter: 1,
+          verseStart: 14,
+          verseEnd: null,
+          translation: "ESV",
+          url: "https://www.esv.org/John+1%3A14/",
+        }],
+        relatedLinks: [{ label: "Study guide", url: "/study-guide/", description: "Read next." }],
+        featuredImageUrl: "/media/cms/image-doc/grace.jpg",
+        featuredImageAlt: "Open Bible",
+        featuredImageCaption: "John 1",
+        seo: {
+          title: "Grace search title",
+          description: "Grace search description",
+          canonicalUrl: "/writings/grace-canonical/",
+          noIndex: true,
+          socialImageUrl: "/media/cms/social-doc/share.jpg",
+        },
+      },
+    });
+    const props = { params: Promise.resolve({ slug: "grace-and-truth" }) };
+
+    const markup = renderToStaticMarkup(await WritingDetailPage(props));
+    const metadata = await generateMetadata(props);
+
+    expect(markup).toContain('alt="Open Bible"');
+    expect(markup).toContain("By Pastor Jim Wood");
+    expect(markup).toContain("Scripture references");
+    expect(markup).toContain("John 1:14");
+    expect(markup).toContain("Related links");
+    expect(markup).toContain('href="/study-guide/"');
+    expect(metadata).toMatchObject({
+      title: "Grace search title",
+      description: "Grace search description",
+      alternates: { canonical: "https://www.pastorwood.org/writings/grace-canonical/" },
+      robots: { index: false, follow: true },
+      openGraph: { images: [{ url: "https://www.pastorwood.org/media/cms/social-doc/share.jpg" }] },
+    });
   });
 });

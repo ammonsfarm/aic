@@ -47,7 +47,7 @@ function harness(scheduledFor: string) {
 
   vi.stubGlobal("strapi", {
     components: {},
-    contentType: () => ({ attributes: { publishDate: {} } }),
+    contentType: () => ({ attributes: { publishDate: {}, scheduledFor: {} } }),
     documents: (uid: string) => {
       if (uid === postUid) return postDocuments;
       if (uid === revisionUid) return revisionDocuments;
@@ -116,5 +116,17 @@ describe("scheduled editorial publication", () => {
     expect(harnessState.ctx.badRequestMessage).toMatch(/not due/i);
     expect(harnessState.postDocuments.update).not.toHaveBeenCalled();
     expect(harnessState.postDocuments.publish).not.toHaveBeenCalled();
+  });
+
+  it("cancels a pending schedule when content is archived", async () => {
+    const harnessState = harness("2026-07-23T12:00:00.000Z");
+    (harnessState.ctx.params as Record<string, string>).action = "archive";
+
+    await editorialWorkflowController.transition(harnessState.ctx as never);
+
+    expect(harnessState.postDocuments.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ scheduledFor: null }),
+    }));
+    expect(harnessState.postDocuments.unpublish).toHaveBeenCalledOnce();
   });
 });

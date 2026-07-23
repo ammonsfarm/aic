@@ -45,10 +45,18 @@ describe("public archive SEO", () => {
   it("includes donor, published dynamic, post, and episode routes in the sitemap", async () => {
     vi.mocked(listAllPublishedPageSlugs).mockResolvedValue(["custom-resource", "admin", "bad/path"]);
     vi.mocked(listAllPublishedPosts).mockResolvedValue([
-      { documentId: "post-1", slug: "written-item", title: "Written", contentType: "written", summary: "", body: "", publishDate: null },
+      {
+        documentId: "post-1", slug: "written-item", title: "Written", contentType: "written", summary: "", body: "", publishDate: null,
+        author: null, scriptureReferences: [], relatedLinks: [], featuredImageUrl: "", featuredImageAlt: "Written", featuredImageCaption: "",
+        seo: { title: "", description: "", canonicalUrl: "", noIndex: false, socialImageUrl: "" },
+      },
     ]);
     vi.mocked(listAllPublishedEpisodes).mockResolvedValue([
-      { documentId: "episode-1", slug: "radio-item", trackId: "1", title: "Radio", programDate: null, summary: "", description: "", audioUrl: "", durationSeconds: null },
+      {
+        documentId: "episode-1", slug: "radio-item", trackId: "1", title: "Radio", programDate: null, summary: "", description: "", audioUrl: "", durationSeconds: null,
+        guests: [], scriptureReferences: [], featuredImageUrl: "", featuredImageAlt: "Radio", featuredImageCaption: "",
+        seo: { title: "", description: "", canonicalUrl: "", noIndex: false, socialImageUrl: "" },
+      },
     ]);
 
     const urls = new Set((await sitemap()).map((entry) => entry.url));
