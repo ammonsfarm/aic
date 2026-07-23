@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createHmac } from "node:crypto";
 
 const mocks = vi.hoisted(() => ({
   queryRows: vi.fn(),
@@ -27,6 +28,12 @@ import {
 } from "@/lib/public-subscription-contract";
 import { POST as subscribe } from "@/app/api/public/subscriptions/route";
 import { GET as exportSubscriptions } from "@/app/api/admin/subscriptions/export/route";
+import {
+  applyMailchimpWebhook,
+  mailchimpWebhookEventKey,
+  parseMailchimpWebhook,
+  verifyMailchimpWebhookSignature,
+} from "@/lib/mailchimp-subscriptions";
 
 function validPayload(startedAt: number) {
   return {
@@ -43,6 +50,10 @@ describe("public subscription boundary", () => {
   beforeEach(() => {
     mocks.queryRows.mockReset();
     mocks.requireContentManagerApiUser.mockReset().mockResolvedValue({ email: "editor@example.com" });
+    process.env.SUBSCRIPTION_RATE_LIMIT_SECRET = "test-only-rate-secret";
+    process.env.SUBSCRIPTION_UNSUBSCRIBE_SECRET = "test-only-unsubscribe-secret";
+    process.env.MAILCHIMP_AUDIENCE_ID = "9ad7bbba36";
+    process.env.MAILCHIMP_WEBHOOK_SECRET = "test-only-mailchimp-webhook-secret";
   });
 
   it("uses opaque tamper-evident signed unsubscribe tokens", () => {
@@ -64,7 +75,9 @@ describe("public subscription boundary", () => {
     await expect(unsubscribePublicSubscription(token)).resolves.toEqual({ ok: true });
     const [sql, values] = mocks.queryRows.mock.calls[0] as [string, string[]];
     expect(sql).toContain("where unsubscribe_token_hash = $1");
-    expect(sql).toContain("returning subscription_id::text");
+    expect(sql).toContain("select subscription_id::text from recorded_event");
+    expect(sql).toContain("public_subscription_provider_outbox");
+    expect(sql).toContain("desired_action = 'unsubscribe'");
     expect(values).toEqual([subscriptionUnsubscribeTokenHash(token)]);
     expect(JSON.stringify(values)).not.toContain("listener@example.com");
     expect(JSON.stringify(values)).not.toContain(token);
@@ -82,6 +95,8 @@ describe("public subscription boundary", () => {
         source_path: "/",
         created_at: "2026-07-22T12:00:00.000Z",
         updated_at: "2026-07-22T12:00:00.000Z",
+        provider_status: "subscribed",
+        provider_synced_at: "2026-07-22T12:00:00.000Z",
       }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
@@ -182,10 +197,95 @@ describe("public subscription boundary", () => {
     const outcomeSql = String(mocks.queryRows.mock.calls[2]?.[0]);
     expect(outcomeSql).toContain("public_subscriptions.status = 'suppressed' then 'suppressed'");
     expect(outcomeSql).toContain("resubscribe-blocked-suppressed");
-    expect(outcomeSql).toContain("returning event_type");
-    expect(outcomeSql).toContain("source_path, ip_hash, user_agent_hash, unsubscribe_token_hash, updated_at");
-    expect(outcomeSql).toContain("values ($1, 'active', $2, $3, now(), $4, $5, $6, $7, now())");
+    expect(outcomeSql).toContain("select event_type from recorded_event");
+    expect(outcomeSql).toContain("source_path, ip_hash, user_agent_hash, unsubscribe_token_hash");
+    expect(outcomeSql).toContain("provider_status, provider_last_error, updated_at");
+    expect(outcomeSql).toContain("values ($1, 'pending', $2, $3, now(), $4, $5, $6, $7, 'pending', null, now())");
     expect(outcomeSql).toContain("unsubscribe_token_hash = excluded.unsubscribe_token_hash");
+    expect(outcomeSql).toContain("public_subscription_provider_outbox");
+    expect(outcomeSql).toContain("desired_action = 'subscribe'");
     expect(mocks.queryRows.mock.calls[2]?.[1]?.[6]).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("returns pending confirmation instead of claiming immediate subscription", async () => {
+    const now = Date.now();
+    mocks.queryRows
+      .mockResolvedValueOnce([{ ip_count: "0", email_count: "0", cleaned_count: "0" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ event_type: "consent-captured" }]);
+
+    const response = await subscribe(new Request("https://www.pastorwood.org/api/public/subscriptions", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://www.pastorwood.org" },
+      body: JSON.stringify(validPayload(now)),
+    }));
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      state: "pending",
+      message: "Check your email to confirm your weekly devotional subscription.",
+    });
+  });
+
+  it("verifies exact-body Mailchimp signatures and rejects stale deliveries", () => {
+    const raw = new TextEncoder().encode(JSON.stringify({ type: "subscribe", data: { list_id: "9ad7bbba36" } }));
+    const timestamp = 1_718_000_000;
+    const signature = createHmac("sha256", process.env.MAILCHIMP_WEBHOOK_SECRET!)
+      .update(`${timestamp}.`)
+      .update(raw)
+      .digest("hex");
+    expect(() => verifyMailchimpWebhookSignature(raw, `t=${timestamp},v1=${signature}`, timestamp)).not.toThrow();
+    expect(() => verifyMailchimpWebhookSignature(raw, `t=${timestamp},v1=${signature}`, timestamp + 301)).toThrow(/outside/);
+    expect(() => verifyMailchimpWebhookSignature(new TextEncoder().encode("changed"), `t=${timestamp},v1=${signature}`, timestamp)).toThrow(/verified/);
+  });
+
+  it("parses both signed webhook encodings and rejects another audience", () => {
+    const json = new TextEncoder().encode(JSON.stringify({
+      type: "subscribe",
+      fired_at: "2026-07-22T12:00:00Z",
+      data: { list_id: "9ad7bbba36", email: "Listener@Example.com", id: "member_1" },
+    }));
+    expect(parseMailchimpWebhook(json, "application/json")).toEqual({
+      type: "subscribe",
+      firedAt: "2026-07-22T12:00:00Z",
+      audienceId: "9ad7bbba36",
+      email: "listener@example.com",
+      memberId: "member_1",
+    });
+
+    const form = new TextEncoder().encode(new URLSearchParams({
+      type: "unsubscribe",
+      fired_at: "2026-07-22 12:00:00",
+      "data[list_id]": "9ad7bbba36",
+      "data[email]": "listener@example.com",
+      "data[id]": "member_1",
+    }).toString());
+    expect(parseMailchimpWebhook(form, "application/x-www-form-urlencoded").type).toBe("unsubscribe");
+
+    const wrongAudience = new TextEncoder().encode(JSON.stringify({
+      type: "subscribe",
+      data: { list_id: "aaaaaaaaaa", email: "listener@example.com", id: "member_1" },
+    }));
+    expect(() => parseMailchimpWebhook(wrongAudience, "application/json")).toThrow(/audience/);
+  });
+
+  it("deduplicates provider events and preserves local suppression", async () => {
+    const event = {
+      type: "subscribe" as const,
+      firedAt: "2026-07-22T12:00:00Z",
+      audienceId: "9ad7bbba36",
+      email: "listener@example.com",
+      memberId: "member_1",
+    };
+    mocks.queryRows.mockResolvedValueOnce([{ subscription_id: "42" }]);
+    await expect(applyMailchimpWebhook(event)).resolves.toEqual({ applied: true });
+    const [sql, values] = mocks.queryRows.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain("public_subscription_provider_webhook_events");
+    expect(sql).toContain("on conflict (event_key) do nothing");
+    expect(sql).toContain("when public_subscriptions.status = 'suppressed' then 'suppressed'");
+    expect(sql).toContain("where status = 'suppressed' and $2 = 'subscribe'");
+    expect(values[0]).toBe(mailchimpWebhookEventKey(event));
+    expect(JSON.stringify(values)).not.toContain(process.env.MAILCHIMP_WEBHOOK_SECRET);
   });
 });

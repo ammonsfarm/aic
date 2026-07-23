@@ -31,13 +31,27 @@ export async function POST(request: Request) {
       `
         with updated as (
           update public_subscriptions
-          set status = 'suppressed', unsubscribed_at = coalesce(unsubscribed_at, now()), updated_at = now()
+          set status = 'suppressed', unsubscribed_at = coalesce(unsubscribed_at, now()),
+              provider_last_error = null, updated_at = now()
           where email = $1
           returning id
         ), event as (
           insert into public_subscription_events(subscription_id, event_type, actor_type, metadata)
           select id, 'admin-suppressed', 'content-manager', jsonb_build_object('actorEmail', $2::text)
           from updated
+          returning subscription_id
+        ), queued as (
+          insert into public_subscription_provider_outbox(
+            subscription_id, desired_action, status, generation, attempt_count,
+            available_at, started_at, completed_at, worker_id, last_error, updated_at
+          )
+          select id, 'unsubscribe', 'queued', 1, 0, now(), null, null, '', '', now()
+          from updated
+          on conflict (subscription_id) do update
+          set desired_action = 'unsubscribe', status = 'queued',
+              generation = public_subscription_provider_outbox.generation + 1,
+              attempt_count = 0, available_at = now(), started_at = null,
+              completed_at = null, worker_id = '', last_error = '', updated_at = now()
           returning subscription_id
         )
         insert into content_audit_log(entity_type, entity_id, action, actor_email, after_json)

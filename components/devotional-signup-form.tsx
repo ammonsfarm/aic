@@ -32,7 +32,7 @@ export function DevotionalSignupForm({ sourcePath = "/" }: { sourcePath?: string
       if (!response.ok) throw new Error(payload.error || "Subscription failed.");
       form.reset();
       setStartedAt(Date.now());
-      setStatus({ kind: "success", message: payload.message || "You are subscribed." });
+      setStatus({ kind: "success", message: payload.message || "Check your email to confirm your subscription." });
     } catch (error) {
       setStatus({ kind: "error", message: error instanceof Error ? error.message : "Subscription failed." });
     }

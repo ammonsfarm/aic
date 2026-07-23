@@ -1,0 +1,16 @@
+[Unit]
+Description=AIC Mailchimp subscription provider outbox worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ammonsfarm
+Group=ammonsfarm
+WorkingDirectory=/mnt/storage/aic
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/mnt/storage/aic/.venv-pg/bin/python /mnt/storage/aic/scripts/process_subscription_provider_outbox.py --env-file /mnt/storage/aic/.env --limit 25
+TimeoutStartSec=10m
+Nice=5
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6

@@ -16,6 +16,40 @@ attempt refreshes the recorded consent context and writes a
 `resubscribe-blocked-suppressed` event, but the public API returns a generic
 non-success response and does not echo the address or disclose internal status.
 
+## Mailchimp delivery and double opt-in
+
+The legacy site already uses Mailchimp audience `9ad7bbba36`. New requests are
+stored as `pending` and atomically queue a `subscribe` intent in
+`public_subscription_provider_outbox`; the public response tells the visitor to
+check email instead of claiming that delivery is already active. The systemd
+timer runs `scripts/process_subscription_provider_outbox.py`, which requests
+Mailchimp `pending` status so Mailchimp sends its confirmation flow. It uses a
+generation counter and compare-and-set completion so an older in-flight action
+cannot overwrite a newer unsubscribe or suppression request.
+
+Mailchimp confirmation, unsubscribe, and cleaned-address events arrive at
+`/api/webhooks/mailchimp`. Every delivery must carry Mailchimp's HMAC-SHA256
+signature over the exact raw body and a timestamp no more than five minutes old.
+The handler bounds the raw request body, requires the configured audience, and
+deduplicates provider events before changing local status. A local suppression
+always wins; if Mailchimp reports a suppressed address as subscribed, the app
+queues an unsubscribe correction.
+
+Provider failures use bounded exponential retry and become visible on
+`/content/newsletters`. A content manager can requeue failed or exhausted rows;
+the action and each provider failure are audited without logging an address,
+credential, raw IP, or raw browser identifier. Configure these only in the
+protected server environment:
+
+- `MAILCHIMP_API_KEY`
+- `MAILCHIMP_SERVER_PREFIX` (may be derived from the API-key suffix)
+- `MAILCHIMP_AUDIENCE_ID` (defaults to the verified legacy audience)
+- `MAILCHIMP_WEBHOOK_SECRET` (the one-time signing secret shown when the webhook is created)
+
+With no API key, the worker performs no database claim and exits cleanly while
+the admin page reports that delivery configuration is incomplete. No code path
+prints secret values.
+
 Unsubscribe links use a deterministic, signed opaque identifier. The email
 address is never encoded into the URL. PostgreSQL stores only a SHA-256 hash of
 the signed token; new consent captures populate it immediately and an authorized

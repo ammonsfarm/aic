@@ -207,11 +207,12 @@ export async function capturePublicSubscription(
       with upserted as (
         insert into public_subscriptions(
           email, status, consent_version, consent_text, consent_at,
-          source_path, ip_hash, user_agent_hash, unsubscribe_token_hash, updated_at
+          source_path, ip_hash, user_agent_hash, unsubscribe_token_hash,
+          provider_status, provider_last_error, updated_at
         )
-        values ($1, 'active', $2, $3, now(), $4, $5, $6, $7, now())
+        values ($1, 'pending', $2, $3, now(), $4, $5, $6, $7, 'pending', null, now())
         on conflict (email) do update
-        set status = case when public_subscriptions.status = 'suppressed' then 'suppressed' else 'active' end,
+        set status = case when public_subscriptions.status = 'suppressed' then 'suppressed' else 'pending' end,
             consent_version = excluded.consent_version,
             consent_text = excluded.consent_text,
             consent_at = excluded.consent_at,
@@ -219,15 +220,39 @@ export async function capturePublicSubscription(
             ip_hash = excluded.ip_hash,
             user_agent_hash = excluded.user_agent_hash,
             unsubscribe_token_hash = excluded.unsubscribe_token_hash,
+            provider_status = case when public_subscriptions.status = 'suppressed' then public_subscriptions.provider_status else 'pending' end,
+            provider_last_error = case when public_subscriptions.status = 'suppressed' then public_subscriptions.provider_last_error else null end,
             updated_at = now(),
             unsubscribed_at = case when public_subscriptions.status = 'suppressed' then public_subscriptions.unsubscribed_at else null end
         returning id, status
-      )
+      ), recorded_event as (
       insert into public_subscription_events(subscription_id, event_type, actor_type, metadata)
       select id, case when status = 'suppressed' then 'resubscribe-blocked-suppressed' else 'consent-captured' end,
              'public-form', jsonb_build_object('consentVersion', $2::text, 'sourcePath', $4::text)
       from upserted
-      returning event_type
+      returning subscription_id, event_type
+      ), queued as (
+        insert into public_subscription_provider_outbox(
+          subscription_id, desired_action, status, generation, attempt_count,
+          available_at, started_at, completed_at, worker_id, last_error, updated_at
+        )
+        select id, 'subscribe', 'queued', 1, 0, now(), null, null, '', '', now()
+        from upserted
+        where status = 'pending'
+        on conflict (subscription_id) do update
+        set desired_action = 'subscribe',
+            status = 'queued',
+            generation = public_subscription_provider_outbox.generation + 1,
+            attempt_count = 0,
+            available_at = now(),
+            started_at = null,
+            completed_at = null,
+            worker_id = '',
+            last_error = '',
+            updated_at = now()
+        returning subscription_id
+      )
+      select event_type from recorded_event
     `,
     [input.email, input.consentVersion, SUBSCRIPTION_CONSENT_TEXT, input.sourcePath, ipHash, userAgentHash, unsubscribeTokenHash],
   );
@@ -245,15 +270,38 @@ export async function unsubscribePublicSubscription(tokenValue: unknown) {
       with updated as (
         update public_subscriptions
         set status = case when status = 'suppressed' then 'suppressed' else 'unsubscribed' end,
-            unsubscribed_at = coalesce(unsubscribed_at, now()), updated_at = now()
+            unsubscribed_at = coalesce(unsubscribed_at, now()),
+            provider_last_error = null,
+            updated_at = now()
         where unsubscribe_token_hash = $1
         returning id, status
-      )
+      ), recorded_event as (
       insert into public_subscription_events(subscription_id, event_type, actor_type, metadata)
       select id, case when status = 'suppressed' then 'unsubscribe-confirmed-suppressed' else 'unsubscribed' end,
              'signed-link', '{}'::jsonb
       from updated
-      returning subscription_id::text
+      returning subscription_id
+      ), queued as (
+        insert into public_subscription_provider_outbox(
+          subscription_id, desired_action, status, generation, attempt_count,
+          available_at, started_at, completed_at, worker_id, last_error, updated_at
+        )
+        select id, 'unsubscribe', 'queued', 1, 0, now(), null, null, '', '', now()
+        from updated
+        on conflict (subscription_id) do update
+        set desired_action = 'unsubscribe',
+            status = 'queued',
+            generation = public_subscription_provider_outbox.generation + 1,
+            attempt_count = 0,
+            available_at = now(),
+            started_at = null,
+            completed_at = null,
+            worker_id = '',
+            last_error = '',
+            updated_at = now()
+        returning subscription_id
+      )
+      select subscription_id::text from recorded_event
     `,
     [tokenHash],
   );

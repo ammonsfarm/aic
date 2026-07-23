@@ -547,7 +547,7 @@ function SubscriptionPrivacyNotice() {
       <h2 id="subscription-privacy-notice">Weekly devotional subscriptions</h2>
       <p>When you subscribe, we store your email address, the consent wording and version you accepted, the time of consent, and the page where you subscribed. We also store one-way keyed hashes derived from the requesting IP address and browser identifier to limit abuse; the raw values are not stored by the subscription form. Abuse-prevention attempt records are retained for {SUBSCRIPTION_ATTEMPT_RETENTION_DAYS} days and then removed in bounded cleanup batches.</p>
       <h2>How the information is used</h2>
-      <p>Subscription information is used to manage the Abiding in Christ devotional list. Authorized content managers can export the active list for delivery through the ministry&apos;s approved email provider. Suppressed addresses remain suppressed if a later signup is attempted.</p>
+      <p>Subscription information is used to manage the Abiding in Christ devotional list. New requests are sent to Mailchimp as pending and become active only after email confirmation. Signed provider notices synchronize confirmations, unsubscribes, delivery failures, and suppression. Authorized content managers can export confirmed records, inspect delivery failures, and retry provider synchronization. Suppressed addresses remain suppressed if a later signup is attempted.</p>
       <h2>Other websites and giving</h2>
       <p>Links to giving, Apple Podcasts, Wears Valley Ranch, and other organizations open their websites. Their privacy practices apply once you leave this site. This website does not collect payment-card information.</p>
       <h2>Questions or removal requests</h2>
