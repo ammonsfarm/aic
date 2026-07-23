@@ -11,6 +11,7 @@ run_logs/
 episode_intelligence_logs/
 openai_embedding_batches/
 transcript_cache/
+/services/jimwood-cms/public/uploads
 
 # Next.js
 .next/

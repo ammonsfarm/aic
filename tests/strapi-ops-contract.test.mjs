@@ -369,9 +369,18 @@ test("production Strapi rejects SQLite, URL repointing, and any schema other tha
 
 test("all systemd writable paths exist before service namespace setup", () => {
   const provision = source("ops/strapi/provision-strapi.sh");
+  const prepareStorage = source("ops/strapi/prepare-strapi-storage.sh");
   const service = source("ops/strapi/systemd/aic-strapi.service");
   const schemaUnit = source("ops/strapi/systemd/aic-strapi-schema.service");
   const backupUnit = source("ops/strapi/systemd/aic-strapi-backup.service");
+
+  assert.equal(
+    existsSync(join(repoRoot, "services", "jimwood-cms", "public", "uploads", ".gitkeep")),
+    false,
+  );
+  assert.match(source(".gitignore"), /^\/services\/jimwood-cms\/public\/uploads$/m);
+  assert.match(prepareStorage, /uploads_path="\$\{cms_root\}\/public\/uploads"/);
+  assert.match(prepareStorage, /ln -s "\$\{media_root\}" "\$\{uploads_path\}"/);
 
   for (const expected of [
     "/mnt/storage/aic/services/jimwood-cms/.tmp",
