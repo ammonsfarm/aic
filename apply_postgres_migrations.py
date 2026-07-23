@@ -11,9 +11,23 @@ import psycopg
 
 
 DEFAULT_MIGRATIONS = Path("postgres/migrations")
+EXPECTED_DB_HOST = "192.168.1.106"
+EXPECTED_DB_PORT = "5432"
+DATABASE_ENV_KEYS = (
+    "DB_HOST",
+    "DB_PORT",
+    "DB_NAME",
+    "DB_USER",
+    "DB_PASSWORD",
+)
 
 
 def load_env(path: Path) -> None:
+    # The selected env file is authoritative for database routing. Inherited
+    # DB_* values must never repoint migrations away from the existing AIC DB.
+    for key in DATABASE_ENV_KEYS:
+        os.environ.pop(key, None)
+
     if not path.exists():
         return
     for raw_line in path.read_text().splitlines():
@@ -21,14 +35,37 @@ def load_env(path: Path) -> None:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key in DATABASE_ENV_KEYS:
+            os.environ[key] = value
+        else:
+            os.environ.setdefault(key, value)
+
+
+def validate_database_target() -> None:
+    missing = [key for key in DATABASE_ENV_KEYS if not os.environ.get(key)]
+    if missing:
+        raise SystemExit(
+            "Database migrations require these values from the selected env file: "
+            + ", ".join(missing)
+        )
+
+    host = os.environ["DB_HOST"]
+    port = os.environ["DB_PORT"]
+    if host != EXPECTED_DB_HOST or port != EXPECTED_DB_PORT:
+        raise SystemExit(
+            "Database migrations require the existing AIC PostgreSQL target at "
+            f"{EXPECTED_DB_HOST}:{EXPECTED_DB_PORT}; got {host}:{port}"
+        )
 
 
 def dsn() -> str:
+    validate_database_target()
     return (
         f"host={os.environ['DB_HOST']} "
-        f"port={os.environ.get('DB_PORT', '5432')} "
-        f"dbname={os.environ.get('DB_NAME', 'aic')} "
+        f"port={os.environ['DB_PORT']} "
+        f"dbname={os.environ['DB_NAME']} "
         f"user={os.environ['DB_USER']} "
         f"password={os.environ['DB_PASSWORD']}"
     )
@@ -44,11 +81,12 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     load_env(args.env_file)
+    connection_dsn = dsn()
     migration_files = sorted(args.migrations_dir.glob("*.sql"))
     if not migration_files:
         raise SystemExit(f"No migrations found in {args.migrations_dir}")
 
-    with psycopg.connect(dsn(), autocommit=True) as conn:
+    with psycopg.connect(connection_dsn, autocommit=True) as conn:
         conn.execute(
             """
             create table if not exists schema_migrations (

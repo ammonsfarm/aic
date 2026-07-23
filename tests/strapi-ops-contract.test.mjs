@@ -184,6 +184,18 @@ test("root-executed operations are installed immutably outside the writable chec
   assert.match(deploy, /sudo \/usr\/local\/libexec\/aic-strapi\/install-strapi-service\.sh/);
 });
 
+test("migration runner cannot inherit or accept a different database target", () => {
+  const migrations = source("apply_postgres_migrations.py");
+  assert.match(migrations, /EXPECTED_DB_HOST = "192\.168\.1\.106"/);
+  assert.match(migrations, /EXPECTED_DB_PORT = "5432"/);
+  assert.match(migrations, /os\.environ\.pop\(key, None\)/);
+  assert.match(migrations, /if key in DATABASE_ENV_KEYS:/);
+  assert.match(migrations, /validate_database_target\(\)/);
+  const dsnIndex = migrations.indexOf("connection_dsn = dsn()");
+  const connectIndex = migrations.indexOf("psycopg.connect(connection_dsn");
+  assert.ok(dsnIndex >= 0 && connectIndex > dsnIndex);
+});
+
 test("production Strapi rejects URL repointing and any schema other than aic_strapi", () => {
   const databaseConfig = source("services/jimwood-cms/config/database.ts");
   assert.match(databaseConfig, /Production Strapi does not accept DATABASE_URL/);
