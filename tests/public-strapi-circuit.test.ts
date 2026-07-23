@@ -11,6 +11,7 @@ vi.mock("@/lib/public-content-projection", () => ({
 }));
 
 import { getStrapiPageByPageKeyResult } from "@/lib/strapi";
+import { disablePastorWoodPublicCmsCutoverForTests, enablePastorWoodPublicCmsCutoverForTests } from "@/lib/pastorwood-public-cms-cutover";
 import { getPublishedPageSitemapListing } from "@/lib/strapi-public-pages";
 import { resetPublicStrapiCircuitForTests } from "@/lib/strapi-request";
 import { getPublishedManagedSiteSettings } from "@/lib/strapi-site-settings-management";
@@ -18,7 +19,7 @@ import { getStrapiSiteSettings } from "@/lib/strapi-site-settings";
 
 beforeEach(() => {
   resetPublicStrapiCircuitForTests();
-  process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED = "true";
+  enablePastorWoodPublicCmsCutoverForTests();
   process.env.STRAPI_URL = "https://strapi.example.test";
   process.env.STRAPI_PUBLIC_URL = "https://strapi.example.test";
   process.env.STRAPI_API_TOKEN = "read-token";
@@ -28,7 +29,7 @@ beforeEach(() => {
 
 afterEach(() => {
   resetPublicStrapiCircuitForTests();
-  delete process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED;
+  disablePastorWoodPublicCmsCutoverForTests();
   delete process.env.STRAPI_URL;
   delete process.env.STRAPI_PUBLIC_URL;
   delete process.env.STRAPI_API_TOKEN;

@@ -8,6 +8,7 @@ vi.mock("@/lib/public-content-projection", () => ({
 
 import redirects from "@/data/legacy-redirects.json";
 import media from "@/data/public-media-manifest.json";
+import { disablePastorWoodPublicCmsCutoverForTests, enablePastorWoodPublicCmsCutoverForTests } from "@/lib/pastorwood-public-cms-cutover";
 import { resetPublicStrapiCircuitForTests } from "@/lib/strapi-request";
 import {
   isOwnedLegacyRedirectSource,
@@ -24,13 +25,13 @@ import {
 
 beforeEach(() => {
   resetPublicStrapiCircuitForTests();
-  process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED = "true";
+  enablePastorWoodPublicCmsCutoverForTests();
   projection.identity.mockReset();
   projection.identity.mockResolvedValue({ status: "absent" });
 });
 
 afterEach(() => {
-  delete process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED;
+  disablePastorWoodPublicCmsCutoverForTests();
   delete process.env.STRAPI_PUBLIC_URL;
   delete process.env.STRAPI_URL;
   delete process.env.STRAPI_READ_TOKEN;

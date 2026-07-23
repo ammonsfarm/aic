@@ -77,6 +77,8 @@ class CutoverIdentityTests(unittest.TestCase):
                     "identity": "7",
                     "action": "published",
                     "documentId": "post-document",
+                    "recordedAt": "2026-07-23T00:00:00Z",
+                    "sequence": 1,
                 },
             }
             verification = {"files": 2, "sha256": "b" * 64}
@@ -118,7 +120,12 @@ class CutoverIdentityTests(unittest.TestCase):
                 "planFingerprint": "plan-fingerprint",
                 "mutationManifestSha256": "d" * 64,
                 "publicMediaVerification": verification,
-                "actions": [{"key": "page:home", "action": "published"}],
+                "actions": [{
+                    "key": "page:home",
+                    "action": "published",
+                    "recordedAt": "2026-07-23T00:00:00Z",
+                    "sequence": 1,
+                }],
                 "exclusions": [],
             }), encoding="utf-8")
 
@@ -130,6 +137,124 @@ class CutoverIdentityTests(unittest.TestCase):
             )
             self.assertEqual(set(actions), {"page:home"})
             self.assertEqual(state, "pending")
+
+    def _complete_attestation_fixture(self, directory):
+        root = Path(directory)
+        plan_fingerprint = "a" * 64
+        mutation_sha256 = "b" * 64
+        publication_manifest = root / "publications.json"
+        expected_entries = {
+            "post:7": {"key": "post:7", "action": "publish"},
+            "redirect:/old/": {"key": "redirect:/old/", "action": "activate"},
+        }
+        actions = {
+            "post:7": {
+                "key": "post:7", "kind": "post", "identity": "7", "action": "published",
+                "documentId": "post-doc", "recordedAt": "2026-07-23T00:00:00Z", "sequence": 1,
+            },
+            "redirect:/old/": {
+                "key": "redirect:/old/", "kind": "redirect", "identity": "/old/", "action": "activated",
+                "documentId": "redirect-doc", "recordedAt": "2026-07-23T00:00:01Z", "sequence": 2,
+            },
+        }
+        MODULE.write_publication_manifest(
+            publication_manifest,
+            plan_fingerprint,
+            mutation_sha256,
+            {"verifiedFiles": 0, "verifiedBytes": 0, "evidenceFingerprint": "c" * 64},
+            actions,
+            [],
+            "complete",
+        )
+        failure_evidence = {"planFingerprint": plan_fingerprint, "failures": []}
+        return plan_fingerprint, mutation_sha256, publication_manifest, expected_entries, actions, failure_evidence
+
+    def test_complete_phase_two_writes_atomic_bound_attestation_and_checksum(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = self._complete_attestation_fixture(directory)
+            plan, mutation, manifest, entries, actions, failures = fixture
+            attestation = MODULE.build_cutover_attestation(
+                plan_fingerprint=plan,
+                mutation_manifest_sha256=mutation,
+                expected_entries=entries,
+                publication_actions=actions,
+                publication_manifest=manifest,
+                cache_invalidation_state="complete",
+                verified_redirect_keys={"redirect:/old/"},
+                failure_evidence=failures,
+                git_revision="d" * 40,
+                completed_at="2026-07-23T00:00:02Z",
+            )
+            output = Path(directory) / MODULE.DEFAULT_CUTOVER_ATTESTATION.name
+            digest = MODULE.write_cutover_attestation_pair(attestation, output, allow_test_output=True)
+
+            self.assertEqual(hashlib.sha256(output.read_bytes()).hexdigest(), digest)
+            self.assertEqual(
+                Path(f"{output}.sha256").read_text(encoding="ascii"),
+                f"{digest}  {output.name}\n",
+            )
+            self.assertEqual(json.loads(output.read_text(encoding="utf-8")), attestation)
+            self.assertEqual(list(Path(directory).glob(".*.tmp")), [])
+            self.assertTrue(attestation["redirectActivation"]["activatedLast"])
+            self.assertEqual(attestation["cacheInvalidation"]["state"], "complete")
+
+    def test_attestation_is_never_built_for_partial_redirect_cache_or_failure_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            plan, mutation, manifest, entries, actions, failures = self._complete_attestation_fixture(directory)
+            common = dict(
+                plan_fingerprint=plan,
+                mutation_manifest_sha256=mutation,
+                expected_entries=entries,
+                publication_manifest=manifest,
+                git_revision="d" * 40,
+            )
+            with self.assertRaisesRegex(RuntimeError, "partial reviewed publication"):
+                MODULE.build_cutover_attestation(
+                    **common,
+                    publication_actions={"post:7": actions["post:7"]},
+                    cache_invalidation_state="complete",
+                    verified_redirect_keys=set(),
+                    failure_evidence=failures,
+                )
+            with self.assertRaisesRegex(RuntimeError, "redirect activation verification"):
+                MODULE.build_cutover_attestation(
+                    **common,
+                    publication_actions=actions,
+                    cache_invalidation_state="complete",
+                    verified_redirect_keys=set(),
+                    failure_evidence=failures,
+                )
+            with self.assertRaisesRegex(RuntimeError, "pending cache invalidation"):
+                MODULE.build_cutover_attestation(
+                    **common,
+                    publication_actions=actions,
+                    cache_invalidation_state="pending",
+                    verified_redirect_keys={"redirect:/old/"},
+                    failure_evidence=failures,
+                )
+            with self.assertRaisesRegex(RuntimeError, "failure evidence"):
+                MODULE.build_cutover_attestation(
+                    **common,
+                    publication_actions=actions,
+                    cache_invalidation_state="complete",
+                    verified_redirect_keys={"redirect:/old/"},
+                    failure_evidence={"planFingerprint": plan, "failures": [{"key": "post:7"}]},
+                )
+            self.assertFalse((Path(directory) / MODULE.DEFAULT_CUTOVER_ATTESTATION.name).exists())
+
+    def test_attestation_output_rejects_noncanonical_production_and_symlink_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "wrong-name.json"
+            with self.assertRaisesRegex(RuntimeError, "output path"):
+                MODULE.write_cutover_attestation_pair({}, output, allow_test_output=True)
+            canonical_name = Path(directory) / MODULE.DEFAULT_CUTOVER_ATTESTATION.name
+            with self.assertRaisesRegex(RuntimeError, "immutable migration root"):
+                MODULE.write_cutover_attestation_pair({}, canonical_name)
+            target = Path(directory) / "target.json"
+            target.write_text("{}", encoding="utf-8")
+            canonical_name.symlink_to(target)
+            with self.assertRaisesRegex(RuntimeError, "non-symlink"):
+                MODULE.write_cutover_attestation_pair({}, canonical_name, allow_test_output=True)
 
     def test_verified_snapshot_is_the_only_production_wordpress_source(self):
         args = MODULE.parse_args([])

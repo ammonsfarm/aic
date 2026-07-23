@@ -7,14 +7,15 @@ vi.mock("@/lib/public-content-projection", () => ({
 }));
 
 import { authorizedPublishedCmsMedia } from "@/lib/cms-public-media";
+import { disablePastorWoodPublicCmsCutoverForTests, enablePastorWoodPublicCmsCutoverForTests } from "@/lib/pastorwood-public-cms-cutover";
 
 beforeEach(() => {
-  process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED = "true";
+  enablePastorWoodPublicCmsCutoverForTests();
   projection.getMedia.mockReset();
 });
 
 afterEach(() => {
-  delete process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED;
+  disablePastorWoodPublicCmsCutoverForTests();
 });
 
 describe("published media authorization projection", () => {

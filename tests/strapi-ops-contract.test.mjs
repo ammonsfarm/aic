@@ -667,6 +667,7 @@ test("PastorWood cutover defaults to the pinned snapshot, imports drafts, and se
   const publishIndex = publication.indexOf("client.publish_reviewed(");
   const firstPendingIndex = publication.indexOf("mark_cache_invalidation_pending()", publication.indexOf("publish_entries ="));
   const initialFlushIndex = publication.indexOf('if cache_invalidation_state == "pending":');
+  const attestationIndex = publication.indexOf("build_cutover_attestation(");
   assert.match(cutover, /DEFAULT_WORDPRESS_SNAPSHOT/);
   assert.match(cutover, /default="verified-snapshot"/);
   assert.match(cutover, /wordpress_sources = \("verified-snapshot",\)/);
@@ -693,11 +694,16 @@ test("PastorWood cutover defaults to the pinned snapshot, imports drafts, and se
   assert.match(cutover, /os\.fsync\(handle\.fileno\(\)\)/);
   assert.match(cutover, /os\.fsync\(directory_descriptor\)/);
   assert.match(cutover, /Redirect activation refuses a partial reviewed publication phase/);
+  assert.match(cutover, /DEFAULT_CUTOVER_ATTESTATION = DEFAULT_MIGRATION_ROOT \/ "pastorwood-public-cms-cutover-attestation\.json"/);
+  assert.match(cutover, /temporary_paths\[0\]\.replace\(checksum_path\)[\s\S]*temporary_paths\[1\]\.replace\(path\)/);
+  assert.match(cutover, /"activatedLast": True/);
+  assert.match(cutover, /"deployedGitRevision": git_revision/);
   assert.ok(publicationStart >= 0 && publicationEnd > publicationStart);
   assert.ok(reviewedSealIndex >= 0 && exactManifestIndex > reviewedSealIndex && mediaRehashIndex > exactManifestIndex);
   assert.ok(clientIndex > mediaRehashIndex && publishIndex > clientIndex);
   assert.ok(initialFlushIndex >= 0 && initialFlushIndex < clientIndex);
   assert.ok(firstPendingIndex >= 0 && firstPendingIndex < publishIndex);
+  assert.ok(attestationIndex > publication.lastIndexOf("flush_cache_invalidation()"));
   assert.match(publication, /publicMediaVerification/);
   assert.doesNotMatch(publication, /copy_public_media\(/);
   assert.doesNotMatch(cutover, /status_query = "\?status=published"/);

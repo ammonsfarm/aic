@@ -32,7 +32,11 @@ import redirects from "@/data/legacy-redirects.json";
 import { authorizedPublishedCmsMedia } from "@/lib/cms-public-media";
 import { POST as subscribe } from "@/app/api/public/subscriptions/route";
 import { resolveLegacyRedirect, resolvePublicLegacyRedirect } from "@/lib/legacy-redirects";
-import { pastorWoodPublicCmsCutoverEnabled } from "@/lib/pastorwood-public-cms-cutover";
+import {
+  disablePastorWoodPublicCmsCutoverForTests,
+  enablePastorWoodPublicCmsCutoverForTests,
+  pastorWoodPublicCmsCutoverEnabled,
+} from "@/lib/pastorwood-public-cms-cutover";
 import { getStrapiPageByPageKeyResult, getStrapiPageBySlugResult } from "@/lib/strapi";
 import { getPublishedPageSitemapListing } from "@/lib/strapi-public-pages";
 import { resetPublicStrapiCircuitForTests } from "@/lib/strapi-request";
@@ -73,7 +77,7 @@ const fallbackEpisode = {
 
 beforeEach(() => {
   resetPublicStrapiCircuitForTests();
-  delete process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED;
+  disablePastorWoodPublicCmsCutoverForTests();
   process.env.STRAPI_URL = "https://strapi.example.test";
   process.env.STRAPI_PUBLIC_URL = "https://strapi.example.test";
   process.env.STRAPI_API_TOKEN = "read-token";
@@ -93,7 +97,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  delete process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED;
+  disablePastorWoodPublicCmsCutoverForTests();
   delete process.env.STRAPI_URL;
   delete process.env.STRAPI_PUBLIC_URL;
   delete process.env.STRAPI_API_TOKEN;
@@ -110,6 +114,11 @@ afterEach(() => {
 });
 
 describe("PastorWood public CMS cutover gate", () => {
+  it("keeps CMS authority off when the boolean is enabled without attestation evidence", () => {
+    process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED = "true";
+    expect(pastorWoodPublicCmsCutoverEnabled()).toBe(false);
+  });
+
   it("defaults off, hides dynamic CMS-only slugs, and sends every public content surface directly to bootstrap continuity", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -198,7 +207,7 @@ describe("PastorWood public CMS cutover gate", () => {
   });
 
   it("treats live 200-empty as authoritative after the explicit gate is enabled", async () => {
-    process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED = "true";
+    enablePastorWoodPublicCmsCutoverForTests();
     const fetchMock = vi.fn(async (input: URL | RequestInfo) => {
       const url = new URL(String(input));
       if (url.pathname === "/api/pages") return new Response(JSON.stringify({ data: [] }), { status: 200 });

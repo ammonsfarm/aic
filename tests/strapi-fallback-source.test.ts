@@ -27,6 +27,7 @@ vi.mock("@/lib/public-content-projection", () => ({
 }));
 
 import { listAllPublishedEpisodes } from "@/lib/strapi-structured-public";
+import { disablePastorWoodPublicCmsCutoverForTests, enablePastorWoodPublicCmsCutoverForTests } from "@/lib/pastorwood-public-cms-cutover";
 import { resetPublicStrapiCircuitForTests } from "@/lib/strapi-request";
 
 function strapiEpisode(index: number) {
@@ -55,7 +56,7 @@ function fallbackEpisode(index: number) {
 
 beforeEach(() => {
   resetPublicStrapiCircuitForTests();
-  process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED = "true";
+  enablePastorWoodPublicCmsCutoverForTests();
   process.env.STRAPI_URL = "http://127.0.0.1:1337";
   vi.restoreAllMocks();
   fallback.episodesPage.mockReset();
@@ -72,7 +73,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  delete process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED;
+  disablePastorWoodPublicCmsCutoverForTests();
 });
 
 describe("published archive fallback source consistency", () => {

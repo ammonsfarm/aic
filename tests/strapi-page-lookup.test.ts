@@ -7,17 +7,18 @@ vi.mock("@/lib/public-content-projection", () => ({
 }));
 
 import { getStrapiPageBySlugResult, strapiPageCacheTag } from "@/lib/strapi";
+import { disablePastorWoodPublicCmsCutoverForTests, enablePastorWoodPublicCmsCutoverForTests } from "@/lib/pastorwood-public-cms-cutover";
 import { resetPublicStrapiCircuitForTests } from "@/lib/strapi-request";
 
 beforeEach(() => {
   resetPublicStrapiCircuitForTests();
-  process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED = "true";
+  enablePastorWoodPublicCmsCutoverForTests();
   projection.identity.mockReset();
   projection.identity.mockResolvedValue({ status: "absent" });
 });
 
 afterEach(() => {
-  delete process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED;
+  disablePastorWoodPublicCmsCutoverForTests();
   delete process.env.STRAPI_URL;
   delete process.env.STRAPI_API_TOKEN;
   delete process.env.STRAPI_PAGE_REVALIDATE_SECONDS;

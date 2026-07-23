@@ -45,6 +45,8 @@ DEFAULT_MIGRATION_ROOT = Path("/mnt/storage/pastorwood-migration-20260722")
 DEFAULT_WORDPRESS_SNAPSHOT = DEFAULT_MIGRATION_ROOT / "wordpress-live-snapshot-20260722T145115Z.json"
 DEFAULT_REST_MEDIA_BACKUP_MANIFEST = DEFAULT_MIGRATION_ROOT / "wordpress-rest-media-backup-20260722T151500Z.json"
 DEFAULT_EXTERNAL_IMAGE_BACKUP_MANIFEST = DEFAULT_MIGRATION_ROOT / "external-image-backup-20260722T152000Z.json"
+DEFAULT_CUTOVER_ATTESTATION = DEFAULT_MIGRATION_ROOT / "pastorwood-public-cms-cutover-attestation.json"
+DEFAULT_CUTOVER_ATTESTATION_SHA256 = DEFAULT_MIGRATION_ROOT / "pastorwood-public-cms-cutover-attestation.json.sha256"
 DEFAULT_RESTRICTED_MEDIA_ROOT = Path("/mnt/storage/pastorwood-media/legacy/wp-content/uploads")
 DEFAULT_PUBLIC_MEDIA_ROOT = Path("/mnt/storage/pastorwood-media/public")
 PRIVATE_MEDIA_SEGMENTS = {
@@ -2978,6 +2980,215 @@ def write_json(path: Path, value: Any) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def deployed_git_revision(repository_root: Path | None = None) -> str:
+    root = (repository_root or Path(__file__).resolve().parents[1]).resolve()
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--show-toplevel", "--verify", "HEAD^{commit}"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            env=environment,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise RuntimeError("Cutover attestation requires the deployed Git revision") from error
+    lines = result.stdout.strip().splitlines()
+    if len(lines) != 2 or Path(lines[0]).resolve() != root:
+        raise RuntimeError("Cutover attestation repository root is invalid")
+    revision = lines[1].lower()
+    if not re.fullmatch(r"[a-f0-9]{40}", revision):
+        raise RuntimeError("Cutover attestation received an invalid deployed Git revision")
+    try:
+        status = subprocess.run(
+            ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=no"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            env=environment,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise RuntimeError("Cutover attestation could not verify the deployed checkout") from error
+    if status.stdout.strip():
+        raise RuntimeError("Cutover attestation refuses a tracked dirty checkout")
+    return revision
+
+
+def _validate_cutover_attestation_output(path: Path, allow_test_output: bool) -> None:
+    if not path.is_absolute() or path.name != DEFAULT_CUTOVER_ATTESTATION.name:
+        raise RuntimeError("Cutover attestation output path is invalid")
+    resolved_parent = path.parent.resolve()
+    if allow_test_output:
+        temporary_root = Path(tempfile.gettempdir()).resolve()
+        if resolved_parent != temporary_root and temporary_root not in resolved_parent.parents:
+            raise RuntimeError("Test cutover attestation output must stay below the system temporary root")
+    elif path != DEFAULT_CUTOVER_ATTESTATION or resolved_parent != DEFAULT_MIGRATION_ROOT:
+        raise RuntimeError("Cutover attestation may only be written to the immutable migration root")
+    if not path.parent.exists() or path.parent.is_symlink() or not path.parent.is_dir():
+        raise RuntimeError("Cutover attestation root must be an existing non-symlink directory")
+    for candidate in (path, Path(f"{path}.sha256")):
+        if candidate.is_symlink() or (candidate.exists() and not candidate.is_file()):
+            raise RuntimeError("Cutover attestation destination must be a regular non-symlink file")
+
+
+def write_cutover_attestation_pair(
+    attestation: dict[str, Any],
+    path: Path = DEFAULT_CUTOVER_ATTESTATION,
+    *,
+    allow_test_output: bool = False,
+) -> str:
+    _validate_cutover_attestation_output(path, allow_test_output)
+    payload = (json.dumps(attestation, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    digest = hashlib.sha256(payload).hexdigest()
+    checksum_path = Path(f"{path}.sha256")
+    checksum_payload = f"{digest}  {path.name}\n".encode("ascii")
+    temporary_paths: list[Path] = []
+    try:
+        for destination, contents in ((checksum_path, checksum_payload), (path, payload)):
+            descriptor, temporary_name = tempfile.mkstemp(
+                prefix=f".{destination.name}.",
+                suffix=".tmp",
+                dir=path.parent,
+            )
+            temporary = Path(temporary_name)
+            temporary_paths.append(temporary)
+            os.fchmod(descriptor, 0o600)
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(contents)
+                handle.flush()
+                os.fsync(handle.fileno())
+
+        # The JSON is the commit marker. If a crash lands between these two
+        # replacements, the checksum and prior JSON disagree and every reader
+        # fails closed instead of trusting partial evidence.
+        temporary_paths[0].replace(checksum_path)
+        temporary_paths[1].replace(path)
+        directory_descriptor = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+    finally:
+        for temporary in temporary_paths:
+            temporary.unlink(missing_ok=True)
+    return digest
+
+
+def build_cutover_attestation(
+    *,
+    plan_fingerprint: str,
+    mutation_manifest_sha256: str,
+    expected_entries: dict[str, dict[str, Any]],
+    publication_actions: dict[str, dict[str, Any]],
+    publication_manifest: Path,
+    cache_invalidation_state: str,
+    verified_redirect_keys: set[str],
+    failure_evidence: dict[str, Any],
+    git_revision: str,
+    completed_at: str | None = None,
+) -> dict[str, Any]:
+    if not re.fullmatch(r"[a-f0-9]{64}", plan_fingerprint):
+        raise RuntimeError("Cutover attestation plan fingerprint is invalid")
+    if not re.fullmatch(r"[a-f0-9]{64}", mutation_manifest_sha256):
+        raise RuntimeError("Cutover attestation mutation manifest SHA-256 is invalid")
+    if not re.fullmatch(r"[a-f0-9]{40}", git_revision):
+        raise RuntimeError("Cutover attestation deployed Git revision is invalid")
+    if failure_evidence.get("planFingerprint") != plan_fingerprint or failure_evidence.get("failures") != []:
+        raise RuntimeError("Cutover attestation refuses missing, stale, or nonempty failure evidence")
+
+    actionable = {
+        key: entry
+        for key, entry in expected_entries.items()
+        if entry.get("action") in {"publish", "activate"}
+    }
+    if set(publication_actions) != set(actionable):
+        raise RuntimeError("Cutover attestation refuses a partial reviewed publication phase")
+    ordered_actions = sorted(publication_actions.values(), key=lambda action: int(action.get("sequence") or 0))
+    if [action.get("sequence") for action in ordered_actions] != list(range(1, len(ordered_actions) + 1)):
+        raise RuntimeError("Cutover attestation refuses incomplete publication ordering evidence")
+    for action in ordered_actions:
+        key = text(action.get("key"))
+        expected_action = "activated" if actionable[key]["action"] == "activate" else "published"
+        if text(action.get("action")) != expected_action or not text(action.get("recordedAt")):
+            raise RuntimeError("Cutover attestation publication action does not match the reviewed plan")
+
+    publish_sequences = [action["sequence"] for action in ordered_actions if action.get("action") == "published"]
+    redirect_actions = [action for action in ordered_actions if action.get("action") == "activated"]
+    redirect_keys = {key for key, entry in actionable.items() if entry.get("action") == "activate"}
+    if verified_redirect_keys != redirect_keys:
+        raise RuntimeError("Cutover attestation refuses incomplete redirect activation verification")
+    if redirect_actions and publish_sequences and min(action["sequence"] for action in redirect_actions) <= max(publish_sequences):
+        raise RuntimeError("Cutover attestation requires redirects to be activated after every publication")
+    if cache_invalidation_state != "complete":
+        raise RuntimeError("Cutover attestation refuses pending cache invalidation")
+
+    if publication_manifest.is_symlink() or not publication_manifest.is_file():
+        raise RuntimeError("Cutover attestation requires a regular non-symlink publication manifest")
+    try:
+        manifest_payload = json.loads(publication_manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError("Cutover attestation requires the final publication manifest") from error
+    manifest_actions = manifest_payload.get("actions") if isinstance(manifest_payload, dict) else None
+    invalidation = manifest_payload.get("cacheInvalidation") if isinstance(manifest_payload, dict) else None
+    expected_exclusions = [
+        {
+            "key": key,
+            "kind": text(entry.get("kind")),
+            "identity": text(entry.get("identity")),
+            "reason": text(entry.get("exclusionReason")),
+        }
+        for key, entry in sorted(expected_entries.items())
+        if entry.get("action") == "exclude"
+    ]
+    if (
+        not isinstance(manifest_payload, dict)
+        or manifest_payload.get("version") != 1
+        or manifest_payload.get("planFingerprint") != plan_fingerprint
+        or manifest_payload.get("mutationManifestSha256") != mutation_manifest_sha256
+        or manifest_actions != ordered_actions
+        or manifest_payload.get("exclusions") != expected_exclusions
+        or not isinstance(invalidation, dict)
+        or invalidation.get("state") != "complete"
+        or invalidation.get("actionsFingerprint") != stable_fingerprint(ordered_actions)
+        or not text(invalidation.get("updatedAt"))
+    ):
+        raise RuntimeError("Cutover attestation publication manifest is incomplete or stale")
+
+    completion = completed_at or datetime.now(timezone.utc).isoformat()
+    return {
+        "version": 1,
+        "planFingerprint": plan_fingerprint,
+        "mutationManifestSha256": mutation_manifest_sha256,
+        "publication": {
+            "manifestSha256": sha256_file(publication_manifest),
+            "evidenceHash": stable_fingerprint(ordered_actions),
+            "actionsFingerprint": text(invalidation.get("actionsFingerprint")),
+            "expectedActionCount": len(actionable),
+            "completedActionCount": len(ordered_actions),
+            "verified": True,
+        },
+        "redirectActivation": {
+            "expectedCount": len(redirect_keys),
+            "activatedCount": len(redirect_actions),
+            "verifiedCount": len(verified_redirect_keys),
+            "evidenceHash": stable_fingerprint(redirect_actions),
+            "activatedLast": True,
+            "verified": True,
+        },
+        "cacheInvalidation": {
+            "state": "complete",
+            "flushed": True,
+            "actionsFingerprint": text(invalidation.get("actionsFingerprint")),
+            "completedAt": text(invalidation.get("updatedAt")),
+        },
+        "deployedGitRevision": git_revision,
+        "completedAt": completion,
+        "failures": [],
+    }
+
+
 def canonical_cache_revalidation_secret(env_values: dict[str, str]) -> str:
     secret = text(env_values.get("STRAPI_REVALIDATE_SECRET"))
     if not re.fullmatch(r"[a-f0-9]{64}", secret):
@@ -3654,12 +3865,18 @@ def load_publication_manifest(
     if not isinstance(actions, list) or any(not isinstance(item, dict) for item in actions):
         raise RuntimeError("Cutover publication evidence is invalid")
     records: dict[str, dict[str, Any]] = {}
-    for action in actions:
+    for expected_sequence, action in enumerate(actions, start=1):
         key = text(action.get("key"))
-        if not key or key in records or text(action.get("action")) not in {"published", "activated"}:
+        if (
+            not key
+            or key in records
+            or text(action.get("action")) not in {"published", "activated"}
+            or action.get("sequence") != expected_sequence
+            or not text(action.get("recordedAt"))
+        ):
             raise RuntimeError("Cutover publication evidence contains an invalid or duplicate action")
         records[key] = dict(action)
-    actions_fingerprint = stable_fingerprint([records[key] for key in sorted(records)])
+    actions_fingerprint = stable_fingerprint(actions)
     invalidation = value.get("cacheInvalidation")
     if invalidation is None:
         return records, "pending" if records else "complete"
@@ -3684,7 +3901,9 @@ def write_publication_manifest(
 ) -> None:
     if cache_invalidation_state not in {"pending", "complete"}:
         raise RuntimeError("Cutover publication cache-invalidation state is invalid")
-    ordered_actions = [actions[key] for key in sorted(actions)]
+    ordered_actions = sorted(actions.values(), key=lambda action: int(action.get("sequence") or 0))
+    if [action.get("sequence") for action in ordered_actions] != list(range(1, len(ordered_actions) + 1)):
+        raise RuntimeError("Cutover publication action sequence is incomplete")
     write_json(path, {
         "version": 1,
         "planFingerprint": plan_fingerprint,
@@ -3768,6 +3987,13 @@ def publish_reviewed_plan(
     )
     if set(publication_actions) - set(expected_entries):
         raise RuntimeError("Publication evidence contains an action outside the reviewed cutover plan")
+    expected_publish_keys = {key for key, entry in expected_entries.items() if entry["action"] == "publish"}
+    expected_redirect_keys = {key for key, entry in expected_entries.items() if entry["action"] == "activate"}
+    recorded_redirect_keys = {
+        key for key, record in publication_actions.items() if text(record.get("action")) == "activated"
+    }
+    if recorded_redirect_keys and not expected_publish_keys.issubset(publication_actions):
+        raise RuntimeError("Cutover publication evidence shows redirect activation before all reviewed publications")
     exclusions = [
         {
             "key": key,
@@ -3912,10 +4138,10 @@ def publish_reviewed_plan(
             "beforeUpdatedAt": text(current.get("updatedAt")),
             "afterUpdatedAt": text(after.get("updatedAt")),
             "recordedAt": datetime.now(timezone.utc).isoformat(),
+            "sequence": len(publication_actions) + 1,
         }
         persist_publication_manifest()
 
-    expected_publish_keys = {key for key, entry in expected_entries.items() if entry["action"] == "publish"}
     if not expected_publish_keys.issubset(publication_actions):
         raise RuntimeError("Redirect activation refuses a partial reviewed publication phase")
 
@@ -3941,7 +4167,9 @@ def publish_reviewed_plan(
             "beforeUpdatedAt": text(current.get("updatedAt")),
             "afterUpdatedAt": text(after.get("updatedAt")),
             "recordedAt": datetime.now(timezone.utc).isoformat(),
+            "sequence": len(publication_actions) + 1,
         }
+        current_by_key[key] = after
         persist_publication_manifest()
 
     if cache_invalidation_state == "pending":
@@ -3952,12 +4180,36 @@ def publish_reviewed_plan(
                 "Reviewed publication was recorded; public cache invalidation remains pending"
             ) from error
 
+    actionable_keys = expected_publish_keys | expected_redirect_keys
+    if set(publication_actions) != actionable_keys:
+        raise RuntimeError("Cutover attestation refuses an incomplete reviewed publication phase")
+    verified_redirect_keys = {
+        key
+        for key in expected_redirect_keys
+        if current_by_key.get(key, {}).get("active") is True
+        and text(publication_actions.get(key, {}).get("action")) == "activated"
+    }
+    attestation = build_cutover_attestation(
+        plan_fingerprint=plan_fingerprint,
+        mutation_manifest_sha256=mutation_manifest_sha256,
+        expected_entries=expected_entries,
+        publication_actions=publication_actions,
+        publication_manifest=args.publication_manifest,
+        cache_invalidation_state=cache_invalidation_state,
+        verified_redirect_keys=verified_redirect_keys,
+        failure_evidence=failure_evidence,
+        git_revision=deployed_git_revision(),
+    )
+    attestation_sha256 = write_cutover_attestation_pair(attestation)
+
     return {
         "publicationManifest": str(args.publication_manifest),
         "publicMediaVerification": public_media_verification,
         "published": sum(1 for record in publication_actions.values() if record.get("action") == "published"),
         "redirectsActivated": sum(1 for record in publication_actions.values() if record.get("action") == "activated"),
         "excludedDrafts": len(exclusions),
+        "cutoverAttestation": str(DEFAULT_CUTOVER_ATTESTATION),
+        "cutoverAttestationSha256": attestation_sha256,
     }
 
 

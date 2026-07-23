@@ -28,13 +28,14 @@ import {
   listPublishedEpisodesPage,
 } from "@/lib/strapi-structured-public";
 import { resetPublicStrapiCircuitForTests } from "@/lib/strapi-request";
+import { disablePastorWoodPublicCmsCutoverForTests, enablePastorWoodPublicCmsCutoverForTests } from "@/lib/pastorwood-public-cms-cutover";
 
 const originalUrl = process.env.STRAPI_URL;
 const originalCutover = process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED;
 
 beforeEach(() => {
   resetPublicStrapiCircuitForTests();
-  process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED = "true";
+  enablePastorWoodPublicCmsCutoverForTests();
   const unavailable = new Error("projection unavailable in isolated test");
   projection.page.mockReset().mockRejectedValue(unavailable);
   projection.all.mockReset().mockRejectedValue(unavailable);
@@ -43,6 +44,7 @@ beforeEach(() => {
 
 afterEach(() => {
   process.env.STRAPI_URL = originalUrl;
+  disablePastorWoodPublicCmsCutoverForTests();
   if (originalCutover === undefined) delete process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED;
   else process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED = originalCutover;
   vi.unstubAllGlobals();

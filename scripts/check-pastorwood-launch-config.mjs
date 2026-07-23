@@ -1,9 +1,16 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import attestationModule from "../lib/pastorwood-cutover-attestation.js";
+
+const { validatePastorWoodCutoverAttestation } = attestationModule;
 
 const CANONICAL_ENV_FILE = "/mnt/storage/aic/.env";
+const REPOSITORY_ROOT = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const PUBLIC_ORIGINS = {
   development: "https://aic.ammonsfarm.org",
   "production-cutover": "https://www.pastorwood.org",
@@ -13,6 +20,10 @@ const MANAGED_KEYS = [
   "PASTORWOOD_PUBLIC_URL",
   "PASTORWOOD_ALLOW_INDEXING",
   "PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED",
+  "PASTORWOOD_CUTOVER_ATTESTATION_SHA256",
+  "PASTORWOOD_CUTOVER_PLAN_FINGERPRINT",
+  "PASTORWOOD_CUTOVER_MUTATION_MANIFEST_SHA256",
+  "PASTORWOOD_DEPLOYED_GIT_REVISION",
   "PASTORWOOD_SUBSCRIPTIONS_ENABLED",
   "MAILCHIMP_API_KEY",
   "MAILCHIMP_SERVER_PREFIX",
@@ -94,6 +105,40 @@ if (launchStage === "development" && indexingValue !== "false") {
 const publicCmsCutoverValue = (values.get("PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED") || "false").toLowerCase();
 if (publicCmsCutoverValue !== "true" && publicCmsCutoverValue !== "false") {
   throw new Error("PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED must be exactly true or false.");
+}
+if (publicCmsCutoverValue === "true") {
+  const gitEnvironment = { ...process.env };
+  for (const key of Object.keys(gitEnvironment)) {
+    if (key.startsWith("GIT_")) delete gitEnvironment[key];
+  }
+  let checkedOutRevision = "";
+  try {
+    checkedOutRevision = execFileSync(
+      "git",
+      ["-C", REPOSITORY_ROOT, "rev-parse", "--verify", "HEAD^{commit}"],
+      { encoding: "utf8", env: gitEnvironment, timeout: 5_000 },
+    ).trim().toLowerCase();
+  } catch {
+    throw new Error("Public CMS cutover requires a verifiable deployed Git revision.");
+  }
+  if ((values.get("PASTORWOOD_DEPLOYED_GIT_REVISION") || "").toLowerCase() !== checkedOutRevision) {
+    throw new Error("Public CMS cutover attestation does not match the checked-out Git revision.");
+  }
+  const attestationEnvironment = {
+    NODE_ENV: process.env.NODE_ENV,
+    PASTORWOOD_CUTOVER_ATTESTATION_TEST_MODE: process.env.PASTORWOOD_CUTOVER_ATTESTATION_TEST_MODE,
+    PASTORWOOD_CUTOVER_ATTESTATION_TEST_ROOT: process.env.PASTORWOOD_CUTOVER_ATTESTATION_TEST_ROOT,
+    PASTORWOOD_CUTOVER_ATTESTATION_TEST_PATH: process.env.PASTORWOOD_CUTOVER_ATTESTATION_TEST_PATH,
+    PASTORWOOD_CUTOVER_ATTESTATION_TEST_JSON: process.env.PASTORWOOD_CUTOVER_ATTESTATION_TEST_JSON,
+    PASTORWOOD_CUTOVER_ATTESTATION_SHA256: values.get("PASTORWOOD_CUTOVER_ATTESTATION_SHA256"),
+    PASTORWOOD_CUTOVER_PLAN_FINGERPRINT: values.get("PASTORWOOD_CUTOVER_PLAN_FINGERPRINT"),
+    PASTORWOOD_CUTOVER_MUTATION_MANIFEST_SHA256: values.get("PASTORWOOD_CUTOVER_MUTATION_MANIFEST_SHA256"),
+    PASTORWOOD_DEPLOYED_GIT_REVISION: values.get("PASTORWOOD_DEPLOYED_GIT_REVISION"),
+  };
+  const attestation = validatePastorWoodCutoverAttestation(attestationEnvironment);
+  if (!attestation.ok) {
+    throw new Error(`Public CMS cutover attestation is invalid: ${attestation.reason}`);
+  }
 }
 
 const runtimeValue = (values.get("PASTORWOOD_SUBSCRIPTIONS_ENABLED") || "false").toLowerCase();

@@ -7,6 +7,7 @@ vi.mock("@/lib/public-content-projection", () => ({
 }));
 
 import { getPublishedPageSitemapListing, listAllPublishedPageSlugs } from "@/lib/strapi-public-pages";
+import { disablePastorWoodPublicCmsCutoverForTests, enablePastorWoodPublicCmsCutoverForTests } from "@/lib/pastorwood-public-cms-cutover";
 import { resetPublicStrapiCircuitForTests } from "@/lib/strapi-request";
 
 const originalPublicUrl = process.env.STRAPI_PUBLIC_URL;
@@ -14,13 +15,13 @@ const originalUrl = process.env.STRAPI_URL;
 
 beforeEach(() => {
   resetPublicStrapiCircuitForTests();
-  process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED = "true";
+  enablePastorWoodPublicCmsCutoverForTests();
   projection.listAll.mockReset();
   projection.listAll.mockResolvedValue({ items: [], hasState: false });
 });
 
 afterEach(() => {
-  delete process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED;
+  disablePastorWoodPublicCmsCutoverForTests();
   process.env.STRAPI_PUBLIC_URL = originalPublicUrl;
   process.env.STRAPI_URL = originalUrl;
   vi.unstubAllGlobals();
