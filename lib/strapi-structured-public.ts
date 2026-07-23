@@ -2,6 +2,7 @@ import "server-only";
 
 import { safeCmsHref, safeCmsImageSrc } from "@/lib/cms-html";
 import { cmsMediaPublicUrl } from "@/lib/cms-media-url";
+import { isDatabaseAccessDuringBuildError } from "@/lib/database-runtime-boundary";
 import { pastorWoodPublicCmsCutoverEnabled } from "@/lib/pastorwood-public-cms-cutover";
 import {
   getFallbackEpisodeBySlug,
@@ -508,7 +509,9 @@ export async function listPublishedPostsPage(contentType: string | undefined, pa
       continuitySource: "bootstrap",
     };
   } catch (error) {
-    console.error("Published post bootstrap lookup failed.", error);
+    if (!isDatabaseAccessDuringBuildError(error)) {
+      console.error("Published post bootstrap lookup failed.", error);
+    }
     return { ...result, items: [] };
   }
 }
@@ -536,7 +539,9 @@ export async function getPublishedPostBySlugResult(slug: string): Promise<Publis
       const fallback = await getFallbackPostBySlug(slug);
       return fallback ? { status: "found", item: fallbackPost(fallback), degraded: true } : { status: "unavailable" };
     } catch (error) {
-      console.error("Published post detail bootstrap lookup failed.", error);
+      if (!isDatabaseAccessDuringBuildError(error)) {
+        console.error("Published post detail bootstrap lookup failed.", error);
+      }
       return { status: "unavailable" };
     }
   }
@@ -652,7 +657,9 @@ export async function listPublishedEpisodesPage(
       continuitySource: "bootstrap",
     };
   } catch (error) {
-    console.error("Published episode bootstrap lookup failed.", error);
+    if (!isDatabaseAccessDuringBuildError(error)) {
+      console.error("Published episode bootstrap lookup failed.", error);
+    }
     return { ...result, items: [] };
   }
 }
@@ -684,7 +691,9 @@ async function publishedEpisodeLookupResult(filters: Record<string, string>): Pr
         : await getFallbackEpisodeByTrackId(filters.trackId || "");
       return fallback ? { status: "found", item: fallbackEpisode(fallback), degraded: true } : { status: "unavailable" };
     } catch (error) {
-      console.error("Published episode detail bootstrap lookup failed.", error);
+      if (!isDatabaseAccessDuringBuildError(error)) {
+        console.error("Published episode detail bootstrap lookup failed.", error);
+      }
       return { status: "unavailable" };
     }
   }

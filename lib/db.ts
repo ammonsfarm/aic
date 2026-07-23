@@ -5,8 +5,13 @@ import {
   CANONICAL_AIC_ENV_FILE,
   resolveDatabaseConfig,
 } from "@/lib/database-env";
+import { assertDatabaseRuntimeAccess } from "@/lib/database-runtime-boundary";
 
 export { MissingDatabaseEnvError } from "@/lib/database-env";
+export {
+  DatabaseAccessDuringBuildError,
+  isDatabaseAccessDuringBuildError,
+} from "@/lib/database-runtime-boundary";
 
 declare global {
   var aicPostgresPool: Pool | undefined;
@@ -20,6 +25,10 @@ function readDbEnv() {
 }
 
 export function getPool() {
+  // Next evaluates otherwise static routes while compiling. Keep that phase
+  // incapable of reading production credentials or opening a database socket.
+  assertDatabaseRuntimeAccess();
+
   if (!globalThis.aicPostgresPool) {
     globalThis.aicPostgresPool = new Pool({
       ...readDbEnv(),
