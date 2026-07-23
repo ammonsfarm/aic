@@ -21,6 +21,7 @@ import { STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag } from "@/lib/strapi";
 import { STRAPI_PUBLIC_MEDIA_CACHE_TAG } from "@/lib/strapi-cache-tags";
 import { safeCmsHref } from "@/lib/cms-html";
 import { fetchWithTimeout, strapiUploadTimeoutMs } from "@/lib/strapi-request";
+import { assertReusableMediaSelection } from "@/lib/strapi-structured-management";
 
 const PAGE_PATH_BY_KEY: Record<string, string> = {
   about: "/about-pastor-wood",
@@ -150,15 +151,26 @@ async function sectionPayload(formData: FormData, keyPrefix: string) {
   const buttonLabel = formString(formData, `${keyPrefix}ButtonLabel`);
   const requestedButtonUrl = formString(formData, `${keyPrefix}ButtonUrl`);
   const existingImageId = formNumber(formData, `${keyPrefix}ImageId`);
+  const selectedImageId = formNumber(formData, `${keyPrefix}ImageLibraryId`);
   const imageFile = formData.get(`${keyPrefix}ImageFile`);
-  const uploadedImageId = imageFile instanceof File ? await uploadSectionImage(imageFile) : null;
-  const imageId = uploadedImageId ?? existingImageId;
+  const hasImageUpload = imageFile instanceof File && imageFile.size > 0;
+  if (formString(formData, `${keyPrefix}ImageLibraryId`) && !selectedImageId) {
+    throw new Error("Choose a valid existing section image.");
+  }
+  if (hasImageUpload && selectedImageId) {
+    throw new Error("Choose either an existing section image or a new upload, not both.");
+  }
+  if (selectedImageId) {
+    await assertReusableMediaSelection(selectedImageId, "image/*");
+  }
+  const uploadedImageId = hasImageUpload && imageFile instanceof File ? await uploadSectionImage(imageFile) : null;
+  const imageId = uploadedImageId ?? selectedImageId ?? existingImageId;
   const imageSide = formString(formData, `${keyPrefix}ImageSide`) || "right";
   const imageDescription = formString(formData, `${keyPrefix}ImageDescription`);
   const id = formNumber(formData, `${keyPrefix}Id`);
   const order = formNumber(formData, `${keyPrefix}Order`) ?? 0;
   const buttonUrl = safeCmsHref(requestedButtonUrl);
-  if (requestedButtonUrl && !buttonUrl) {
+  if (requestedButtonUrl && (!buttonUrl || buttonUrl.startsWith("mailto:") || buttonUrl.startsWith("tel:") || buttonUrl.startsWith("#"))) {
     throw new Error(`Section button URL “${requestedButtonUrl}” is not allowed.`);
   }
 
@@ -230,7 +242,7 @@ async function parseSections(formData: FormData) {
 
 async function parsePageInput(
   formData: FormData,
-  existing?: { pageKey: string; slug: string },
+  existing?: { pageKey: string; slug: string; socialImageId?: number },
 ): Promise<ManagedStrapiPageInput> {
   const title = formString(formData, "title");
   const slug = assertAllowedPageSlug({
@@ -247,6 +259,31 @@ async function parsePageInput(
     throw new Error("Title and page URL are required.");
   }
 
+  const requestedCanonicalUrl = formString(formData, "canonicalUrl");
+  const canonicalUrl = safeCmsHref(requestedCanonicalUrl);
+  if (requestedCanonicalUrl && (!canonicalUrl || canonicalUrl.startsWith("mailto:") || canonicalUrl.startsWith("tel:") || canonicalUrl.startsWith("#"))) {
+    throw new Error("Canonical URL must be a public site path or a complete secure website URL.");
+  }
+  const selectedSocialImageId = formNumber(formData, "socialImageLibraryId");
+  const socialImageFile = formData.get("socialImageFile");
+  const hasSocialImageUpload = socialImageFile instanceof File && socialImageFile.size > 0;
+  const removeSocialImage = formBoolean(formData, "removeSocialImage");
+  if (formString(formData, "socialImageLibraryId") && !selectedSocialImageId) {
+    throw new Error("Choose a valid existing social image.");
+  }
+  if ([Boolean(selectedSocialImageId), hasSocialImageUpload, removeSocialImage].filter(Boolean).length > 1) {
+    throw new Error("Choose only one social image action: use an existing image, upload a new image, or remove the current image.");
+  }
+  if (selectedSocialImageId) {
+    await assertReusableMediaSelection(selectedSocialImageId, "image/*");
+  }
+  const uploadedSocialImageId = hasSocialImageUpload && socialImageFile instanceof File
+    ? await uploadSectionImage(socialImageFile)
+    : null;
+  const socialImage = removeSocialImage
+    ? null
+    : uploadedSocialImageId ?? selectedSocialImageId ?? existing?.socialImageId ?? null;
+
   return {
     title,
     slug,
@@ -260,6 +297,9 @@ async function parsePageInput(
     heroBody: formString(formData, "heroBody"),
     seoTitle: formString(formData, "seoTitle"),
     seoDescription: formString(formData, "seoDescription"),
+    canonicalUrl,
+    noIndex: formBoolean(formData, "noIndex"),
+    socialImage,
     scheduledFor: formDateTime(formData, "scheduledFor"),
     sections: await parseSections(formData),
   };
@@ -287,7 +327,7 @@ function revalidateManagedPageEditor(documentId?: string) {
 }
 
 function revalidatePublishedPage(
-  input: ManagedStrapiPageInput,
+  input: Pick<ManagedStrapiPageInput, "pageKey" | "slug">,
   previous?: { pageKey: string; slug: string },
 ) {
   revalidateTag(STRAPI_PAGES_CACHE_TAG, { expire: 0 });
@@ -311,7 +351,11 @@ export async function saveStrapiPageAction(documentId: string, formData: FormDat
     throw new Error("The page no longer exists in Strapi.");
   }
 
-  const previousIdentity = { pageKey: existingPage.pageKey, slug: existingPage.slug };
+  const previousIdentity = {
+    pageKey: existingPage.pageKey,
+    slug: existingPage.slug,
+    socialImageId: existingPage.socialImage?.id,
+  };
   const input = await parsePageInput(formData, previousIdentity);
   await assertPageSlugIsUnique(input, documentId);
   const intent = publicationIntent(formData);
@@ -379,7 +423,7 @@ export async function transitionStrapiPageAction(
   const note = formString(formData, "transitionNote");
   await transitionManagedStrapiPage(documentId, action, user, expectedVersion(formData), note);
   revalidateManagedPageEditor(documentId);
-  revalidatePublishedPage({ ...page, sections: [] }, { pageKey: page.pageKey, slug: page.slug });
+  revalidatePublishedPage(page, { pageKey: page.pageKey, slug: page.slug });
   redirect(`/content/site-pages/${documentId}?state=${action}d`);
 }
 
@@ -430,6 +474,6 @@ export async function deleteStrapiPageAction(
     confirmation,
   );
   revalidateManagedPageEditor();
-  revalidatePublishedPage({ ...page, sections: [] });
+  revalidatePublishedPage(page);
   redirect("/content/site-pages?deleted=1");
 }

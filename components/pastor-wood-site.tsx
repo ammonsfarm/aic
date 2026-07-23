@@ -202,11 +202,13 @@ function PastorWoodHome({
   siteSettings,
   endorsements = [],
   endorsementsAvailable = true,
+  endorsementsDegraded = false,
   cmsPage,
 }: {
   siteSettings?: StrapiSiteSettings | null;
   endorsements?: PublishedEndorsement[];
   endorsementsAvailable?: boolean;
+  endorsementsDegraded?: boolean;
   cmsPage?: PastorWoodCmsPage | null;
 }) {
   return (
@@ -272,6 +274,12 @@ function PastorWoodHome({
 
           <section className="pw-section" id="endorsements">
             <div className="pw-section__intro"><p className="pw-kicker">Endorsements</p><h2>Endorsements for Pastor Wood and Abiding in Christ</h2></div>
+            {endorsementsDegraded ? (
+              <div className="pw-content-unavailable" role="status">
+                <strong>Live publishing is temporarily unavailable.</strong>
+                <p>Showing the last versioned public endorsements while the live content service reconnects.</p>
+              </div>
+            ) : null}
             {endorsements.length ? (
               <div className="pw-endorsement-grid">
                 {endorsements.slice(0, 4).map((item) => (
@@ -307,6 +315,7 @@ export async function PastorWoodSite({ cmsPage }: { cmsPage?: PastorWoodCmsPage 
       siteSettings={siteSettings}
       endorsements={endorsementsResult.items.filter((item) => item.featured)}
       endorsementsAvailable={endorsementsResult.available}
+      endorsementsDegraded={endorsementsResult.degraded}
       cmsPage={cmsPage}
     />
   );
@@ -372,6 +381,13 @@ export type PastorWoodCmsPage = {
   heroBody?: string;
   seoTitle?: string;
   seoDescription?: string;
+  canonicalUrl?: string;
+  noIndex?: boolean;
+  socialImage?: {
+    url: string;
+    alternativeText?: string;
+    name?: string;
+  } | null;
   sections?: PastorWoodCmsSection[];
 };
 
@@ -594,7 +610,7 @@ function PrivacyPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
   );
 }
 
-export async function PastorWoodGenericCmsPage({ cmsPage }: { cmsPage: PastorWoodCmsPage }) {
+export async function PastorWoodGenericCmsPage({ cmsPage, degraded = false }: { cmsPage: PastorWoodCmsPage; degraded?: boolean }) {
   const siteSettings = await getStrapiSiteSettings();
   const heroLabel = cmsPage.heroLabel || "";
   const heroTitle = cmsPage.heroTitle || cmsPage.title || "Page";
@@ -603,6 +619,12 @@ export async function PastorWoodGenericCmsPage({ cmsPage }: { cmsPage: PastorWoo
   return (
     <PastorWoodShell siteSettings={siteSettings}>
       <PageHero eyebrow={heroLabel} title={heroTitle} body={heroBody} />
+      {degraded ? (
+        <section className="pw-section pw-content-unavailable" role="status">
+          <strong>Live publishing is temporarily unavailable.</strong>
+          <p>This published page is being served from the existing Abiding in Christ content archive.</p>
+        </section>
+      ) : null}
       <CmsPageSections sections={cmsPage.sections} />
     </PastorWoodShell>
   );

@@ -5,6 +5,7 @@ import { StructuredContentForm } from "@/components/structured-content-form";
 import {
   getStructuredEntry,
   getLatestEpisodeProcessingRequest,
+  listReusableMediaOptions,
   listStructuredPeopleOptions,
   listStructuredRevisions,
   type EpisodeProcessingRequest,
@@ -98,6 +99,14 @@ export async function StructuredEntryEditorView({
   const relationOptions = definition.fields.some((field) => field.relationTarget === "people")
     ? await listStructuredPeopleOptions()
     : [];
+  let mediaOptions: Awaited<ReturnType<typeof listReusableMediaOptions>> = [];
+  if (definition.key !== "media-assets" && definition.fields.some((field) => field.type === "file")) {
+    try {
+      mediaOptions = await listReusableMediaOptions();
+    } catch (cause) {
+      console.error("Reusable media lookup failed", cause);
+    }
+  }
   const saveAction = saveStructuredEntryAction.bind(null, definition.key, documentId);
   const success = notice(query);
 
@@ -137,7 +146,7 @@ export async function StructuredEntryEditorView({
             <Link className="button button--ghost" href={`${definition.editorPath}/${documentId}/preview`}>Preview draft</Link>
           </div>
         </div>
-        <StructuredContentForm definition={definition} entry={entry} action={saveAction} relationOptions={relationOptions} />
+        <StructuredContentForm definition={definition} entry={entry} action={saveAction} relationOptions={relationOptions} mediaOptions={mediaOptions} />
       </section>
 
       {definition.entityType === "episode" ? (

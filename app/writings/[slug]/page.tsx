@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { PageHero, PastorWoodShell } from "@/components/pastor-wood-site";
+import { PublicContentFallbackNotice } from "@/components/pastor-wood-structured-listings";
 import { sanitizeCmsHtml } from "@/lib/cms-html";
 import { publicMetadata } from "@/lib/public-seo";
 import {
@@ -95,6 +96,11 @@ export default async function WritingDetailPage({ params }: { params: Promise<{ 
     <PastorWoodShell>
       <PageHero eyebrow={post.contentType.replace(/-/g, " ")} title={post.title} body={post.summary} />
       <article className="pw-section pw-writing-detail">
+        {result.degraded ? (
+          <PublicContentFallbackNotice>
+            Showing this writing from the existing Abiding in Christ archive while the live publishing service reconnects.
+          </PublicContentFallbackNotice>
+        ) : null}
         {post.featuredImageUrl ? (
           <figure className="pw-structured-featured-image">
             <img src={post.featuredImageUrl} alt={post.featuredImageAlt} />

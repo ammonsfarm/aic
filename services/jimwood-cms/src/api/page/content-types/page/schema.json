@@ -31,6 +31,17 @@
     "canonicalUrl": {
       "type": "string"
     },
+    "noIndex": {
+      "type": "boolean",
+      "default": false
+    },
+    "socialImage": {
+      "type": "media",
+      "multiple": false,
+      "allowedTypes": [
+        "images"
+      ]
+    },
     "active": {
       "type": "boolean",
       "default": true

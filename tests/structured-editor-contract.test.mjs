@@ -108,6 +108,20 @@ test("site pages use the same revisioned workflow and enforce immutable identity
   const publicPages = await source("lib/strapi.ts");
   assert.match(publicPages, /filters\[active\]\[\$eq\]/);
   assert.match(publicPages, /filters\[archivedAt\]\[\$null\]/);
+  assert.match(publicPages, /populate\[socialImage\]/);
+
+  const pageSchema = JSON.parse(await source("services/jimwood-cms/src/api/page/content-types/page/schema.json"));
+  assert.equal(pageSchema.attributes.noIndex.type, "boolean");
+  assert.equal(pageSchema.attributes.socialImage.type, "media");
+  assert.deepEqual(pageSchema.attributes.socialImage.allowedTypes, ["images"]);
+  for (const field of ["canonicalUrl", "noIndex", "socialImage"]) {
+    assert.match(pageActions, new RegExp(field));
+    assert.match(await source("lib/strapi-management.ts"), new RegExp(field));
+  }
+  const publicSeo = await source("lib/public-seo.ts");
+  assert.match(publicSeo, /canonicalUrl: page\?\.canonicalUrl/);
+  assert.match(publicSeo, /imageUrl: page\?\.socialImage\?\.url/);
+  assert.match(publicSeo, /noIndex: page\?\.noIndex/);
 
   const pageManagement = await source("lib/strapi-management.ts");
   assert.match(pageManagement, /listManagedStrapiPagesPage/);
@@ -283,6 +297,16 @@ test("media upload is bounded and private visibility is part of the editor contr
   assert.match(pageActions, /MAX_SECTION_IMAGE_BYTES/);
   assert.match(pageActions, /ALLOWED_SECTION_IMAGE_TYPES/);
   assert.doesNotMatch(pageActions, /image\/svg\+xml/);
+
+  const management = await source("lib/strapi-structured-management.ts");
+  assert.match(management, /listReusableMediaOptions/);
+  assert.match(management, /filters\[visibility\]\[\$eq\].*public/);
+  assert.match(management, /assertReusableMediaSelection/);
+  const form = await source("components/structured-content-form.tsx");
+  assert.match(form, /LibraryId/);
+  assert.match(form, /Use existing public media/);
+  assert.match(actions, /must use either an existing media item or a new upload/);
+  assert.match(pageActions, /Choose either an existing section image or a new upload/);
 });
 
 test("episode publication uses a durable outbox and read-only processing status", async () => {
@@ -364,10 +388,14 @@ test("editor preview and revision rollback routes exist", async () => {
   assert.match(editor, /Unpublish/);
   const preview = await source("app/(private)/content/structured/[collection]/[documentId]/preview/page.tsx");
   assert.match(preview, /sanitizeCmsHtml/);
-  assert.match(preview, /field\.mediaTarget/);
   assert.match(preview, /\/api\/content\/strapi-media\//);
   assert.match(preview, /<audio controls/);
-  assert.match(preview, /<img src=\{href\}/);
+  assert.match(preview, /PublicLayoutPreview/);
+  assert.match(preview, /pw-board-grid/);
+  assert.match(preview, /pw-endorsement-grid/);
+  assert.match(preview, /pw-audio-list/);
+  assert.match(preview, /pw-writing-detail/);
+  assert.doesNotMatch(preview, /definition\.fields\.map/);
   assert.match(preview, /contentElement="div"/);
   assert.doesNotMatch(preview, /<main/);
   assert.doesNotMatch(preview, /whiteSpace: "pre-wrap" \}\>\{display\(entry\[field\.name\]\)\}/);

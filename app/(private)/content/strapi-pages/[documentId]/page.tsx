@@ -7,6 +7,7 @@ import {
   listManagedStrapiPages,
   type ManagedStrapiPage,
 } from "@/lib/strapi-management";
+import { listReusableMediaOptions, type ReusableMediaOption } from "@/lib/strapi-structured-management";
 import type { StrapiPageSection } from "@/lib/strapi";
 import {
   deleteStrapiPageAction,
@@ -59,7 +60,7 @@ function publicPath(page: ManagedStrapiPage) {
   return `/${page.slug.replace(/^\/+/, "")}`;
 }
 
-function SectionFields({ section, index }: { section: StrapiPageSection; index: number }) {
+function SectionFields({ section, index, mediaOptions }: { section: StrapiPageSection; index: number; mediaOptions: ReusableMediaOption[] }) {
   const prefix = `section${index}`;
   const imageId = section.image?.id ?? "";
 
@@ -113,6 +114,7 @@ function SectionFields({ section, index }: { section: StrapiPageSection; index: 
         imageName={section.image?.name || "current image"}
         imageUrl={section.image?.url}
         imageAlt={section.image?.alternativeText || section.heading}
+        mediaOptions={mediaOptions}
       />
     </fieldset>
   );
@@ -125,9 +127,16 @@ async function getEditorData(documentId: string) {
       listManagedStrapiPages(),
       listManagedStrapiPageRevisions(documentId),
     ]);
+    let mediaOptions: ReusableMediaOption[] = [];
+    try {
+      mediaOptions = await listReusableMediaOptions();
+    } catch (mediaError) {
+      console.error("Reusable media lookup failed", mediaError);
+    }
     return {
       page,
       revisions,
+      mediaOptions,
       existingSlugs: pages.filter((item) => item.documentId !== documentId).map((item) => item.slug).filter(Boolean),
       error: null as string | null,
     };
@@ -136,6 +145,7 @@ async function getEditorData(documentId: string) {
     return {
       page: null,
       revisions: [],
+      mediaOptions: [] as ReusableMediaOption[],
       existingSlugs: [] as string[],
       error: error instanceof Error ? error.message : "The page could not be loaded.",
     };
@@ -151,7 +161,8 @@ export default async function EditStrapiPage({
 }) {
   const { documentId } = await params;
   const { state } = await searchParams;
-  const { page, revisions, existingSlugs, error } = await getEditorData(documentId);
+  const { page, revisions, mediaOptions, existingSlugs, error } = await getEditorData(documentId);
+  const imageOptions = mediaOptions.filter((option) => option.assetType === "image" || option.mime.startsWith("image/"));
 
   if (!page && !error) {
     notFound();
@@ -256,6 +267,46 @@ export default async function EditStrapiPage({
 
           <div className="editor-grid editor-grid--two">
             <label>
+              <span>Canonical URL</span>
+              <input name="canonicalUrl" type="text" defaultValue={page.canonicalUrl} placeholder={`/${page.slug}/`} />
+              <small>Optional preferred public URL. Private admin, API, and login paths are rejected.</small>
+            </label>
+            <label className="checkbox-row checkbox-row--form">
+              <input name="noIndex" type="checkbox" defaultChecked={page.noIndex} />
+              <span>Hide this page from search engines</span>
+            </label>
+          </div>
+
+          <fieldset className="editor-field-group">
+            <legend>Social sharing image</legend>
+            {page.socialImage?.url ? (
+              <div className="media-editor-card__preview">
+                <img src={page.socialImage.url} alt={page.socialImage.alternativeText || page.socialImage.name || "Current social sharing image"} />
+              </div>
+            ) : null}
+            <div className="editor-grid editor-grid--two">
+              <label>
+                <span>Use existing public image</span>
+                <select name="socialImageLibraryId" defaultValue="">
+                  <option value="">{page.socialImage ? "Keep current image" : "Use default site image"}</option>
+                  {imageOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+                </select>
+              </label>
+              <label>
+                <span>Or upload a new image</span>
+                <input name="socialImageFile" type="file" accept="image/*" />
+              </label>
+            </div>
+            {page.socialImage ? (
+              <label className="checkbox-row checkbox-row--form">
+                <input name="removeSocialImage" type="checkbox" />
+                <span>Remove the current social image and use the site default</span>
+              </label>
+            ) : null}
+          </fieldset>
+
+          <div className="editor-grid editor-grid--two">
+            <label>
               <span>Main Section Label</span>
               <input name="heroLabel" defaultValue={page.heroLabel} />
               <small>Optional small label above the main title, such as Biography or Wears Valley Ranch.</small>
@@ -300,7 +351,7 @@ export default async function EditStrapiPage({
               <p className="muted-copy">Edit, delete, reorder, or add sections. Use Text, Image + Text, or Call to Action based on what the page needs.</p>
             </div>
             {page.sections.map((section, index) => (
-              <SectionFields key={`${section.component}-${section.id ?? index}`} section={section} index={index} />
+              <SectionFields key={`${section.component}-${section.id ?? index}`} section={section} index={index} mediaOptions={imageOptions} />
             ))}
             <details className="section-add-panel">
               <summary>
@@ -309,7 +360,7 @@ export default async function EditStrapiPage({
               </summary>
               <div className="section-add-panel__body">
                 <p className="muted-copy">Choose a section type, fill in the fields that apply, then use “+ Add Section” below to add another section before saving.</p>
-                <AddSectionFields existingSectionCount={page.sections.length} />
+                <AddSectionFields existingSectionCount={page.sections.length} mediaOptions={imageOptions} />
               </div>
             </details>
           </div>

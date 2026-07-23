@@ -4,6 +4,7 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { redirect } from "next/navigation";
 
 import {
+  assertReusableMediaSelection,
   createStructuredEntry,
   getStructuredEntry,
   rollbackStructuredEntry,
@@ -36,6 +37,7 @@ import {
   strapiPublicMediaCacheTag,
   strapiStructuredCacheTag,
 } from "@/lib/strapi-cache-tags";
+import { safeCmsHref } from "@/lib/cms-html";
 
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"]);
 const ALLOWED_EPISODE_AUDIO_TYPES = new Set(["audio/mpeg", "audio/mp3", "audio/mpeg3", "audio/x-mpeg-3"]);
@@ -59,20 +61,11 @@ function validateUrl(value: string, label: string) {
   if (!value) {
     return null;
   }
-  if (value.startsWith("/") && !value.startsWith("//")) {
-    return value;
+  const safe = safeCmsHref(value);
+  if (!safe || safe.startsWith("mailto:") || safe.startsWith("tel:") || safe.startsWith("#")) {
+    throw new Error(`${label} must be a public site path or a complete secure website URL.`);
   }
-
-  let parsed: URL;
-  try {
-    parsed = new URL(value);
-  } catch {
-    throw new Error(`${label} must be a site path or a complete http(s) URL.`);
-  }
-  if (!["http:", "https:"].includes(parsed.protocol)) {
-    throw new Error(`${label} must use http or https.`);
-  }
-  return parsed.toString();
+  return safe;
 }
 
 function boundedInteger(value: string, label: string) {
@@ -274,11 +267,25 @@ async function structuredPayload(
   for (const field of definition.fields) {
     if (field.type === "file") {
       const candidate = formData.get(field.name);
-      if (candidate instanceof File && candidate.size > 0) {
+      const selectedIdValue = formString(formData, `${field.name}LibraryId`);
+      const selectedId = selectedIdValue ? Number(selectedIdValue) : 0;
+      const hasUpload = candidate instanceof File && candidate.size > 0;
+      if (selectedIdValue && (!Number.isSafeInteger(selectedId) || selectedId <= 0)) {
+        throw new Error(`${field.label} has an invalid existing-media selection.`);
+      }
+      if (hasUpload && selectedId) {
+        throw new Error(`${field.label} must use either an existing media item or a new upload, not both.`);
+      }
+      if (hasUpload && candidate instanceof File) {
         validateFile(field, candidate);
         const uploaded = await uploadStructuredFile(candidate);
         if (uploaded && field.mediaTarget) {
           data[field.mediaTarget] = uploaded.id;
+        }
+      } else if (selectedId) {
+        await assertReusableMediaSelection(selectedId, field.accept || "");
+        if (field.mediaTarget) {
+          data[field.mediaTarget] = selectedId;
         }
       } else if (field.required && options.creating) {
         throw new Error(`${field.label} is required.`);

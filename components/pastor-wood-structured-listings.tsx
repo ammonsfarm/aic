@@ -91,6 +91,15 @@ async function StructuredUnavailable({
   );
 }
 
+export function PublicContentFallbackNotice({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="pw-content-unavailable" role="status">
+      <strong>Live publishing is temporarily unavailable.</strong>
+      <p>{children}</p>
+    </div>
+  );
+}
+
 function PublicPagination({
   basePath,
   page,
@@ -137,6 +146,11 @@ export async function PastorWoodStructuredBoardPage({
         body={cmsPage?.heroBody || "We are grateful for the people serving Abiding in Christ."}
       />
       <section className="pw-section">
+        {result.degraded ? (
+          <PublicContentFallbackNotice>
+            Showing the last versioned public board record while the live content service reconnects.
+          </PublicContentFallbackNotice>
+        ) : null}
         {members.length ? (
           <div className="pw-board-grid">
             {members.map((member) => (
@@ -183,6 +197,11 @@ export async function PastorWoodStructuredEndorsementsPage({
         body={cmsPage?.heroBody || "Public endorsements from ministry leaders and friends of the work."}
       />
       <section className="pw-section">
+        {result.degraded ? (
+          <PublicContentFallbackNotice>
+            Showing the last versioned public endorsements while the live content service reconnects.
+          </PublicContentFallbackNotice>
+        ) : null}
         {endorsements.length ? (
           <div className="pw-endorsement-grid">
             {endorsements.map((endorsement) => (
@@ -255,6 +274,11 @@ export async function PastorWoodStructuredPostsPage({
         }
       />
       <section className="pw-section">
+        {result.degraded ? (
+          <PublicContentFallbackNotice>
+            Showing the existing Abiding in Christ writing archive while the live publishing service reconnects.
+          </PublicContentFallbackNotice>
+        ) : null}
         {posts.length ? (
           <div className="pw-post-list">
             {posts.map((post) => (
@@ -385,6 +409,11 @@ export async function PastorWoodStructuredRadioPage({
       <Shell siteSettings={await shellSettings()}>
         <Hero eyebrow="Radio Archive" title={episode.title} body={episode.summary || "Listen to this Abiding in Christ broadcast."} />
         <section className="pw-section">
+          {episodeResult?.degraded ? (
+            <PublicContentFallbackNotice>
+              Playing this broadcast from the existing Abiding in Christ archive while the live publishing service reconnects.
+            </PublicContentFallbackNotice>
+          ) : null}
           <div className="pw-audio-list"><EpisodeCard episode={episode} /></div>
           <EpisodeStructuredDetails episode={episode} />
         </section>
@@ -443,6 +472,11 @@ export async function PastorWoodStructuredRadioPage({
           <p className="pw-radio-result-count" role="status" aria-live="polite">{resultDescription}</p>
         </aside>
         <div className="pw-radio-results">
+          {result?.degraded ? (
+            <PublicContentFallbackNotice>
+              Showing the existing Abiding in Christ broadcast archive while the live publishing service reconnects.
+            </PublicContentFallbackNotice>
+          ) : null}
           {!result?.available ? (
             <div className="pw-content-unavailable" role="alert">
               <h2>Radio archive temporarily unavailable</h2>

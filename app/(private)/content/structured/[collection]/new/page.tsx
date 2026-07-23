@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 
 import { StructuredContentForm } from "@/components/structured-content-form";
 import { getStructuredCollection } from "@/lib/structured-content-config";
-import { listStructuredPeopleOptions } from "@/lib/strapi-structured-management";
+import { listReusableMediaOptions, listStructuredPeopleOptions } from "@/lib/strapi-structured-management";
 import { createStructuredEntryAction } from "../../actions";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +23,14 @@ export default async function NewStructuredEntryPage({
   const relationOptions = definition.fields.some((field) => field.relationTarget === "people")
     ? await listStructuredPeopleOptions()
     : [];
+  let mediaOptions: Awaited<ReturnType<typeof listReusableMediaOptions>> = [];
+  if (definition.key !== "media-assets" && definition.fields.some((field) => field.type === "file")) {
+    try {
+      mediaOptions = await listReusableMediaOptions();
+    } catch (cause) {
+      console.error("Reusable media lookup failed", cause);
+    }
+  }
 
   return (
     <div className="stack">
@@ -44,7 +52,7 @@ export default async function NewStructuredEntryPage({
             <h2>Content details</h2>
           </div>
         </div>
-        <StructuredContentForm definition={definition} entry={null} action={action} relationOptions={relationOptions} />
+        <StructuredContentForm definition={definition} entry={null} action={action} relationOptions={relationOptions} mediaOptions={mediaOptions} />
       </section>
     </div>
   );

@@ -108,8 +108,30 @@ describe("public writing detail availability", () => {
       title: "Grace search title",
       description: "Grace search description",
       alternates: { canonical: "https://www.pastorwood.org/writings/grace-canonical/" },
-      robots: { index: false, follow: true },
+      robots: { index: false, follow: false },
       openGraph: { images: [{ url: "https://www.pastorwood.org/media/cms/social-doc/share.jpg" }] },
     });
+  });
+
+  it("labels an existing-archive writing as degraded instead of presenting it as live Strapi content", async () => {
+    mocks.lookup.mockResolvedValue({
+      status: "found",
+      degraded: true,
+      item: {
+        documentId: "aic-fallback-post:42",
+        title: "Archived writing",
+        slug: "archived-writing",
+        contentType: "written-resource",
+        summary: "Existing AIC archive copy.",
+        body: "<p>Body</p>",
+        publishDate: "2025-01-01",
+      },
+    });
+
+    const markup = renderToStaticMarkup(await WritingDetailPage({ params: Promise.resolve({ slug: "archived-writing" }) }));
+
+    expect(markup).toContain("Live publishing is temporarily unavailable");
+    expect(markup).toContain("existing Abiding in Christ archive");
+    expect(markup).toContain('role="status"');
   });
 });

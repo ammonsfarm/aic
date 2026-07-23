@@ -21,6 +21,9 @@ export type ManagedStrapiPage = {
   heroBody: string;
   seoTitle: string;
   seoDescription: string;
+  canonicalUrl: string;
+  noIndex: boolean;
+  socialImage: StrapiMedia | null;
   scheduledFor: string;
   publishedAt: string;
   updatedAt: string;
@@ -75,6 +78,9 @@ export type ManagedStrapiPageInput = {
   heroBody: string;
   seoTitle: string;
   seoDescription: string;
+  canonicalUrl?: string;
+  noIndex?: boolean;
+  socialImage?: number | null;
   scheduledFor?: string | null;
   sections: Array<Record<string, unknown>>;
 };
@@ -141,7 +147,10 @@ function normalizeMedia(media: unknown): StrapiMedia | null {
     return null;
   }
 
-  const entity = media as Record<string, unknown>;
+  const wrapper = media as Record<string, unknown>;
+  const entity = wrapper.data && typeof wrapper.data === "object"
+    ? (wrapper.data as Record<string, unknown>)
+    : wrapper;
   const source = asRecord(entity.attributes ?? entity);
   const rawUrl = getString(source.url);
 
@@ -211,6 +220,9 @@ function normalizePage(entity: StrapiEntity<ManagedStrapiPage>): ManagedStrapiPa
     heroBody: getString(source.heroBody),
     seoTitle: getString(source.seoTitle),
     seoDescription: getString(source.seoDescription),
+    canonicalUrl: getString(source.canonicalUrl),
+    noIndex: getBoolean(source.noIndex),
+    socialImage: normalizeMedia(source.socialImage),
     scheduledFor: getString(source.scheduledFor),
     publishedAt: getString(source.publishedAt),
     publicationStatus: getString(source.publishedAt) ? "published" : "draft",
@@ -362,6 +374,9 @@ function pagePayload(input: ManagedStrapiPageInput) {
       heroBody: input.heroBody,
       seoTitle: input.seoTitle,
       seoDescription: input.seoDescription,
+      canonicalUrl: input.canonicalUrl || "",
+      noIndex: Boolean(input.noIndex),
+      socialImage: input.socialImage ?? null,
       scheduledFor: input.scheduledFor || null,
       sections: input.sections,
     },
@@ -446,6 +461,7 @@ export async function getManagedStrapiPage(documentId: string) {
   const createUrl = (status: StrapiPublicationStatus) => {
     const url = setStatus(new URL(`/api/pages/${documentId}`, baseUrl), status);
     url.searchParams.set("populate[sections][populate]", "*");
+    url.searchParams.set("populate[socialImage]", "*");
     return url;
   };
 

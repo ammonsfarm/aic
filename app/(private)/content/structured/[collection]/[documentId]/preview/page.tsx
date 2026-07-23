@@ -1,13 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { PastorWoodShell } from "@/components/pastor-wood-site";
+import { PageHero, PastorWoodShell } from "@/components/pastor-wood-site";
 import { safeCmsHref, sanitizeCmsHtml } from "@/lib/cms-html";
-import { getStructuredEntry } from "@/lib/strapi-structured-management";
+import { getStructuredEntry, type StructuredEntry } from "@/lib/strapi-structured-management";
 import {
   getStructuredCollection,
   type StructuredCollectionKey,
-  type StructuredFieldDefinition,
 } from "@/lib/structured-content-config";
 
 export const dynamic = "force-dynamic";
@@ -27,21 +26,6 @@ function mediaRecord(value: unknown): Record<string, unknown> | null {
     return { ...(record.attributes as Record<string, unknown>), ...record };
   }
   return record;
-}
-
-function records(value: unknown): Record<string, unknown>[] {
-  if (Array.isArray(value)) {
-    return value.map(mediaRecord).filter((item): item is Record<string, unknown> => Boolean(item));
-  }
-  const record = mediaRecord(value);
-  if (Array.isArray(record?.data)) {
-    return record.data.map(mediaRecord).filter((item): item is Record<string, unknown> => Boolean(item));
-  }
-  if (record?.data) {
-    const item = mediaRecord(record.data);
-    return item ? [item] : [];
-  }
-  return record ? [record] : [];
 }
 
 function previewMediaHref(value: unknown) {
@@ -70,83 +54,165 @@ function previewMediaHref(value: unknown) {
   return /^https?:\/\//i.test(safe) ? safe : "";
 }
 
-function PreviewField({ field, value }: { field: StructuredFieldDefinition; value: unknown }) {
-  if (field.type === "richtext") {
-    return <div className="pw-rich-text" dangerouslySetInnerHTML={{ __html: sanitizeCmsHtml(display(value)) }} />;
-  }
-  if (field.type === "file") {
-    const media = mediaRecord(value);
-    if (!media) return <p>—</p>;
-    const name = display(media.name || media.alternativeText || "Attached media");
-    const href = previewMediaHref(media.url);
-    const mime = typeof media.mime === "string" ? media.mime.toLowerCase() : "";
-    const accept = field.accept?.toLowerCase() || "";
-    const isImage = (mime.startsWith("image/") || accept.startsWith("image/")) && !mime.includes("svg");
-    const isAudio = mime.startsWith("audio/") || accept.startsWith("audio/");
-    const isVideo = mime.startsWith("video/") || accept.startsWith("video/");
-    if (href && isImage) {
-      const alt = display(media.alternativeText || media.caption || field.label);
-      return (
-        <figure>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={href} alt={alt === "—" ? "" : alt} style={{ display: "block", height: "auto", maxWidth: "min(100%, 48rem)" }} />
-          <figcaption>{name}</figcaption>
-        </figure>
-      );
-    }
-    if (href && isAudio) {
-      return <div className="pw-audio-card"><audio controls preload="metadata" src={href}>Your browser cannot play this audio.</audio><a href={href}>{name}</a></div>;
-    }
-    if (href && isVideo) {
-      return <div><video controls preload="metadata" src={href} style={{ display: "block", maxWidth: "min(100%, 48rem)" }}>Your browser cannot play this video.</video><a href={href}>{name}</a></div>;
-    }
-    return href ? <p><a href={href}>{name}</a></p> : <p>{name}</p>;
-  }
-  if (field.type === "url") {
-    const href = safeCmsHref(display(value));
-    return href ? <p><a href={href}>{href}</a></p> : <p>—</p>;
-  }
-  if (field.type === "relation") {
-    const related = records(value);
-    return related.length ? (
-      <ul>{related.map((item) => (
-        <li key={String(item.documentId || item.id || item.name)}>{display(item.name || item.title || item.attribution || item.documentId)}</li>
-      ))}</ul>
-    ) : <p>—</p>;
-  }
-  if (field.type === "scripture") {
-    const references = records(value);
-    return references.length ? (
-      <ul>{references.map((reference, index) => {
-        const href = safeCmsHref(display(reference.url));
-        const label = display(reference.label);
-        return <li key={String(reference.id || `${label}-${index}`)}>{href ? <a href={href}>{label}</a> : label}</li>;
-      })}</ul>
-    ) : <p>—</p>;
-  }
-  if (field.type === "external-links") {
-    const links = records(value);
-    return links.length ? (
-      <ul>{links.map((link, index) => {
-        const href = safeCmsHref(display(link.url));
-        const label = display(link.label);
-        return <li key={String(link.id || `${label}-${index}`)}>{href ? <a href={href}>{label}</a> : label}{link.description ? ` — ${display(link.description)}` : ""}</li>;
-      })}</ul>
-    ) : <p>—</p>;
-  }
-  if (field.type === "seo") {
-    const seo = mediaRecord(value);
-    if (!seo) return <p>—</p>;
-    return (
-      <dl>
-        <dt>Search title</dt><dd>{display(seo.title)}</dd>
-        <dt>Description</dt><dd>{display(seo.description)}</dd>
-        <dt>Canonical URL</dt><dd>{display(seo.canonicalUrl)}</dd>
-        <dt>Hidden from search engines</dt><dd>{seo.noIndex ? "Yes" : "No"}</dd>
-      </dl>
-    );
-  }
-  return <p style={{ whiteSpace: "pre-wrap" }}>{display(value)}</p>;
+function entryText(entry: StructuredEntry, field: string) {
+  const value = entry[field];
+  return value === null || value === undefined ? "" : String(value);
+}
+
+function entryMedia(entry: StructuredEntry, field: string) {
+  const media = mediaRecord(entry[field]);
+  if (!media) return null;
+  const href = previewMediaHref(media.url);
+  if (!href) return null;
+  return {
+    href,
+    name: display(media.name || media.alternativeText || "Attached media"),
+    alt: display(media.alternativeText || media.caption || ""),
+    mime: typeof media.mime === "string" ? media.mime.toLowerCase() : "",
+  };
+}
+
+function plainText(value: string) {
+  return value.replace(/<[^>]*>/g, " ").replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/\s+/g, " ").trim();
+}
+
+function formatDate(value: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" }).format(date);
+}
+
+function PostPreview({ entry }: { entry: StructuredEntry }) {
+  const title = entryText(entry, "title") || "Untitled writing";
+  const summary = entryText(entry, "summary");
+  const contentType = entryText(entry, "contentType").replace(/-/g, " ") || "Written Resources";
+  const image = entryMedia(entry, "featuredImage");
+  return (
+    <>
+      <PageHero eyebrow={contentType} title={title} body={summary} />
+      <article className="pw-section pw-writing-detail">
+        <p className="pw-kicker">{formatDate(entryText(entry, "publishDate"))}</p>
+        {image ? <img src={image.href} alt={image.alt === "—" ? "" : image.alt} /> : null}
+        <div className="pw-rich-text" dangerouslySetInnerHTML={{ __html: sanitizeCmsHtml(entryText(entry, "body")) }} />
+      </article>
+    </>
+  );
+}
+
+function EpisodePreview({ entry }: { entry: StructuredEntry }) {
+  const title = entryText(entry, "title") || "Untitled broadcast";
+  const summary = entryText(entry, "summary");
+  const audio = entryMedia(entry, "audio");
+  const externalAudio = safeCmsHref(entryText(entry, "externalAudioUrl"));
+  const audioHref = audio?.href || (/^https:\/\//i.test(externalAudio) ? externalAudio : "");
+  return (
+    <>
+      <PageHero eyebrow="Radio Archive" title={title} body={summary || "Listen to this Abiding in Christ broadcast."} />
+      <section className="pw-section">
+        <div className="pw-audio-list">
+          <article className="pw-audio-card">
+            <div className="pw-audio-card__meta">
+              {entryText(entry, "programDate") ? <span>{entryText(entry, "programDate")}</span> : null}
+              {entryText(entry, "trackId") ? <span>{entryText(entry, "trackId")}</span> : null}
+            </div>
+            <h2>{title}</h2>
+            {summary ? <p>{summary}</p> : null}
+            {audioHref ? <audio controls preload="none" src={audioHref}>Your browser cannot play this audio.</audio> : <p>Audio is not attached to this draft.</p>}
+          </article>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function PersonPreview({ entry }: { entry: StructuredEntry }) {
+  const name = entryText(entry, "name") || "Unnamed person";
+  const photo = entryMedia(entry, "photo");
+  return (
+    <>
+      <PageHero eyebrow="Board" title="Abiding in Christ Board Members" body="Previewing this person in the public board layout." />
+      <section className="pw-section">
+        <div className="pw-board-grid">
+          <article className="pw-board-member">
+            {photo ? <img src={photo.href} alt={name} /> : null}
+            <div>
+              <h2>{name}</h2>
+              <p className="pw-board-role">{entryText(entry, "title") || entryText(entry, "organization")}</p>
+              {entryText(entry, "biography") ? <p>{plainText(entryText(entry, "biography"))}</p> : null}
+            </div>
+          </article>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function EndorsementPreview({ entry }: { entry: StructuredEntry }) {
+  const photo = entryMedia(entry, "photo");
+  return (
+    <>
+      <PageHero eyebrow="Endorsements" title="Endorsements for Pastor Wood" body="Previewing this quote in the public endorsements layout." />
+      <section className="pw-section">
+        <div className="pw-endorsement-grid">
+          <figure className="pw-endorsement">
+            <blockquote>“{entryText(entry, "quote")}”</blockquote>
+            <figcaption>
+              {photo ? <img src={photo.href} alt="" /> : null}
+              <span>
+                <strong>{entryText(entry, "attribution") || "Missing attribution"}</strong>
+                {[entryText(entry, "title"), entryText(entry, "organization")].filter(Boolean).join(", ")}
+              </span>
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function MediaAssetPreview({ entry }: { entry: StructuredEntry }) {
+  const asset = entryMedia(entry, "asset");
+  const title = entryText(entry, "title") || "Untitled media";
+  const type = entryText(entry, "assetType");
+  return (
+    <>
+      <PageHero eyebrow="Media Library" title={title} body={entryText(entry, "caption") || "Reusable public media preview."} />
+      <section className="pw-section pw-writing-detail">
+        {!asset ? <p>No file is attached to this draft.</p> : type === "image" || asset.mime.startsWith("image/") ? (
+          <figure><img src={asset.href} alt={entryText(entry, "altText")} /><figcaption>{entryText(entry, "caption")}</figcaption></figure>
+        ) : type === "audio" || asset.mime.startsWith("audio/") ? (
+          <div className="pw-audio-card"><audio controls preload="metadata" src={asset.href}>Your browser cannot play this audio.</audio></div>
+        ) : type === "video" || asset.mime.startsWith("video/") ? (
+          <video controls preload="metadata" src={asset.href}>Your browser cannot play this video.</video>
+        ) : <a className="pw-button pw-button--primary" href={asset.href}>Open {title}</a>}
+        {entryText(entry, "credit") ? <p>Credit: {entryText(entry, "credit")}</p> : null}
+      </section>
+    </>
+  );
+}
+
+function RedirectPreview({ entry }: { entry: StructuredEntry }) {
+  const fromPath = entryText(entry, "fromPath");
+  const toPath = safeCmsHref(entryText(entry, "toPath"));
+  return (
+    <>
+      <PageHero eyebrow="Legacy Redirect" title={fromPath || "Missing source path"} body="This rule has no visual public page. The preview shows its visitor-facing routing behavior." />
+      <section className="pw-section pw-content-unavailable">
+        <h2>{entryText(entry, "statusCode") || "Redirect"}</h2>
+        <p><code>{fromPath || "—"}</code> redirects visitors to {toPath ? <a href={toPath}><code>{toPath}</code></a> : <strong>an invalid destination</strong>}.</p>
+      </section>
+    </>
+  );
+}
+
+function PublicLayoutPreview({ collection, entry }: { collection: StructuredCollectionKey; entry: StructuredEntry }) {
+  if (collection === "posts") return <PostPreview entry={entry} />;
+  if (collection === "episodes") return <EpisodePreview entry={entry} />;
+  if (collection === "people") return <PersonPreview entry={entry} />;
+  if (collection === "endorsements") return <EndorsementPreview entry={entry} />;
+  if (collection === "media-assets") return <MediaAssetPreview entry={entry} />;
+  return <RedirectPreview entry={entry} />;
 }
 
 export async function StructuredEntryPreviewView({
@@ -168,20 +234,7 @@ export async function StructuredEntryPreviewView({
         <p>This uses the public HTML sanitizer and content typography. It is never a public URL.</p>
         <Link className="button button--ghost" href={`${definition.editorPath}/${documentId}`}>Back to editor</Link>
       </aside>
-      <article className="pw-section pw-writing-detail">
-        <p className="pw-eyebrow">{definition.pluralLabel}</p>
-        <h1>{display(entry[definition.titleField])}</h1>
-        {definition.fields.map((field) => {
-          const value = field.type === "file" && field.mediaTarget ? entry[field.mediaTarget] : entry[field.name];
-          if (field.name === definition.titleField || value === null || value === undefined || value === "") return null;
-          return (
-            <section className="pw-preview-field" key={field.name}>
-              <h2>{field.label}</h2>
-              <PreviewField field={field} value={value} />
-            </section>
-          );
-        })}
-      </article>
+      <PublicLayoutPreview collection={definition.key} entry={entry} />
     </PastorWoodShell>
   );
 }

@@ -56,5 +56,39 @@ describe("published page media authorization pagination", () => {
     expect(pageRequests.every((url) => url.searchParams.get("pagination[pageSize]") === "100")).toBe(true);
     expect(pageRequests.every((url) => url.searchParams.get("status") === "published")).toBe(true);
     expect(pageRequests.every((url) => url.searchParams.get("populate[sections][populate]") === "*")).toBe(true);
+    expect(pageRequests.every((url) => url.searchParams.get("populate[socialImage]") === "*")).toBe(true);
+  });
+
+  it("authorizes a social image attached to a published page", async () => {
+    process.env.STRAPI_URL = "https://strapi.example.test";
+    const fetchMock = vi.fn(async (input: URL | RequestInfo) => {
+      const url = new URL(String(input));
+      if (url.pathname !== "/api/pages") {
+        return new Response(JSON.stringify({ data: [] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({
+        data: [{
+          documentId: "page-social",
+          sections: [],
+          socialImage: {
+            documentId: "social-image-doc",
+            url: "/uploads/social-image.jpg",
+            mime: "image/jpeg",
+            size: 2,
+          },
+        }],
+        meta: { pagination: { page: 1, pageSize: 100, pageCount: 1, total: 1 } },
+      }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(authorizedPublishedCmsMedia("social-image-doc")).resolves.toEqual({
+      documentId: "social-image-doc",
+      url: "/uploads/social-image.jpg",
+      mime: "image/jpeg",
+      size: 2048,
+    });
+    const pageUrl = fetchMock.mock.calls.map(([input]) => new URL(String(input))).find((url) => url.pathname === "/api/pages");
+    expect(pageUrl?.searchParams.get("populate[socialImage]")).toBe("*");
   });
 });

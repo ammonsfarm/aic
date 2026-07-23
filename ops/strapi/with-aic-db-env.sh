@@ -68,6 +68,9 @@ fi
 # DATABASE_URL is intentionally unsupported: it could silently repoint Strapi
 # away from the exact AIC PostgreSQL target above.
 unset DATABASE_URL
+# libpq accepts independent address and service-file routing overrides. Remove
+# them before exporting the exact canonical host, database, user, and password.
+unset PGHOSTADDR PGSERVICE PGSERVICEFILE PGPASSFILE
 export DATABASE_CLIENT=postgres
 export DATABASE_HOST="${DB_HOST}"
 export DATABASE_PORT="${DB_PORT}"
@@ -79,6 +82,10 @@ export DATABASE_SSL=false
 export DATABASE_POOL_MIN=1
 export DATABASE_POOL_MAX=10
 export DATABASE_CONNECTION_TIMEOUT=60000
+export PGHOST="${DB_HOST}"
+export PGPORT="${DB_PORT}"
+export PGDATABASE="${DB_NAME}"
+export PGUSER="${DB_USER}"
 export PGPASSWORD="${DB_PASSWORD}"
 export PGCONNECT_TIMEOUT=5
 

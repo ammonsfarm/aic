@@ -1,7 +1,15 @@
 import "server-only";
 
-import { safeCmsImageSrc } from "@/lib/cms-html";
+import { safeCmsHref, safeCmsImageSrc } from "@/lib/cms-html";
 import { cmsMediaPublicUrl } from "@/lib/cms-media-url";
+import {
+  getFallbackEpisodeBySlug,
+  getFallbackEpisodeByTrackId,
+  getFallbackEpisodesPage,
+  getFallbackPostBySlug,
+  getFallbackPostsPage,
+} from "@/lib/pastorwood-public-fallback";
+import { STATIC_BOARD_MEMBERS, STATIC_ENDORSEMENTS } from "@/lib/pastorwood-static-fallback";
 import { STRAPI_STRUCTURED_CACHE_TAG, strapiStructuredCacheTag } from "@/lib/strapi-cache-tags";
 import type { StructuredCollectionKey } from "@/lib/structured-content-config";
 import { STRUCTURED_COLLECTIONS } from "@/lib/structured-content-config";
@@ -18,10 +26,11 @@ export type PublishedPage<T> = {
   pageCount: number;
   total: number;
   available: boolean;
+  degraded?: boolean;
 };
 
 export type PublishedLookupResult<T> =
-  | { status: "found"; item: T }
+  | { status: "found"; item: T; degraded?: boolean }
   | { status: "not-found" }
   | { status: "unavailable" };
 
@@ -194,15 +203,8 @@ function positiveInteger(value: unknown) {
 }
 
 export function safePublicContentUrl(value: unknown) {
-  const candidate = text(value).trim();
-  if (!candidate) return "";
-  if (candidate.startsWith("/") && !candidate.startsWith("//")) return candidate;
-  try {
-    const parsed = new URL(candidate);
-    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.toString() : "";
-  } catch {
-    return "";
-  }
+  const safe = safeCmsHref(text(value));
+  return safe.startsWith("/") || safe.startsWith("https://") ? safe : "";
 }
 
 function people(value: unknown): PublishedPersonReference[] {
@@ -390,18 +392,6 @@ async function publishedCollection(
   return (await publishedCollectionPage(key, options)).items;
 }
 
-async function allPublishedEntries(key: StructuredCollectionKey, options: Parameters<typeof publishedCollectionPage>[1] = {}) {
-  const items: PublicEntry[] = [];
-  for (let page = 1; page <= 10_000; page += 1) {
-    const result = await publishedCollectionPage(key, { ...options, page, pageSize: STRAPI_MAX_PAGE_SIZE });
-    if (!result.available) return [];
-    items.push(...result.items);
-    if (!result.pageCount || page >= result.pageCount) return items;
-  }
-  console.error(`Published Strapi ${key} lookup exceeded the complete collection page limit.`);
-  return [];
-}
-
 function publishedPost(entry: PublicEntry): PublishedPost {
   const title = text(entry.title);
   const image = featuredImage(entry.featuredImage, title);
@@ -445,17 +435,45 @@ function publishedEpisode(entry: PublicEntry): PublishedEpisode {
   };
 }
 
+function fallbackPost(entry: Awaited<ReturnType<typeof getFallbackPostBySlug>> & object): PublishedPost {
+  return {
+    ...entry,
+    author: null,
+    scriptureReferences: [],
+    relatedLinks: [],
+    featuredImageUrl: "",
+    featuredImageAlt: "",
+    featuredImageCaption: "",
+    seo: { title: "", description: "", canonicalUrl: "", noIndex: false, socialImageUrl: "" },
+  };
+}
+
+function fallbackEpisode(entry: NonNullable<Awaited<ReturnType<typeof getFallbackEpisodeBySlug>>>): PublishedEpisode {
+  return {
+    ...entry,
+    guests: [],
+    scriptureReferences: [],
+    featuredImageUrl: "",
+    featuredImageAlt: "",
+    featuredImageCaption: "",
+    seo: { title: "", description: "", canonicalUrl: "", noIndex: false, socialImageUrl: "" },
+  };
+}
+
 export async function listPublishedPosts(contentType?: string): Promise<PublishedPost[]> {
-  const entries = await publishedCollection("posts", {
-    filters: contentType ? { contentType } : undefined,
-    sort: "publishDate:desc",
-  });
-  return entries.map(publishedPost);
+  return (await listPublishedPostsPage(contentType, 1, STRAPI_MAX_PAGE_SIZE)).items;
 }
 
 export async function listPublishedPostsPage(contentType: string | undefined, page = 1, pageSize = 24): Promise<PublishedPage<PublishedPost>> {
   const result = await publishedCollectionPage("posts", { filters: contentType ? { contentType } : undefined, sort: "publishDate:desc", page, pageSize });
-  return { ...result, items: result.items.map(publishedPost) };
+  if (result.available) return { ...result, items: result.items.map(publishedPost) };
+  try {
+    const fallback = await getFallbackPostsPage(contentType, page, pageSize);
+    return { ...fallback, items: fallback.items.map(fallbackPost), available: true, degraded: true };
+  } catch (error) {
+    console.error("Published post fallback lookup failed.", error);
+    return { ...result, items: [] };
+  }
 }
 
 export async function getPublishedPostBySlug(slug: string) {
@@ -465,7 +483,15 @@ export async function getPublishedPostBySlug(slug: string) {
 
 export async function getPublishedPostBySlugResult(slug: string): Promise<PublishedLookupResult<PublishedPost>> {
   const result = await publishedCollectionPage("posts", { filters: { slug }, pageSize: 1 });
-  if (!result.available) return { status: "unavailable" };
+  if (!result.available) {
+    try {
+      const fallback = await getFallbackPostBySlug(slug);
+      return fallback ? { status: "found", item: fallbackPost(fallback), degraded: true } : { status: "unavailable" };
+    } catch (error) {
+      console.error("Published post detail fallback lookup failed.", error);
+      return { status: "unavailable" };
+    }
+  }
   if (!result.items[0]) return { status: "not-found" };
   const post = publishedPost(result.items[0]);
   if (!post.title || !post.slug || post.slug !== slug) {
@@ -475,18 +501,37 @@ export async function getPublishedPostBySlugResult(slug: string): Promise<Publis
   return { status: "found", item: post };
 }
 
-export async function listAllPublishedPosts(): Promise<PublishedPost[]> {
-  return (await allPublishedEntries("posts", { sort: "publishDate:desc" })).map(publishedPost);
+async function listAllFallbackPosts(firstPage?: Pick<PublishedPage<PublishedPost>, "items" | "pageCount">): Promise<PublishedPost[]> {
+  const fallbackFirst = firstPage ? null : await getFallbackPostsPage(undefined, 1, STRAPI_MAX_PAGE_SIZE);
+  const first = firstPage || {
+    items: (fallbackFirst?.items || []).map(fallbackPost),
+    pageCount: fallbackFirst?.pageCount || 0,
+  };
+  const items: PublishedPost[] = [...first.items];
+  for (let page = 2; page <= first.pageCount; page += 1) {
+    items.push(...(await getFallbackPostsPage(undefined, page, STRAPI_MAX_PAGE_SIZE)).items.map(fallbackPost));
+  }
+  return items;
 }
 
-export async function listLatestPublishedPostsResult(pageSize = STRAPI_MAX_PAGE_SIZE): Promise<{ items: PublishedPost[]; available: boolean }> {
-  const result = await publishedCollectionPage("posts", { sort: "publishDate:desc", page: 1, pageSize });
-  return { ...result, items: result.items.map(publishedPost) };
+export async function listAllPublishedPosts(): Promise<PublishedPost[]> {
+  const first = await listPublishedPostsPage(undefined, 1, STRAPI_MAX_PAGE_SIZE);
+  if (first.degraded) return listAllFallbackPosts(first);
+  const items = [...first.items];
+  for (let page = 2; page <= first.pageCount; page += 1) {
+    const next = await listPublishedPostsPage(undefined, page, STRAPI_MAX_PAGE_SIZE);
+    if (next.degraded) return listAllFallbackPosts();
+    items.push(...next.items);
+  }
+  return items;
+}
+
+export async function listLatestPublishedPostsResult(pageSize = STRAPI_MAX_PAGE_SIZE): Promise<PublishedPage<PublishedPost>> {
+  return listPublishedPostsPage(undefined, 1, pageSize);
 }
 
 export async function listPublishedEpisodes(): Promise<PublishedEpisode[]> {
-  const entries = await publishedCollection("episodes", { sort: "programDate:desc" });
-  return entries.map(publishedEpisode);
+  return (await listPublishedEpisodesPage(1, STRAPI_MAX_PAGE_SIZE)).items;
 }
 
 export async function listPublishedEpisodesPage(
@@ -508,7 +553,14 @@ export async function listPublishedEpisodesPage(
       { field: "programDate", operator: "lt", value: `${year + 1}-01-01` },
     ] : undefined,
   });
-  return { ...result, items: result.items.map(publishedEpisode) };
+  if (result.available) return { ...result, items: result.items.map(publishedEpisode) };
+  try {
+    const fallback = await getFallbackEpisodesPage(page, pageSize, { query, year });
+    return { ...fallback, items: fallback.items.map(fallbackEpisode), available: true, degraded: true };
+  } catch (error) {
+    console.error("Published episode fallback lookup failed.", error);
+    return { ...result, items: [] };
+  }
 }
 
 export async function getPublishedEpisodeBySlug(slug: string) {
@@ -518,7 +570,17 @@ export async function getPublishedEpisodeBySlug(slug: string) {
 
 async function publishedEpisodeLookupResult(filters: Record<string, string>): Promise<PublishedLookupResult<PublishedEpisode>> {
   const result = await publishedCollectionPage("episodes", { filters, pageSize: 1 });
-  if (!result.available) return { status: "unavailable" };
+  if (!result.available) {
+    try {
+      const fallback = filters.slug !== undefined
+        ? await getFallbackEpisodeBySlug(filters.slug)
+        : await getFallbackEpisodeByTrackId(filters.trackId || "");
+      return fallback ? { status: "found", item: fallbackEpisode(fallback), degraded: true } : { status: "unavailable" };
+    } catch (error) {
+      console.error("Published episode detail fallback lookup failed.", error);
+      return { status: "unavailable" };
+    }
+  }
   if (!result.items[0]) return { status: "not-found" };
   const episode = publishedEpisode(result.items[0]);
   if (
@@ -545,8 +607,29 @@ export function getPublishedEpisodeByTrackIdResult(trackId: string): Promise<Pub
   return publishedEpisodeLookupResult({ trackId });
 }
 
+async function listAllFallbackEpisodes(firstPage?: Pick<PublishedPage<PublishedEpisode>, "items" | "pageCount">): Promise<PublishedEpisode[]> {
+  const fallbackFirst = firstPage ? null : await getFallbackEpisodesPage(1, STRAPI_MAX_PAGE_SIZE);
+  const first = firstPage || {
+    items: (fallbackFirst?.items || []).map(fallbackEpisode),
+    pageCount: fallbackFirst?.pageCount || 0,
+  };
+  const items: PublishedEpisode[] = [...first.items];
+  for (let page = 2; page <= first.pageCount; page += 1) {
+    items.push(...(await getFallbackEpisodesPage(page, STRAPI_MAX_PAGE_SIZE)).items.map(fallbackEpisode));
+  }
+  return items;
+}
+
 export async function listAllPublishedEpisodes(): Promise<PublishedEpisode[]> {
-  return (await allPublishedEntries("episodes", { sort: "programDate:desc" })).map(publishedEpisode);
+  const first = await listPublishedEpisodesPage(1, STRAPI_MAX_PAGE_SIZE);
+  if (first.degraded) return listAllFallbackEpisodes(first);
+  const items = [...first.items];
+  for (let page = 2; page <= first.pageCount; page += 1) {
+    const next = await listPublishedEpisodesPage(page, STRAPI_MAX_PAGE_SIZE);
+    if (next.degraded) return listAllFallbackEpisodes();
+    items.push(...next.items);
+  }
+  return items;
 }
 
 export async function listPublishedBoardMembers(): Promise<PublishedPerson[]> {
@@ -558,6 +641,23 @@ export async function listPublishedBoardMembersResult(): Promise<PublishedPage<P
     filters: { active: true, showOnBoard: true },
     sort: "sortOrder:asc",
   });
+  if (!result.available) {
+    return {
+      items: STATIC_BOARD_MEMBERS.map((member, index) => ({
+        documentId: `static-board-member-${index + 1}`,
+        ...member,
+        slug: "",
+        photoUrl: "",
+        sortOrder: index + 1,
+      })),
+      page: 1,
+      pageSize: STATIC_BOARD_MEMBERS.length,
+      pageCount: 1,
+      total: STATIC_BOARD_MEMBERS.length,
+      available: true,
+      degraded: true,
+    };
+  }
   return {
     ...result,
     items: result.items.map((entry) => ({
@@ -582,6 +682,22 @@ export async function listPublishedEndorsementsResult(): Promise<PublishedPage<P
     filters: { active: true },
     sort: "sortOrder:asc",
   });
+  if (!result.available) {
+    return {
+      items: STATIC_ENDORSEMENTS.map((endorsement, index) => ({
+        documentId: `static-endorsement-${index + 1}`,
+        ...endorsement,
+        photoUrl: "",
+        sortOrder: index + 1,
+      })),
+      page: 1,
+      pageSize: STATIC_ENDORSEMENTS.length,
+      pageCount: 1,
+      total: STATIC_ENDORSEMENTS.length,
+      available: true,
+      degraded: true,
+    };
+  }
   return {
     ...result,
     items: result.items.map((entry) => ({

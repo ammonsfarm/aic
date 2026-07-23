@@ -83,6 +83,7 @@ export async function authorizedPublishedCmsMedia(documentId: string) {
     const pageUrl = new URL("/api/pages", origin);
     pageUrl.searchParams.set("status", "published");
     pageUrl.searchParams.set("populate[sections][populate]", "*");
+    pageUrl.searchParams.set("populate[socialImage]", "*");
     pageUrl.searchParams.set("pagination[page]", String(page));
     pageUrl.searchParams.set("pagination[pageSize]", String(PAGE_MEDIA_PAGE_SIZE));
     const payload = await fetchStrapiJsonOrNull<unknown>(pageUrl, {

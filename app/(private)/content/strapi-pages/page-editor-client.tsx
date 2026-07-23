@@ -9,6 +9,7 @@ import type { FormEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { isSiblingEditorForm } from "@/lib/unsaved-editor-guard";
+import type { ReusableMediaOption } from "@/lib/strapi-structured-management";
 
 type PageCoreFieldsProps = {
   initialTitle?: string;
@@ -31,6 +32,7 @@ type PageEditorFormProps = {
 
 type AddSectionFieldsProps = {
   existingSectionCount: number;
+  mediaOptions: ReusableMediaOption[];
 };
 
 type ExistingSectionBodyProps = {
@@ -44,6 +46,7 @@ type ExistingSectionBodyProps = {
   imageName: string;
   imageUrl?: string;
   imageAlt?: string;
+  mediaOptions: ReusableMediaOption[];
 };
 
 const SECTION_OPTIONS = [
@@ -406,6 +409,7 @@ function ImageSectionFields({
   imageName = "",
   imageUrl = "",
   imageAlt = "",
+  mediaOptions,
 }: {
   prefix: string;
   imageSide?: "none" | "left" | "right" | "";
@@ -413,9 +417,12 @@ function ImageSectionFields({
   imageName?: string;
   imageUrl?: string;
   imageAlt?: string;
+  mediaOptions: ReusableMediaOption[];
 }) {
   const [previewUrl, setPreviewUrl] = useState("");
   const [previewName, setPreviewName] = useState("");
+  const [libraryId, setLibraryId] = useState("");
+  const uploadRef = useRef<HTMLInputElement>(null);
   const visibleImageUrl = previewUrl || imageUrl;
   const visibleImageName = previewName || imageName;
 
@@ -440,10 +447,30 @@ function ImageSectionFields({
                 : "Upload an image that should appear with this text section."}
           </p>
         </div>
-        <div className="editor-grid editor-grid--three">
+        <div className="editor-grid editor-grid--two">
           <label>
-            <span>Replace image</span>
+            <span>Choose existing public image</span>
+            <select
+              name={`${prefix}ImageLibraryId`}
+              value={libraryId}
+              onChange={(event) => {
+                const value = event.target.value;
+                const selected = mediaOptions.find((option) => String(option.id) === value);
+                setLibraryId(value);
+                setPreviewUrl(selected?.url || "");
+                setPreviewName(selected?.label || "");
+                if (uploadRef.current) uploadRef.current.value = "";
+              }}
+            >
+              <option value="">{imageUrl ? "Keep current image" : "Do not select an existing image"}</option>
+              {mediaOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+            </select>
+            <small>Only published public images from Media Library are available.</small>
+          </label>
+          <label>
+            <span>Or upload a new image</span>
             <input
+              ref={uploadRef}
               name={`${prefix}ImageFile`}
               type="file"
               accept="image/*"
@@ -454,6 +481,7 @@ function ImageSectionFields({
                   setPreviewName("");
                   return;
                 }
+                setLibraryId("");
                 setPreviewUrl(URL.createObjectURL(file));
                 setPreviewName(file.name);
               }}
@@ -490,6 +518,7 @@ export function ExistingSectionTypeFields({
   imageName,
   imageUrl,
   imageAlt,
+  mediaOptions,
 }: ExistingSectionBodyProps) {
   const isImageText = component === "page-sections.image-text-section";
   const isCta = component === "page-sections.cta-section";
@@ -506,6 +535,7 @@ export function ExistingSectionTypeFields({
           imageName={imageName}
           imageUrl={imageUrl}
           imageAlt={imageAlt}
+          mediaOptions={mediaOptions}
         />
       ) : (
         <>
@@ -543,12 +573,14 @@ function AddSectionSlot({
   existingSectionCount,
   onChangeType,
   onRemove,
+  mediaOptions,
 }: {
   slot: NewSectionSlot;
   index: number;
   existingSectionCount: number;
   onChangeType: (id: number, value: SectionComponent | "") => void;
   onRemove: (id: number) => void;
+  mediaOptions: ReusableMediaOption[];
 }) {
   const selectedType = slot.selectedType;
   const isImageText = selectedType === "page-sections.image-text-section";
@@ -604,7 +636,7 @@ function AddSectionSlot({
 
           <RichTextArea name={`${prefix}Body`} rows={5} />
 
-          {isImageText ? <ImageSectionFields prefix={prefix} /> : null}
+          {isImageText ? <ImageSectionFields prefix={prefix} mediaOptions={mediaOptions} /> : null}
 
           {isCta ? (
             <div className="editor-grid editor-grid--two">
@@ -626,7 +658,7 @@ function AddSectionSlot({
   );
 }
 
-export function AddSectionFields({ existingSectionCount }: AddSectionFieldsProps) {
+export function AddSectionFields({ existingSectionCount, mediaOptions }: AddSectionFieldsProps) {
   const [slots, setSlots] = useState<NewSectionSlot[]>([{ id: 0, selectedType: "" }]);
   const nextId = useRef(1);
 
@@ -654,6 +686,7 @@ export function AddSectionFields({ existingSectionCount }: AddSectionFieldsProps
           existingSectionCount={existingSectionCount}
           onChangeType={updateSlotType}
           onRemove={removeSlot}
+          mediaOptions={mediaOptions}
         />
       ))}
       <button type="button" className="section-add-inline" onClick={addSlot}>

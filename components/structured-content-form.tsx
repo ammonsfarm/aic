@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { RichTextArea } from "@/app/(private)/content/strapi-pages/page-editor-client";
-import type { StructuredEntry, StructuredRelationOption } from "@/lib/strapi-structured-management";
+import type { ReusableMediaOption, StructuredEntry, StructuredRelationOption } from "@/lib/strapi-structured-management";
 import type {
   StructuredCollectionDefinition,
   StructuredFieldDefinition,
@@ -118,11 +118,13 @@ function StandardField({
   field,
   creating,
   relationOptions,
+  mediaOptions,
 }: {
   entry: StructuredEntry | null;
   field: StructuredFieldDefinition;
   creating: boolean;
   relationOptions: StructuredRelationOption[];
+  mediaOptions: ReusableMediaOption[];
 }) {
   const value = fieldString(entry, field);
   const helpId = `${field.name}-help`;
@@ -240,21 +242,33 @@ function StandardField({
     const media = currentMedia(entry, field);
     const mediaName = typeof media?.name === "string" ? media.name : "";
     const mediaUrl = typeof media?.url === "string" ? media.url : "";
+    const compatibleOptions = mediaOptions.filter((option) => {
+      if (field.accept?.includes("image/")) return option.assetType === "image" || option.mime.startsWith("image/");
+      if (field.accept?.includes("audio/") || field.accept?.includes(".mp3")) return option.assetType === "audio" || option.mime.startsWith("audio/");
+      return true;
+    });
     return (
-      <label>
-        <span>{field.label}</span>
-        <input
-          name={field.name}
-          type="file"
-          accept={field.accept}
-          required={Boolean(creating && field.required && !media)}
-          aria-describedby={helpId}
-        />
+      <fieldset className="editor-field-group">
+        <legend>{field.label}</legend>
+        <label>
+          <span>Use existing public media</span>
+          <select name={`${field.name}LibraryId`} defaultValue="" aria-describedby={helpId}>
+            <option value="">{media ? "Keep current file" : "Do not select an existing file"}</option>
+            {compatibleOptions.map((option) => (
+              <option key={option.id} value={option.id}>{option.label}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Or upload a new file</span>
+          <input name={field.name} type="file" accept={field.accept} aria-describedby={helpId} />
+        </label>
         <small id={helpId}>
-          {mediaName ? `Current file: ${mediaName}` : field.help || "Leave empty to keep the current file."}
+          {mediaName ? `Current file: ${mediaName}. ` : ""}
+          {field.help || (creating && field.required ? "Choose an existing item or upload a file." : "Leave both controls empty to keep the current file.")}
           {mediaUrl ? <> · <a href={mediaUrl}>Open current file</a></> : null}
         </small>
-      </label>
+      </fieldset>
     );
   }
 
@@ -329,11 +343,13 @@ export function StructuredContentForm({
   entry,
   action,
   relationOptions = [],
+  mediaOptions = [],
 }: {
   definition: StructuredCollectionDefinition;
   entry: StructuredEntry | null;
   action: (formData: FormData) => void | Promise<void>;
   relationOptions?: StructuredRelationOption[];
+  mediaOptions?: ReusableMediaOption[];
 }) {
   const creating = !entry;
   const formRef = useRef<HTMLFormElement>(null);
@@ -408,6 +424,7 @@ export function StructuredContentForm({
             field={field}
             creating={creating}
             relationOptions={relationOptions}
+            mediaOptions={mediaOptions}
           />
         ))}
       </div>

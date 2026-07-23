@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { listManagedStrapiPages } from "@/lib/strapi-management";
+import { listReusableMediaOptions, type ReusableMediaOption } from "@/lib/strapi-structured-management";
 import { createStrapiPageAction } from "../actions";
 import { PageCoreFields, PageEditorForm } from "../page-editor-client";
 
@@ -16,8 +17,17 @@ async function getExistingSlugs() {
   }
 }
 
+async function getImageOptions(): Promise<ReusableMediaOption[]> {
+  try {
+    return (await listReusableMediaOptions()).filter((option) => option.assetType === "image" || option.mime.startsWith("image/"));
+  } catch (error) {
+    console.error("Reusable media lookup failed", error);
+    return [];
+  }
+}
+
 export default async function NewStrapiPage() {
-  const existingSlugs = await getExistingSlugs();
+  const [existingSlugs, imageOptions] = await Promise.all([getExistingSlugs(), getImageOptions()]);
 
   return (
     <div className="stack">
@@ -98,6 +108,35 @@ export default async function NewStrapiPage() {
               <small>Optional. A short summary for search engines and link previews.</small>
             </label>
           </div>
+
+          <div className="editor-grid editor-grid--two">
+            <label>
+              <span>Canonical URL</span>
+              <input name="canonicalUrl" type="text" placeholder="/preferred-page/" />
+              <small>Optional preferred public URL. Private admin, API, and login paths are rejected.</small>
+            </label>
+            <label className="checkbox-row checkbox-row--form">
+              <input name="noIndex" type="checkbox" />
+              <span>Hide this page from search engines</span>
+            </label>
+          </div>
+
+          <fieldset className="editor-field-group">
+            <legend>Social sharing image</legend>
+            <div className="editor-grid editor-grid--two">
+              <label>
+                <span>Use existing public image</span>
+                <select name="socialImageLibraryId" defaultValue="">
+                  <option value="">Use default site image</option>
+                  {imageOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+                </select>
+              </label>
+              <label>
+                <span>Or upload a new image</span>
+                <input name="socialImageFile" type="file" accept="image/*" />
+              </label>
+            </div>
+          </fieldset>
 
           <label>
             <span>Scheduled publication (UTC)</span>

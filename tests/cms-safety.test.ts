@@ -74,6 +74,16 @@ describe("CMS HTML sanitizer", () => {
     expect(safeCmsHref("data:text/html,bad")).toBe("");
     expect(safeCmsHref("//evil.example/path")).toBe("");
     expect(safeCmsHref("http://evil.example/path")).toBe("");
+    expect(safeCmsHref("/content/site-pages")).toBe("");
+    expect(safeCmsHref("/admin")).toBe("");
+    expect(safeCmsHref("/api/admin/podcast/export")).toBe("");
+    expect(safeCmsHref("/%61pi/admin/podcast/export")).toBe("");
+    expect(safeCmsHref("/c%6fntent/site-pages")).toBe("");
+    expect(safeCmsHref("https://www.pastorwood.org/overview")).toBe("");
+    expect(safeCmsHref("https://pastorwood.org/login")).toBe("");
+    expect(safeCmsHref("https://pastorwood.org/%6cogin")).toBe("");
+    expect(safeCmsHref("https://www.pastorwood.org/%2561pi/admin")).toBe("");
+    expect(safeCmsHref("https://example.org/admin")).toBe("https://example.org/admin");
     expect(sanitizeCmsHtml('<a href="http://evil.example/path">insecure</a>')).not.toContain("href");
     expect(sanitizeCmsHtml('<a href="/radio/">radio</a>')).toContain('href="/radio/"');
   });

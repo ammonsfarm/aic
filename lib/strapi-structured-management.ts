@@ -77,6 +77,15 @@ export type StructuredRelationOption = {
   label: string;
 };
 
+export type ReusableMediaOption = {
+  id: number;
+  label: string;
+  url: string;
+  mime: string;
+  assetType: string;
+  altText: string;
+};
+
 export type StructuredInventorySummary = {
   total: number;
   draft: number;
@@ -359,6 +368,73 @@ export async function listStructuredPeopleOptions(): Promise<StructuredRelationO
   }
 
   throw new Error("People options exceed the supported 1,000-item editor safety bound.");
+}
+
+function mediaRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  if (record.data && typeof record.data === "object") return mediaRecord(record.data);
+  if (record.attributes && typeof record.attributes === "object") {
+    return { ...(record.attributes as Record<string, unknown>), ...record };
+  }
+  return record;
+}
+
+export async function listReusableMediaOptions(): Promise<ReusableMediaOption[]> {
+  const options: ReusableMediaOption[] = [];
+  for (let page = 1; page <= 10; page += 1) {
+    const query = new URLSearchParams();
+    query.set("status", "published");
+    query.set("filters[visibility][$eq]", "public");
+    query.set("filters[archivedAt][$null]", "true");
+    query.set("populate[asset]", "*");
+    query.set("sort", "title:asc");
+    query.set("pagination[page]", String(page));
+    query.set("pagination[pageSize]", "100");
+    const response = await strapiRequest<StrapiEnvelope<unknown[]>>(`/api/media-assets?${query.toString()}`);
+    const batch = response?.data || [];
+    options.push(...batch.flatMap((item) => {
+      const entry = normalizeEntry(item, true);
+      const asset = mediaRecord(entry?.asset);
+      const id = Number(asset?.id);
+      const rawUrl = typeof asset?.url === "string" ? asset.url : "";
+      if (!entry || !Number.isSafeInteger(id) || id <= 0 || !rawUrl) return [];
+      const url = rawUrl.startsWith("http") ? rawUrl : new URL(rawUrl, managementBaseUrl()).toString();
+      return [{
+        id,
+        label: String(entry.title || asset?.name || `Media ${id}`),
+        url,
+        mime: String(asset?.mime || entry.mimeType || ""),
+        assetType: String(entry.assetType || "other"),
+        altText: String(entry.altText || asset?.alternativeText || ""),
+      } satisfies ReusableMediaOption];
+    }));
+    const pagination = normalizedPagination(response?.meta, page, 100);
+    if (page >= pagination.pageCount || batch.length < pagination.pageSize) {
+      return options.sort((left, right) => left.label.localeCompare(right.label));
+    }
+  }
+  throw new Error("Reusable media exceeds the supported 1,000-item editor safety bound.");
+}
+
+export async function assertReusableMediaSelection(fileId: number, accept = "") {
+  if (!Number.isSafeInteger(fileId) || fileId <= 0) {
+    throw new Error("Choose a valid existing media item.");
+  }
+  const option = (await listReusableMediaOptions()).find((candidate) => candidate.id === fileId);
+  if (!option) {
+    throw new Error("The selected media item is not a published public asset or is no longer available.");
+  }
+  if (accept.includes("image/") && option.assetType !== "image" && !option.mime.startsWith("image/")) {
+    throw new Error("The selected media item must be an image.");
+  }
+  if ((accept.includes("audio/") || accept.includes(".mp3")) && option.assetType !== "audio" && !option.mime.startsWith("audio/")) {
+    throw new Error("The selected media item must be audio.");
+  }
+  if (accept.includes(".mp3") && option.mime && !["audio/mpeg", "audio/mp3", "audio/mpeg3", "audio/x-mpeg-3"].includes(option.mime.toLowerCase())) {
+    throw new Error("The selected media item must be an MP3 file.");
+  }
+  return option;
 }
 
 async function getVersion(

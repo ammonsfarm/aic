@@ -1,5 +1,33 @@
 import sanitizeHtmlLibrary from "sanitize-html";
 
+import { isNonPublicLinkPath } from "@/lib/route-access";
+
+function decodedCmsPathname(pathname: string) {
+  let decoded = pathname;
+  try {
+    for (let pass = 0; pass < 3; pass += 1) {
+      const next = decodeURIComponent(decoded);
+      if (next === decoded) break;
+      decoded = next;
+    }
+  } catch {
+    return null;
+  }
+
+  if (/%[0-9a-f]{2}/i.test(decoded)) return null;
+
+  const segments: string[] = [];
+  for (const segment of decoded.replace(/\\/g, "/").split("/")) {
+    if (!segment || segment === ".") continue;
+    if (segment === "..") {
+      segments.pop();
+      continue;
+    }
+    segments.push(segment);
+  }
+  return `/${segments.join("/")}`;
+}
+
 function escapeCmsHtml(value: string) {
   return value
     .replace(/&/g, "&amp;")
@@ -27,7 +55,10 @@ export function safeCmsHref(value: string) {
   if (href.startsWith("/") && !href.startsWith("//")) {
     try {
       const parsed = new URL(href, "https://www.pastorwood.org");
-      return parsed.origin === "https://www.pastorwood.org" ? `${parsed.pathname}${parsed.search}${parsed.hash}` : "";
+      const decodedPathname = decodedCmsPathname(parsed.pathname);
+      return parsed.origin === "https://www.pastorwood.org" && decodedPathname && !isNonPublicLinkPath(decodedPathname)
+        ? `${parsed.pathname}${parsed.search}${parsed.hash}`
+        : "";
     } catch {
       return "";
     }
@@ -38,7 +69,13 @@ export function safeCmsHref(value: string) {
 
   try {
     const parsed = new URL(href);
-    if (parsed.protocol === "https:" && !parsed.username && !parsed.password) return parsed.toString();
+    if (parsed.protocol === "https:" && !parsed.username && !parsed.password) {
+      const host = parsed.hostname.toLowerCase();
+      const isPastorWoodHost = host === "pastorwood.org" || host === "www.pastorwood.org";
+      const decodedPathname = decodedCmsPathname(parsed.pathname);
+      if (!decodedPathname) return "";
+      return isPastorWoodHost && isNonPublicLinkPath(decodedPathname) ? "" : parsed.toString();
+    }
     if (parsed.protocol === "mailto:" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(parsed.pathname) && !parsed.search && !parsed.hash) return parsed.toString();
     if (parsed.protocol === "tel:" && /^\+?[0-9(). -]+$/.test(parsed.pathname) && !parsed.search && !parsed.hash) return parsed.toString();
     return "";

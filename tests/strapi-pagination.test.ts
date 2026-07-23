@@ -269,7 +269,7 @@ describe("published Strapi archive pagination", () => {
     await expect(getPublishedPostBySlugResult("wrong-post")).resolves.toEqual({ status: "unavailable" });
   });
 
-  it("preserves valid-empty and unavailable collection states for board members and endorsements", async () => {
+  it("preserves valid-empty collections and serves vetted static board and endorsement fallbacks during outages", async () => {
     process.env.STRAPI_URL = "http://127.0.0.1:1337";
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
       data: [],
@@ -281,8 +281,8 @@ describe("published Strapi archive pagination", () => {
 
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "bad gateway payload" }), { status: 200 })));
-    await expect(listPublishedBoardMembersResult()).resolves.toMatchObject({ available: false, items: [] });
-    await expect(listPublishedEndorsementsResult()).resolves.toMatchObject({ available: false, items: [] });
+    await expect(listPublishedBoardMembersResult()).resolves.toMatchObject({ available: true, degraded: true, total: 7 });
+    await expect(listPublishedEndorsementsResult()).resolves.toMatchObject({ available: true, degraded: true, total: 8 });
   });
 
   it("bounds the feed source to one latest published-post page", async () => {

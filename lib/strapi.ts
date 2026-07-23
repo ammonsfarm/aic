@@ -36,6 +36,9 @@ export type StrapiPage = {
   heroBody: string;
   seoTitle: string;
   seoDescription: string;
+  canonicalUrl: string;
+  noIndex: boolean;
+  socialImage: StrapiMedia | null;
   sections: StrapiPageSection[];
 };
 
@@ -91,7 +94,10 @@ function normalizeMedia(media: unknown): StrapiMedia | null {
     return null;
   }
 
-  const entity = media as Record<string, unknown>;
+  const wrapper = media as Record<string, unknown>;
+  const entity = wrapper.data && typeof wrapper.data === "object"
+    ? (wrapper.data as Record<string, unknown>)
+    : wrapper;
   const source = entity.attributes && typeof entity.attributes === "object"
     ? { ...(entity.attributes as Record<string, unknown>), ...entity }
     : entity;
@@ -162,6 +168,9 @@ function normalizePage(entity: StrapiEntity<StrapiPage>): StrapiPage | null {
     heroBody: getString(source.heroBody),
     seoTitle: getString(source.seoTitle),
     seoDescription: getString(source.seoDescription),
+    canonicalUrl: getString(source.canonicalUrl),
+    noIndex: getBoolean(source.noIndex),
+    socialImage: normalizeMedia(source.socialImage),
     sections: rawSections.flatMap((section) => {
       const normalized = normalizePageSection(section);
       return normalized ? [normalized] : [];
@@ -223,6 +232,7 @@ export async function getStrapiPageByPageKey(pageKey: string): Promise<StrapiPag
   url.searchParams.set("status", "published");
   url.searchParams.set("pagination[pageSize]", "1");
   url.searchParams.set("populate[sections][populate]", "*");
+  url.searchParams.set("populate[socialImage]", "*");
 
   return fetchStrapiPages(url, [STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag(pageKey)]);
 }
@@ -250,6 +260,7 @@ export async function getStrapiPageBySlugResult(slug: string): Promise<StrapiPag
   url.searchParams.set("status", "published");
   url.searchParams.set("pagination[pageSize]", "1");
   url.searchParams.set("populate[sections][populate]", "*");
+  url.searchParams.set("populate[socialImage]", "*");
 
   return fetchStrapiPagesResult(url, [STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag(slug)]);
 }
