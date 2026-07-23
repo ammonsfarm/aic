@@ -39,6 +39,11 @@ describe("PastorWood managed redirect policy", () => {
     }
     expect(isOwnedPastorWoodPublicRoute("/media/cms/document/file.jpg")).toBe(true);
     expect(isOwnedPastorWoodPublicRoute("/privacy/archive")).toBe(true);
+    expect(isOwnedPastorWoodPublicRoute("/writings/a-published-post")).toBe(true);
+    expect(validatePastorWoodRedirectGraph(
+      rule("writing", "/WRITINGS/A-PUBLISHED-POST", "/final/"),
+      [],
+    )).toMatchObject({ ok: false, code: "owned-source" });
   });
 
   it("rejects every auth-owned route prefix before proxy authentication", () => {

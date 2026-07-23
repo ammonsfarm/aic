@@ -75,7 +75,7 @@ const ownedPublicRoutes = new Set([
   "/wp-content/uploads/",
 ]);
 
-const ownedPublicPrefixes = ["/media/", "/privacy/"];
+const ownedPublicPrefixes = ["/media/", "/privacy/", "/writings/"];
 
 export function normalizePastorWoodRedirectPath(value: unknown) {
   if (typeof value !== "string") return "";

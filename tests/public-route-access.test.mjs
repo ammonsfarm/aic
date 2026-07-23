@@ -41,3 +41,10 @@ test("unsubscribe is public while unknown signed-out paths fall through to a rea
 test("the RSS feed is an explicit signed-out public route", () => {
   assert.match(proxy, /"\/feed\(\.\*\)"/);
 });
+
+test("dynamic CMS page ownership is resolved before any legacy redirect", () => {
+  const pageOwnershipIndex = proxy.indexOf("await shouldPreserveDynamicCmsPagePath(request.nextUrl.pathname)");
+  const legacyRedirectIndex = proxy.indexOf("await resolvePublicLegacyRedirect(request.nextUrl.pathname)");
+  assert.ok(pageOwnershipIndex >= 0);
+  assert.ok(legacyRedirectIndex > pageOwnershipIndex);
+});

@@ -2,8 +2,8 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { resolvePublicLegacyRedirect } from "@/lib/legacy-redirects";
-import { getStrapiPageBySlug } from "@/lib/strapi";
-import { isKnownPrivatePath, singleSegmentSlug } from "@/lib/route-access";
+import { shouldPreserveDynamicCmsPagePath } from "@/lib/public-dynamic-route-ownership";
+import { isKnownPrivatePath } from "@/lib/route-access";
 
 const isApiRoute = createRouteMatcher(["/api(.*)"]);
 const isPublicApiRoute = createRouteMatcher([
@@ -35,7 +35,6 @@ const isPublicPageRoute = createRouteMatcher([
 
 export default clerkMiddleware(async (auth, request) => {
   const { userId } = await auth();
-  const cmsSlug = singleSegmentSlug(request.nextUrl.pathname);
 
   if (isApiRoute(request)) {
     if (isPublicApiRoute(request) || userId) {
@@ -43,6 +42,10 @@ export default clerkMiddleware(async (auth, request) => {
     }
 
     return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+  }
+
+  if (await shouldPreserveDynamicCmsPagePath(request.nextUrl.pathname)) {
+    return;
   }
 
   const legacyRedirect = await resolvePublicLegacyRedirect(request.nextUrl.pathname);
@@ -61,13 +64,6 @@ export default clerkMiddleware(async (auth, request) => {
 
   if (isKnownPrivatePath(request.nextUrl.pathname)) {
     return redirectToLogin(request);
-  }
-
-  if (cmsSlug) {
-    const cmsPage = await getStrapiPageBySlug(cmsSlug);
-    if (cmsPage?.active) {
-      return;
-    }
   }
 
   // Unknown signed-out paths belong to Next's routing layer so they can render

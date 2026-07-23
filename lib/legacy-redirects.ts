@@ -122,8 +122,11 @@ export async function resolvePublicLegacyRedirect(pathname: string): Promise<Leg
           "path",
           pastorWoodRedirectPathKey(redirect.toPath),
         );
-        if (destination.status === "found" && managedRedirect(destination.item, redirect.toPath)) return null;
-        return redirect;
+        // A projected source is safe to use only when the projection can prove
+        // that its destination is a final hop. Missing projection state is not
+        // evidence that the destination is free of another redirect.
+        if (destination.status === "not-found") return redirect;
+        return fallback;
       }
       return projection.status === "not-found" ? null : fallback;
     } catch (error) {

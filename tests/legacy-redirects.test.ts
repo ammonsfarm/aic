@@ -180,16 +180,18 @@ describe("generated legacy redirect integrity", () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
     const generated = redirects[0];
 
-    projection.identity.mockResolvedValueOnce({
-      status: "found",
-      item: {
-        documentId: "redirect-projected",
-        fromPath: generated.fromPath,
-        toPath: "/written-resources/",
-        statusCode: 308,
-        active: true,
-      },
-    });
+    projection.identity
+      .mockResolvedValueOnce({
+        status: "found",
+        item: {
+          documentId: "redirect-projected",
+          fromPath: generated.fromPath,
+          toPath: "/written-resources/",
+          statusCode: 308,
+          active: true,
+        },
+      })
+      .mockResolvedValueOnce({ status: "not-found" });
     await expect(resolvePublicLegacyRedirect(generated.fromPath)).resolves.toMatchObject({
       toPath: "/written-resources/",
       statusCode: 308,
@@ -197,6 +199,28 @@ describe("generated legacy redirect integrity", () => {
 
     projection.identity.mockResolvedValueOnce({ status: "not-found" });
     await expect(resolvePublicLegacyRedirect(generated.fromPath)).resolves.toBeNull();
+  });
+
+  it("does not trust a projected redirect when destination graph state is unavailable", async () => {
+    process.env.STRAPI_PUBLIC_URL = "https://cms.example.test";
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+
+    projection.identity
+      .mockResolvedValueOnce({
+        status: "found",
+        item: {
+          documentId: "redirect-projected",
+          fromPath: "/managed-old/",
+          toPath: "/managed-destination/",
+          statusCode: 308,
+          active: true,
+        },
+      })
+      .mockResolvedValueOnce({ status: "absent" });
+
+    await expect(resolvePublicLegacyRedirect("/managed-old/")).resolves.toBeNull();
+    expect(projection.identity).toHaveBeenCalledTimes(2);
   });
 
   it("never lets a global managed redirect shadow the exact GPT privacy policy route", async () => {
