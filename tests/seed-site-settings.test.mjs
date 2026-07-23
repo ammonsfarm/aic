@@ -10,16 +10,16 @@ import test from "node:test";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
-function runSeed(baseUrl) {
+function runSeed(baseUrl, provider = {}) {
   return new Promise((resolveRun, rejectRun) => {
     const sandbox = mkdtempSync(`${tmpdir()}/aic-site-settings-seed-`);
     const envFile = resolve(sandbox, ".env");
     writeFileSync(envFile, [
       `STRAPI_URL=${baseUrl}`,
       "STRAPI_API_TOKEN_TEMP_WRITE=test-write-token",
-      "MAILCHIMP_API_KEY=test-us21",
-      "MAILCHIMP_SERVER_PREFIX=us21",
-      "MAILCHIMP_AUDIENCE_ID=audience",
+      `MAILCHIMP_API_KEY=${provider.apiKey || "test-us21"}`,
+      `MAILCHIMP_SERVER_PREFIX=${provider.serverPrefix || "us21"}`,
+      `MAILCHIMP_AUDIENCE_ID=${provider.audienceId || "9ad7bbba36"}`,
       "MAILCHIMP_WEBHOOK_SECRET=webhook",
       "SUBSCRIPTION_RATE_LIMIT_SECRET=rate",
       "SUBSCRIPTION_UNSUBSCRIBE_SECRET=unsubscribe",
@@ -123,12 +123,12 @@ test("a new draft site-settings singleton is initialized and verified through th
         data: {
           documentId: "settings-new",
           siteName: "Abiding in Christ",
-          topNavigation: initializationBodies[0]?.data?.topNavigation ?? [],
-          utilityNavigation: initializationBodies[0]?.data?.utilityNavigation ?? [],
-          footerNavigation: initializationBodies[0]?.data?.footerNavigation ?? [],
+          topNavigation: initializationBodies.at(-1)?.data?.topNavigation ?? [],
+          utilityNavigation: initializationBodies.at(-1)?.data?.utilityNavigation ?? [],
+          footerNavigation: initializationBodies.at(-1)?.data?.footerNavigation ?? [],
           showDonateButton: true,
           donateButtonLabel: "Donate",
-          subscriptionEnabled: true,
+          subscriptionEnabled: initializationBodies.at(-1)?.data?.subscriptionEnabled ?? false,
         },
       }));
       return;
@@ -160,7 +160,8 @@ test("a new draft site-settings singleton is initialized and verified through th
 
   const address = server.address();
   assert.ok(address && typeof address === "object");
-  const result = await runSeed(`http://127.0.0.1:${address.port}`);
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const result = await runSeed(baseUrl);
 
   assert.equal(result.code, 0, result.stderr);
   assert.equal(initialLookupCount, 1);
@@ -176,4 +177,13 @@ test("a new draft site-settings singleton is initialized and verified through th
   assert.match(initializationBodies[0].note, /initialized the first site-settings draft/i);
   assert.match(result.stdout, /"initialized": true/);
   assert.match(result.stdout, /"siteName": "Abiding in Christ"/);
+
+  const malformed = await runSeed(baseUrl, {
+    serverPrefix: "evil.example.com/path",
+    audienceId: "not-an-audience",
+  });
+  assert.equal(malformed.code, 0, malformed.stderr);
+  assert.equal(initializationBodies.length, 2);
+  assert.equal(initializationBodies[1].data.subscriptionEnabled, false);
+  assert.match(malformed.stdout, /"subscriptionProviderReady": false/);
 });

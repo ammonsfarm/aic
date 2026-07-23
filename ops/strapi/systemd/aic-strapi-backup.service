@@ -13,6 +13,6 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
-ReadWritePaths=/mnt/storage/aic/.env
+ReadOnlyPaths=/mnt/storage/aic/.env
 ReadWritePaths=/mnt/storage/backups/aic-strapi
 ReadOnlyPaths=/mnt/storage/pastorwood-media/strapi

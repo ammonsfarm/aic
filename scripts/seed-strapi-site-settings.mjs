@@ -72,7 +72,12 @@ const providerKeys = [
   "SUBSCRIPTION_RATE_LIMIT_SECRET",
   "SUBSCRIPTION_UNSUBSCRIBE_SECRET",
 ];
-const subscriptionProviderReady = providerKeys.every((key) => Boolean(process.env[key]?.trim()));
+const providerValuesPresent = providerKeys.every((key) => Boolean(process.env[key]?.trim()));
+const mailchimpServerPrefix = process.env.MAILCHIMP_SERVER_PREFIX?.trim().toLowerCase() || "";
+const mailchimpAudienceId = process.env.MAILCHIMP_AUDIENCE_ID?.trim() || "";
+const subscriptionProviderReady = providerValuesPresent
+  && /^[a-z0-9-]{2,24}$/.test(mailchimpServerPrefix)
+  && /^[a-f0-9]{10,32}$/i.test(mailchimpAudienceId);
 
 const headers = {
   Authorization: `Bearer ${token}`,

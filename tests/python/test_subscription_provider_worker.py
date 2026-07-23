@@ -62,6 +62,10 @@ class SubscriptionProviderWorkerTests(unittest.TestCase):
         os.environ["MAILCHIMP_SERVER_PREFIX"] = "evil.example.com/path"
         with self.assertRaises(ValueError):
             MODULE.read_config()
+        os.environ["MAILCHIMP_SERVER_PREFIX"] = "us21"
+        os.environ["MAILCHIMP_AUDIENCE_ID"] = "not-an-audience"
+        with self.assertRaises(ValueError):
+            MODULE.read_config()
 
     def test_missing_key_disables_worker_without_a_database_claim(self) -> None:
         os.environ.pop("MAILCHIMP_API_KEY", None)

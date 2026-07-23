@@ -27,6 +27,10 @@ import {
   SUBSCRIPTION_CONSENT_VERSION,
 } from "@/lib/public-subscription-contract";
 import { POST as subscribe } from "@/app/api/public/subscriptions/route";
+import {
+  missingSubscriptionProviderConfig,
+  subscriptionProviderConfigReady,
+} from "@/lib/subscription-provider-config";
 import { GET as exportSubscriptions } from "@/app/api/admin/subscriptions/export/route";
 import {
   applyMailchimpWebhook,
@@ -56,6 +60,27 @@ describe("public subscription boundary", () => {
     process.env.MAILCHIMP_SERVER_PREFIX = "us21";
     process.env.MAILCHIMP_AUDIENCE_ID = "9ad7bbba36";
     process.env.MAILCHIMP_WEBHOOK_SECRET = "test-only-mailchimp-webhook-secret";
+  });
+
+  it("fails closed for malformed Mailchimp routing values before accepting a signup", async () => {
+    expect(subscriptionProviderConfigReady()).toBe(true);
+
+    process.env.MAILCHIMP_SERVER_PREFIX = "evil.example.com/path";
+    expect(subscriptionProviderConfigReady()).toBe(false);
+    expect(missingSubscriptionProviderConfig()).toContain("MAILCHIMP_SERVER_PREFIX");
+
+    const response = await subscribe(new Request("https://www.pastorwood.org/api/public/subscriptions", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://www.pastorwood.org" },
+      body: JSON.stringify(validPayload(Date.now())),
+    }));
+    expect(response.status).toBe(503);
+    expect(mocks.queryRows).not.toHaveBeenCalled();
+
+    process.env.MAILCHIMP_SERVER_PREFIX = "us21";
+    process.env.MAILCHIMP_AUDIENCE_ID = "not-an-audience";
+    expect(subscriptionProviderConfigReady()).toBe(false);
+    expect(missingSubscriptionProviderConfig()).toContain("MAILCHIMP_AUDIENCE_ID");
   });
 
   it("uses opaque tamper-evident signed unsubscribe tokens", () => {

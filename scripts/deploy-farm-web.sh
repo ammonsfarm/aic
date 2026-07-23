@@ -42,6 +42,8 @@ set -euo pipefail
 # The checked-in .env is authoritative. Prevent an SSH/session environment from
 # overriding the exact database target later loaded by migration and build tools.
 unset DB_HOST DB_PORT DB_NAME DB_USER DB_PASSWORD
+unset PGHOST PGHOSTADDR PGPORT PGDATABASE PGUSER PGPASSWORD
+unset PGPASSFILE PGSERVICE PGSERVICEFILE PGOPTIONS
 unset STRAPI_URL STRAPI_MANAGEMENT_URL STRAPI_PUBLIC_URL STRAPI_API_TOKEN
 unset STRAPI_READ_TOKEN STRAPI_MANAGEMENT_TOKEN STRAPI_API_TOKEN_TEMP_WRITE
 
@@ -56,19 +58,109 @@ cd "${REMOTE_DIR}"
 test -x ops/strapi/with-aic-db-env.sh
 preflight_result="\$(
   NODE_ENV=production ops/strapi/with-aic-db-env.sh \
-    /usr/lib/postgresql/16/bin/psql \
-    --no-password --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align \
-    --command 'set transaction read only; select 1;'
+    /usr/bin/bash -c 'exec /usr/bin/env \
+      PGOPTIONS="-c default_transaction_read_only=on -c statement_timeout=5000 -c lock_timeout=1000" \
+      /usr/lib/postgresql/16/bin/psql \
+      --host "\${DATABASE_HOST}" --port "\${DATABASE_PORT}" \
+      --dbname "\${DATABASE_NAME}" --username "\${DATABASE_USERNAME}" \
+      --no-password --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align \
+      --command "select 1"'
 )"
-if [[ "\${preflight_result}" != "SET
-1" && "\${preflight_result}" != "1" ]]; then
+if [[ "\${preflight_result}" != "1" ]]; then
   echo "Existing AIC PostgreSQL preflight returned an unexpected result; aborting before checkout mutation." >&2
   exit 1
 fi
 
-echo "Updating code..."
 previous_sha="\$(git rev-parse HEAD)"
+if [[ -n "\$(git status --porcelain --untracked-files=no)" ]]; then
+  echo "Deployment checkout has tracked changes; refusing to mutate or overwrite them." >&2
+  exit 1
+fi
+
+all_timers=(
+  aic-transcript-edit-worker.timer
+  aic-admin-operations-worker.timer
+  aic-episode-publish-worker.timer
+  aic-subscription-provider-worker.timer
+  aic-scheduled-publication-worker.timer
+  aic-strapi-backup.timer
+)
+all_worker_services=(
+  aic-transcript-edit-worker.service
+  aic-admin-operations-worker.service
+  aic-episode-publish-worker.service
+  aic-subscription-provider-worker.service
+  aic-scheduled-publication-worker.service
+)
+previous_active_timers=()
+for timer in "\${all_timers[@]}"; do
+  if sudo systemctl is-active --quiet "\${timer}"; then
+    previous_active_timers+=("\${timer}")
+  fi
+done
+web_was_active=0
+strapi_was_active=0
+sudo systemctl is-active --quiet "${REMOTE_SERVICE}" && web_was_active=1 || true
+sudo systemctl is-active --quiet aic-strapi.service && strapi_was_active=1 || true
+checkout_changed=0
+migrations_started=0
+
+deployment_failed() {
+  status="\$1"
+  trap - EXIT INT TERM
+  set +e
+  echo "Deployment failed with status \${status}; leaving every worker and backup timer stopped." >&2
+  for unit in "\${all_timers[@]}" "\${all_worker_services[@]}" aic-strapi-backup.service; do
+    sudo systemctl stop "\${unit}" >/dev/null 2>&1 || true
+  done
+
+  if [[ "\${checkout_changed}" == "1" && "\${migrations_started}" == "0" ]]; then
+    echo "No migration command started; attempting a bounded application rollback to \${previous_sha}." >&2
+    sudo systemctl stop "${REMOTE_SERVICE}" >/dev/null 2>&1 || true
+    sudo systemctl stop aic-strapi.service >/dev/null 2>&1 || true
+    rollback_ok=1
+    git checkout --detach "\${previous_sha}" || rollback_ok=0
+    if [[ "\${rollback_ok}" == "1" ]]; then
+      npm ci || rollback_ok=0
+      npm --prefix services/jimwood-cms ci || rollback_ok=0
+      NODE_ENV=production ops/strapi/with-aic-db-env.sh npm --prefix services/jimwood-cms run build || rollback_ok=0
+      npm run build || rollback_ok=0
+    fi
+    if [[ "\${rollback_ok}" == "1" && "\${strapi_was_active}" == "1" ]]; then
+      sudo systemctl start aic-strapi.service || rollback_ok=0
+    fi
+    if [[ "\${rollback_ok}" == "1" && "\${web_was_active}" == "1" ]]; then
+      sudo systemctl start "${REMOTE_SERVICE}" || rollback_ok=0
+    fi
+    if [[ "\${rollback_ok}" == "1" ]]; then
+      echo "Previous application revision and builds were restored; checkout is intentionally detached at \${previous_sha}." >&2
+    else
+      echo "Automatic application rollback was incomplete; keep timers stopped and repair the checkout/services manually." >&2
+    fi
+  elif [[ "\${migrations_started}" == "1" ]]; then
+    echo "The forward-only migration phase started; no database or code rollback was attempted." >&2
+  fi
+  echo "Timers active before deployment: \${previous_active_timers[*]:-none}. Re-enable only after both services are healthy." >&2
+  exit "\${status}"
+}
+trap 'deployment_failed \$?' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+echo "Quiescing worker and backup timers before changing the checkout..."
+for unit in "\${all_timers[@]}" "\${all_worker_services[@]}" aic-strapi-backup.service; do
+  sudo systemctl stop "\${unit}" >/dev/null 2>&1 || true
+done
+for unit in "\${all_timers[@]}" "\${all_worker_services[@]}" aic-strapi-backup.service; do
+  if sudo systemctl is-active --quiet "\${unit}"; then
+    echo "Could not quiesce \${unit}; aborting before checkout mutation." >&2
+    exit 1
+  fi
+done
+
+echo "Updating code..."
 echo "Previous application revision: \${previous_sha}"
+checkout_changed=1
 git fetch --all
 git checkout "${REMOTE_BRANCH}"
 git pull --ff-only origin "${REMOTE_BRANCH}"
@@ -105,6 +197,7 @@ echo "Validating the existing AIC PostgreSQL target..."
 /usr/local/libexec/aic-strapi/with-aic-db-env.sh /usr/bin/true
 
 echo "Applying database migrations..."
+migrations_started=1
 .venv-pg/bin/python apply_postgres_migrations.py --env-file /mnt/storage/aic/.env
 
 if [ "${INSTALL_STRAPI_SERVICE}" = "1" ]; then
@@ -123,18 +216,24 @@ if [ "${INSTALL_TRANSCRIPT_EDIT_WORKER}" = "1" ]; then
   echo "Installing transcript edit worker timer..."
   START_TIMER=0 bash scripts/install-transcript-edit-worker.sh
   timers_to_start+=(aic-transcript-edit-worker.timer)
+else
+  sudo systemctl disable aic-transcript-edit-worker.timer >/dev/null 2>&1 || true
 fi
 
 if [ "${INSTALL_ADMIN_OPERATIONS_WORKER}" = "1" ]; then
   echo "Installing allowlisted admin operations worker timer..."
   START_TIMER=0 bash scripts/install-admin-operations-worker.sh
   timers_to_start+=(aic-admin-operations-worker.timer)
+else
+  sudo systemctl disable aic-admin-operations-worker.timer >/dev/null 2>&1 || true
 fi
 
 if [ "${INSTALL_EPISODE_PUBLISH_WORKER}" = "1" ]; then
   echo "Installing Strapi episode publication worker timer..."
   START_TIMER=0 bash scripts/install-episode-publish-worker.sh
   timers_to_start+=(aic-episode-publish-worker.timer)
+else
+  sudo systemctl disable aic-episode-publish-worker.timer >/dev/null 2>&1 || true
 fi
 
 if [ "${INSTALL_SUBSCRIPTION_PROVIDER_WORKER}" = "1" ] && [[ "\${subscription_provider_ready}" == "1" ]]; then
@@ -150,10 +249,14 @@ if [ "${INSTALL_SCHEDULED_PUBLICATION_WORKER}" = "1" ]; then
   echo "Installing scheduled Strapi publication worker timer..."
   START_TIMER=0 bash scripts/install-scheduled-publication-worker.sh
   timers_to_start+=(aic-scheduled-publication-worker.timer)
+else
+  sudo systemctl disable aic-scheduled-publication-worker.timer >/dev/null 2>&1 || true
 fi
 
 if [ "${INSTALL_STRAPI_SERVICE}" = "1" ]; then
   timers_to_start+=(aic-strapi-backup.timer)
+else
+  sudo systemctl disable aic-strapi-backup.timer >/dev/null 2>&1 || true
 fi
 
 echo "Restarting service: ${REMOTE_SERVICE}"
@@ -182,5 +285,6 @@ if [[ "\${#timers_to_start[@]}" -gt 0 ]]; then
   done
 fi
 
+trap - EXIT INT TERM
 echo "Done."
 SSH

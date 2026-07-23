@@ -203,6 +203,8 @@ test("root-executed operations are installed immutably outside the writable chec
   const migrationIndex = deploy.indexOf('echo "Applying database migrations..."');
   const inheritedUnsetIndex = deploy.indexOf("unset DB_HOST DB_PORT DB_NAME DB_USER DB_PASSWORD");
   assert.ok(inheritedUnsetIndex >= 0 && targetCheckIndex > inheritedUnsetIndex);
+  assert.match(deploy, /unset PGHOST PGHOSTADDR PGPORT PGDATABASE PGUSER PGPASSWORD/);
+  assert.match(deploy, /unset PGPASSFILE PGSERVICE PGSERVICEFILE PGOPTIONS/);
   assert.ok(targetCheckIndex >= 0 && migrationIndex > targetCheckIndex);
   assert.match(deploy, /sudo \/usr\/local\/libexec\/aic-strapi\/provision-strapi\.sh/);
   assert.match(deploy, /sudo \/usr\/local\/libexec\/aic-strapi\/install-strapi-service\.sh/);
@@ -309,18 +311,41 @@ test("backup verification checks archives, listings, and checksums without a dat
   assert.doesNotMatch(verify, /--dbname|CREATE DATABASE|DROP DATABASE|--clean/);
 });
 
+test("backup service can read but never write the canonical environment", () => {
+  const service = source("ops/strapi/systemd/aic-strapi-backup.service");
+  assert.match(service, /ReadOnlyPaths=\/mnt\/storage\/aic\/\.env/);
+  assert.doesNotMatch(service, /ReadWritePaths=\/mnt\/storage\/aic\/\.env/);
+  assert.match(service, /ReadWritePaths=\/mnt\/storage\/backups\/aic-strapi/);
+  assert.match(service, /ReadOnlyPaths=\/mnt\/storage\/pastorwood-media\/strapi/);
+});
+
 test("deploy builds Strapi before installing it and optionally verifies without copying or restoring a database", () => {
   const deploy = source("scripts/deploy-farm-web.sh");
-  const preflightIndex = deploy.indexOf("set transaction read only; select 1;");
+  const preflightIndex = deploy.indexOf('--command "select 1"');
+  const quiesceIndex = deploy.indexOf("Quiescing worker and backup timers");
   const fetchIndex = deploy.indexOf("git fetch --all");
   const buildIndex = deploy.indexOf("npm --prefix services/jimwood-cms run build");
   const installIndex = deploy.indexOf("sudo /usr/local/libexec/aic-strapi/install-strapi-service.sh");
   const migrationIndex = deploy.indexOf("apply_postgres_migrations.py --env-file /mnt/storage/aic/.env");
   const strapiHealthIndex = deploy.indexOf("curl -fsS http://127.0.0.1:1337/_health");
   const schemaBackupIndex = deploy.indexOf("systemctl start aic-strapi-backup.service");
-  assert.ok(preflightIndex >= 0 && fetchIndex > preflightIndex);
+  const startTimersIndex = deploy.indexOf('sudo systemctl start "\\${timers_to_start[@]}"');
+  assert.ok(preflightIndex >= 0 && quiesceIndex > preflightIndex && fetchIndex > quiesceIndex);
+  assert.match(deploy, /with-aic-db-env\.sh \\\n\s+\/usr\/bin\/bash -c 'exec \/usr\/bin\/env/);
+  assert.match(deploy, /PGOPTIONS="-c default_transaction_read_only=on -c statement_timeout=5000 -c lock_timeout=1000"/);
+  assert.match(deploy, /\/usr\/lib\/postgresql\/16\/bin\/psql/);
+  assert.match(deploy, /--host "\\\$\{DATABASE_HOST\}" --port "\\\$\{DATABASE_PORT\}"/);
+  assert.match(deploy, /--dbname "\\\$\{DATABASE_NAME\}" --username "\\\$\{DATABASE_USERNAME\}"/);
+  assert.match(deploy, /if \[\[ "\\\$\{preflight_result\}" != "1" \]\]/);
   assert.ok(buildIndex >= 0 && installIndex > buildIndex);
   assert.ok(migrationIndex > buildIndex && strapiHealthIndex > installIndex && schemaBackupIndex > strapiHealthIndex);
+  assert.ok(startTimersIndex > strapiHealthIndex && startTimersIndex > schemaBackupIndex);
+  assert.match(deploy, /all_timers=\([\s\S]*aic-strapi-backup\.timer[\s\S]*\)/);
+  assert.match(deploy, /all_worker_services=\([\s\S]*aic-scheduled-publication-worker\.service[\s\S]*\)/);
+  assert.match(deploy, /trap 'deployment_failed \\\$\?' EXIT/);
+  assert.match(deploy, /migrations_started=1\n\.venv-pg\/bin\/python apply_postgres_migrations\.py/);
+  assert.match(deploy, /forward-only migration phase started; no database or code rollback was attempted/);
+  assert.doesNotMatch(deploy, /git reset|git checkout\s+--force|pg_restore[^\n]*--dbname/);
   assert.match(deploy, /NODE_ENV=production ops\/strapi\/with-aic-db-env\.sh npm --prefix services\/jimwood-cms run build/);
   assert.match(deploy, /RUN_STRAPI_BACKUP_VERIFY="\$\{RUN_STRAPI_BACKUP_VERIFY:-1\}"/);
   assert.match(deploy, /sudo \/usr\/local\/libexec\/aic-strapi\/verify-strapi-backup\.sh/);
