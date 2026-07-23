@@ -99,6 +99,12 @@ export default async function NewStrapiPage() {
             </label>
           </div>
 
+          <label>
+            <span>Scheduled publication (UTC)</span>
+            <input name="scheduledFor" type="datetime-local" />
+            <small>Optional. Create a draft and have the background publisher release it at or after this UTC time.</small>
+          </label>
+
           <input type="hidden" name="sectionCount" value="0" />
           <input type="hidden" name="newSectionCount" value="0" />
 

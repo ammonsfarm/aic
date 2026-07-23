@@ -5,6 +5,7 @@ import { StructuredContentForm } from "@/components/structured-content-form";
 import {
   getStructuredEntry,
   getLatestEpisodeProcessingRequest,
+  listStructuredPeopleOptions,
   listStructuredRevisions,
   type EpisodeProcessingRequest,
   type StructuredEntry,
@@ -94,6 +95,9 @@ export async function StructuredEntryEditorView({
 
   const title = String(entry[definition.titleField] || "Untitled");
   const archived = Boolean(entry.archivedAt);
+  const relationOptions = definition.fields.some((field) => field.relationTarget === "people")
+    ? await listStructuredPeopleOptions()
+    : [];
   const saveAction = saveStructuredEntryAction.bind(null, definition.key, documentId);
   const success = notice(query);
 
@@ -133,7 +137,7 @@ export async function StructuredEntryEditorView({
             <Link className="button button--ghost" href={`${definition.editorPath}/${documentId}/preview`}>Preview draft</Link>
           </div>
         </div>
-        <StructuredContentForm definition={definition} entry={entry} action={saveAction} />
+        <StructuredContentForm definition={definition} entry={entry} action={saveAction} relationOptions={relationOptions} />
       </section>
 
       {definition.entityType === "episode" ? (
@@ -163,6 +167,7 @@ export async function StructuredEntryEditorView({
               {processing.lastError ? <p role="alert"><strong>Latest error:</strong> {processing.lastError}</p> : null}
               {processing.status === "failed" || processing.status === "completed" ? (
                 <form className="editor-grid editor-grid--two" action={retryEpisodeProcessingAction.bind(null, documentId)}>
+                  <input type="hidden" name="expectedUpdatedAt" value={String(entry.updatedAt || "")} />
                   <label>
                     <span>Retry note</span>
                     <input name="processingRetryNote" required placeholder="Why should this episode be processed again?" />
@@ -195,6 +200,7 @@ export async function StructuredEntryEditorView({
                 entry.isPublished ? "unpublish" : "publish",
               )}
             >
+              <input type="hidden" name="expectedUpdatedAt" value={String(entry.updatedAt || "")} />
               <label>
                 <span>Action note</span>
                 <input name="transitionNote" placeholder="Reason for this publishing action" />
@@ -210,6 +216,7 @@ export async function StructuredEntryEditorView({
               className="editor-grid editor-grid--two"
               action={transitionStructuredEntryAction.bind(null, definition.key, documentId, "archive")}
             >
+              <input type="hidden" name="expectedUpdatedAt" value={String(entry.updatedAt || "")} />
               <label>
                 <span>Archive reason</span>
                 <input name="transitionNote" required placeholder="Why should this item leave normal use?" />
@@ -223,6 +230,7 @@ export async function StructuredEntryEditorView({
               className="editor-grid editor-grid--two"
               action={transitionStructuredEntryAction.bind(null, definition.key, documentId, "restore")}
             >
+              <input type="hidden" name="expectedUpdatedAt" value={String(entry.updatedAt || "")} />
               <label>
                 <span>Restore note</span>
                 <input name="transitionNote" required placeholder="Why is this item being restored?" />
@@ -255,6 +263,7 @@ export async function StructuredEntryEditorView({
                     <td>{formatDate(revision.createdAt)}</td>
                     <td>
                       <form action={rollbackStructuredEntryAction.bind(null, definition.key, documentId, revision.documentId)}>
+                        <input type="hidden" name="expectedUpdatedAt" value={String(entry.updatedAt || "")} />
                         <input type="hidden" name="rollbackNote" value={`Restore revision ${revision.revisionNumber}`} />
                         <button className="button button--ghost" type="submit">Restore as draft</button>
                       </form>
@@ -272,6 +281,7 @@ export async function StructuredEntryEditorView({
         <details>
           <summary><strong>Permanent deletion</strong></summary>
           <form className="editor-form" action={deleteStructuredEntryAction.bind(null, definition.key, documentId, title)}>
+            <input type="hidden" name="expectedUpdatedAt" value={String(entry.updatedAt || "")} />
             <p>Deletion removes both draft and published versions. The final audit snapshot is retained.</p>
             <label>
               <span>Type “{title}” to confirm</span>

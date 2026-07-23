@@ -122,6 +122,75 @@ test("site pages use the same revisioned workflow and enforce immutable identity
   assert.doesNotMatch(siteSettingsManagement, /pagination\[pageSize\].*100/);
 });
 
+test("all editorial mutations carry a version and editors warn before discarding changes", async () => {
+  const workflow = await source("services/jimwood-cms/src/api/editorial-workflow/controllers/editorial-workflow.ts");
+  assert.match(workflow, /function versionMatches/);
+  assert.match(workflow, /This content item.*changed after this editor was loaded/);
+
+  for (const path of [
+    "lib/strapi-management.ts",
+    "lib/strapi-structured-management.ts",
+    "app/(private)/content/strapi-pages/actions.ts",
+    "app/(private)/content/structured/actions.ts",
+  ]) {
+    assert.match(await source(path), /expectedUpdatedAt/);
+  }
+
+  for (const path of [
+    "app/(private)/content/strapi-pages/page-editor-client.tsx",
+    "components/structured-content-form.tsx",
+  ]) {
+    const editor = await source(path);
+    assert.match(editor, /beforeunload/);
+    assert.match(editor, /You have unsaved changes/);
+    assert.match(editor, /aria-live="polite"/);
+  }
+});
+
+test("custom editors expose the structured fields already present in Strapi", async () => {
+  const config = await source("lib/structured-content-config.ts");
+  for (const field of ["author", "guests", "person", "scriptureReferences", "relatedLinks", "seo"]) {
+    assert.match(config, new RegExp(`name: "${field}"`));
+  }
+  assert.match(config, /type: "relation"/);
+  assert.match(config, /type: "scripture"/);
+  assert.match(config, /type: "external-links"/);
+  assert.match(config, /type: "seo"/);
+
+  const form = await source("components/structured-content-form.tsx");
+  assert.match(form, /multiple=\{field\.multiple\}/);
+  assert.match(form, /Search description/);
+  assert.match(form, /scriptureValue/);
+
+  const actions = await source("app/(private)/content/structured/actions.ts");
+  assert.match(actions, /return \{ set: field\.multiple \? documentIds : documentIds\.slice\(0, 1\) \}/);
+  assert.match(actions, /delimitedLines/);
+  assert.match(actions, /canonical URL/);
+
+  const management = await source("lib/strapi-structured-management.ts");
+  assert.match(management, /listStructuredPeopleOptions/);
+  assert.match(management, /1,000-item editor safety bound/);
+});
+
+test("scheduled publication is bounded, versioned, and timer driven", async () => {
+  const workflow = await source("services/jimwood-cms/src/api/editorial-workflow/controllers/editorial-workflow.ts");
+  assert.match(workflow, /action === 'publish-scheduled'/);
+  assert.match(workflow, /scheduledAt > Date\.now\(\)/);
+  assert.match(workflow, /scheduledFor: null/);
+  assert.match(workflow, /\{ scheduled: true, scheduledFor \}/);
+
+  const worker = await source("scripts/publish_scheduled_strapi_content.mjs");
+  assert.match(worker, /safeLimit/);
+  assert.match(worker, /expectedUpdatedAt/);
+  assert.match(worker, /system:scheduled-publication/);
+  assert.doesNotMatch(worker, /DB_HOST|DB_PASSWORD|postgres/i);
+
+  await stat(resolve(root, "systemd/aic-scheduled-publication-worker.service"));
+  await stat(resolve(root, "systemd/aic-scheduled-publication-worker.timer"));
+  assert.match(await source("scripts/deploy-farm-web.sh"), /install-scheduled-publication-worker\.sh/);
+  assert.doesNotMatch(await source("scripts/deploy-farm-web.sh"), /restore-drill|RUN_STRAPI_BACKUP_DRILL/);
+});
+
 test("global site settings use attributed revisions, rollback, and an idempotent first-install path", async () => {
   const actions = await source("app/(private)/content/site-settings/actions.ts");
   for (const operation of [

@@ -6,7 +6,7 @@ import Underline from "@tiptap/extension-underline";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import type { FormEvent, ReactNode } from "react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type PageCoreFieldsProps = {
   initialTitle?: string;
@@ -177,6 +177,35 @@ function markdownToHtml(value: string) {
 
 export function PageEditorForm({ action, children }: PageEditorFormProps) {
   const [uploadError, setUploadError] = useState("");
+  const [dirty, setDirty] = useState(false);
+  const submitting = useRef(false);
+
+  useEffect(() => {
+    function warnBeforeUnload(event: BeforeUnloadEvent) {
+      if (!dirty || submitting.current) return;
+      event.preventDefault();
+    }
+
+    function confirmNavigation(event: MouseEvent) {
+      if (!dirty || submitting.current || event.defaultPrevented) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const target = event.target instanceof Element ? event.target.closest("a[href]") : null;
+      if (!(target instanceof HTMLAnchorElement) || target.target === "_blank" || target.hasAttribute("download")) return;
+      const destination = new URL(target.href, window.location.href);
+      if (destination.href === window.location.href || destination.hash && destination.pathname === window.location.pathname) return;
+      if (!window.confirm("You have unsaved changes. Leave this editor and discard them?")) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }
+
+    window.addEventListener("beforeunload", warnBeforeUnload);
+    document.addEventListener("click", confirmNavigation, true);
+    return () => {
+      window.removeEventListener("beforeunload", warnBeforeUnload);
+      document.removeEventListener("click", confirmNavigation, true);
+    };
+  }, [dirty]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     const fileInputs = Array.from(event.currentTarget.querySelectorAll<HTMLInputElement>('input[type="file"]'));
@@ -197,10 +226,21 @@ export function PageEditorForm({ action, children }: PageEditorFormProps) {
     }
 
     setUploadError("");
+    submitting.current = true;
+    setDirty(false);
   }
 
   return (
-    <form className="editor-form" action={action} onSubmit={handleSubmit}>
+    <form
+      className="editor-form"
+      action={action}
+      onInput={() => setDirty(true)}
+      onChange={() => setDirty(true)}
+      onSubmit={handleSubmit}
+    >
+      <p className="sr-only" role="status" aria-live="polite">
+        {dirty ? "Unsaved changes. Save before leaving this editor." : ""}
+      </p>
       {uploadError ? (
         <section className="notice-card notice-card--error" role="alert">
           <strong>Image upload is too large</strong>
@@ -263,6 +303,7 @@ export function PageCoreFields({ initialTitle = "", initialSlug = "", initialPag
 
 export function RichTextArea({ name, defaultValue = "", rows = 10, helpText }: RichTextAreaProps) {
   const [value, setValue] = useState(markdownToHtml(defaultValue));
+  const valueInputRef = useRef<HTMLInputElement>(null);
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -280,6 +321,7 @@ export function RichTextArea({ name, defaultValue = "", rows = 10, helpText }: R
     },
     onUpdate: ({ editor }) => {
       setValue(editor.getHTML());
+      valueInputRef.current?.dispatchEvent(new Event("input", { bubbles: true }));
     },
   });
 
@@ -300,7 +342,7 @@ export function RichTextArea({ name, defaultValue = "", rows = 10, helpText }: R
   return (
     <div className="rich-text-field">
       <span>Main content</span>
-      <input type="hidden" name={name} value={value} />
+      <input ref={valueInputRef} type="hidden" name={name} value={value} />
       <div className="rich-text-control rich-text-control--editor" data-empty={!value.trim()}>
         <div className="rich-text-toolbar" aria-label="Rich text formatting tools">
           <select

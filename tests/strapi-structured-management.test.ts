@@ -85,6 +85,7 @@ describe("structured Strapi inventory", () => {
       "episode-1",
       "delete",
       { clerkUserId: "user-1", email: "editor@example.test", name: "Editor", role: "Content Manager" },
+      "2026-07-22T12:00:00.000Z",
       "Permanent deletion",
       "Exact current title",
     );
@@ -92,6 +93,7 @@ describe("structured Strapi inventory", () => {
     const [, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
     expect(JSON.parse(String(init.body))).toMatchObject({
       note: "Permanent deletion",
+      expectedUpdatedAt: "2026-07-22T12:00:00.000Z",
       expectedTitle: "Exact current title",
     });
   });

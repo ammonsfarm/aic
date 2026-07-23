@@ -22,7 +22,11 @@ export type StructuredFieldType =
   | "url"
   | "email"
   | "tags"
-  | "file";
+  | "file"
+  | "relation"
+  | "scripture"
+  | "external-links"
+  | "seo";
 
 export type StructuredFieldDefinition = {
   name: string;
@@ -33,6 +37,8 @@ export type StructuredFieldDefinition = {
   options?: readonly string[];
   accept?: string;
   mediaTarget?: string;
+  relationTarget?: "people";
+  multiple?: boolean;
 };
 
 export type StructuredCollectionDefinition = {
@@ -75,10 +81,24 @@ export const STRUCTURED_COLLECTIONS: Record<StructuredCollectionKey, StructuredC
       },
       { name: "summary", label: "Summary", type: "textarea" },
       { name: "body", label: "Body", type: "richtext", required: true, help: "HTML is allowed and sanitized by the public renderer." },
+      { name: "author", label: "Author", type: "relation", relationTarget: "people" },
+      {
+        name: "scriptureReferences",
+        label: "Scripture references",
+        type: "scripture",
+        help: "One passage per line: Label | Book | Chapter | First verse | Last verse | Translation | URL.",
+      },
+      {
+        name: "relatedLinks",
+        label: "Related links",
+        type: "external-links",
+        help: "One link per line: Label | URL | Optional description.",
+      },
       { name: "topics", label: "Topics", type: "tags", help: "Comma-separated topics." },
       { name: "publishDate", label: "Editorial publish date", type: "datetime" },
-      { name: "scheduledFor", label: "Scheduled for", type: "datetime" },
+      { name: "scheduledFor", label: "Scheduled for (UTC)", type: "datetime" },
       { name: "legacyUrl", label: "Legacy URL", type: "url" },
+      { name: "seo", label: "Search and sharing", type: "seo" },
       { name: "featuredImageFile", label: "Featured image", type: "file", accept: "image/*", mediaTarget: "featuredImage" },
     ],
   },
@@ -108,12 +128,20 @@ export const STRUCTURED_COLLECTIONS: Record<StructuredCollectionKey, StructuredC
       { name: "programDate", label: "Program date", type: "date" },
       { name: "summary", label: "Summary", type: "textarea" },
       { name: "description", label: "Description", type: "richtext" },
+      { name: "guests", label: "Guests", type: "relation", relationTarget: "people", multiple: true },
+      {
+        name: "scriptureReferences",
+        label: "Scripture references",
+        type: "scripture",
+        help: "One passage per line: Label | Book | Chapter | First verse | Last verse | Translation | URL.",
+      },
       { name: "externalAudioUrl", label: "Existing audio URL", type: "url" },
       { name: "audioFile", label: "Upload MP3 audio", type: "file", accept: "audio/mpeg,.mp3", mediaTarget: "audio", help: "MP3 is required for automatic transcript, intelligence, and vector processing." },
       { name: "durationSeconds", label: "Duration in seconds", type: "number" },
       { name: "publishDate", label: "Editorial publish date", type: "datetime" },
-      { name: "scheduledFor", label: "Scheduled for", type: "datetime" },
+      { name: "scheduledFor", label: "Scheduled for (UTC)", type: "datetime" },
       { name: "legacyUrl", label: "Legacy URL", type: "url" },
+      { name: "seo", label: "Search and sharing", type: "seo" },
       { name: "featuredImageFile", label: "Featured image", type: "file", accept: "image/*", mediaTarget: "featuredImage" },
     ],
   },
@@ -134,6 +162,7 @@ export const STRUCTURED_COLLECTIONS: Record<StructuredCollectionKey, StructuredC
       { name: "slug", label: "URL slug", type: "slug", required: true },
       { name: "title", label: "Title or role", type: "text" },
       { name: "organization", label: "Organization", type: "text" },
+      { name: "person", label: "Linked person", type: "relation", relationTarget: "people" },
       { name: "biography", label: "Biography", type: "richtext" },
       { name: "email", label: "Public email", type: "email" },
       { name: "website", label: "Website", type: "url" },

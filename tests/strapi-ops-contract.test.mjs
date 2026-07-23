@@ -279,7 +279,7 @@ test("backup verification checks archives, listings, and checksums without a dat
   assert.doesNotMatch(verify, /--dbname|CREATE DATABASE|DROP DATABASE|--clean/);
 });
 
-test("deploy builds Strapi before installing it and optionally verifies without restoring", () => {
+test("deploy builds Strapi before installing it and optionally verifies without copying or restoring a database", () => {
   const deploy = source("scripts/deploy-farm-web.sh");
   const buildIndex = deploy.indexOf("npm --prefix services/jimwood-cms run build");
   const installIndex = deploy.indexOf("sudo /usr/local/libexec/aic-strapi/install-strapi-service.sh");
@@ -287,5 +287,5 @@ test("deploy builds Strapi before installing it and optionally verifies without 
   assert.match(deploy, /\/usr\/local\/libexec\/aic-strapi\/with-aic-db-env\.sh npm --prefix services\/jimwood-cms run build/);
   assert.match(deploy, /RUN_STRAPI_BACKUP_VERIFY="\$\{RUN_STRAPI_BACKUP_VERIFY:-0\}"/);
   assert.match(deploy, /sudo \/usr\/local\/libexec\/aic-strapi\/verify-strapi-backup\.sh/);
-  assert.doesNotMatch(deploy, /restore-drill|RUN_STRAPI_BACKUP_DRILL/);
+  assert.doesNotMatch(deploy, /RUN_STRAPI_BACKUP_DRILL|restore-drill|createdb|pg_restore/);
 });

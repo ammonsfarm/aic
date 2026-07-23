@@ -43,6 +43,12 @@ function formatDate(value: string) {
   }).format(date);
 }
 
+function formatDateTimeInput(value: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 16);
+}
+
 function componentLabel(component: string) {
   return SECTION_COMPONENTS.find((item) => item.value === component)?.label ?? component;
 }
@@ -221,6 +227,7 @@ export default async function EditStrapiPage({
         </div>
 
         <PageEditorForm action={saveAction}>
+          <input type="hidden" name="expectedUpdatedAt" value={page.updatedAt} />
           <PageCoreFields initialTitle={page.title} initialSlug={page.slug} initialPageKey={page.pageKey} existingSlugs={existingSlugs} />
 
           <div className="checkbox-grid">
@@ -279,6 +286,12 @@ export default async function EditStrapiPage({
             </label>
           </div>
 
+          <label>
+            <span>Scheduled publication (UTC)</span>
+            <input name="scheduledFor" type="datetime-local" defaultValue={formatDateTimeInput(page.scheduledFor)} />
+            <small>Optional. The background publisher releases this draft at or after the selected UTC time. Clear it to cancel the schedule.</small>
+          </label>
+
           <input type="hidden" name="sectionCount" value={page.sections.length} />
           <div className="section-editor-list section-builder">
             <div>
@@ -327,11 +340,13 @@ export default async function EditStrapiPage({
         <div className="button-row">
           {page.archivedAt ? (
             <form action={transitionStrapiPageAction.bind(null, page.documentId, "restore")}>
+              <input type="hidden" name="expectedUpdatedAt" value={page.updatedAt} />
               <input type="hidden" name="transitionNote" value="Restored from the page builder." />
               <button className="button" type="submit">Restore as draft</button>
             </form>
           ) : (
             <form action={transitionStrapiPageAction.bind(null, page.documentId, "archive")}>
+              <input type="hidden" name="expectedUpdatedAt" value={page.updatedAt} />
               <label>
                 <span>Archive reason</span>
                 <input name="transitionNote" maxLength={1000} required />
@@ -353,6 +368,7 @@ export default async function EditStrapiPage({
                   <td>{formatDate(revision.createdAt)}</td>
                   <td>
                     <form action={rollbackStrapiPageAction.bind(null, page.documentId, revision.documentId)}>
+                      <input type="hidden" name="expectedUpdatedAt" value={page.updatedAt} />
                       <input type="hidden" name="rollbackNote" value={`Restored revision ${revision.revisionNumber}.`} />
                       <button className="button button--ghost" type="submit">Restore draft</button>
                     </form>
@@ -367,6 +383,7 @@ export default async function EditStrapiPage({
         <details className="notice-card notice-card--error">
           <summary>Delete this page permanently</summary>
           <form className="stack" action={deleteStrapiPageAction.bind(null, page.documentId, page.title)}>
+            <input type="hidden" name="expectedUpdatedAt" value={page.updatedAt} />
             <p>Type <strong>{page.title}</strong> exactly. The immutable audit event remains after deletion.</p>
             <label>
               <span>Page title confirmation</span>

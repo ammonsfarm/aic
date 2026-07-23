@@ -46,6 +46,14 @@ function formString(formData: FormData, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function expectedVersion(formData: FormData) {
+  const value = formString(formData, "expectedUpdatedAt");
+  if (!value) {
+    throw new Error("This editor is missing its content version. Reload before saving.");
+  }
+  return value;
+}
+
 function validateUrl(value: string, label: string) {
   if (!value) {
     return null;
@@ -66,12 +74,88 @@ function validateUrl(value: string, label: string) {
   return parsed.toString();
 }
 
+function boundedInteger(value: string, label: string) {
+  if (!value) return undefined;
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < 1 || number > 1_000) {
+    throw new Error(`${label} must be a whole number between 1 and 1,000.`);
+  }
+  return number;
+}
+
+function delimitedLines(value: string, label: string, maximum = 100) {
+  const lines = value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length > maximum) {
+    throw new Error(`${label} supports at most ${maximum} entries.`);
+  }
+  return lines.map((line) => line.split("|").map((part) => part.trim()));
+}
+
 function parseField(field: StructuredFieldDefinition, formData: FormData) {
   if (field.type === "file") {
     return undefined;
   }
   if (field.type === "checkbox") {
     return formData.get(field.name) === "on";
+  }
+
+  if (field.type === "relation") {
+    const documentIds = [...new Set(formData.getAll(field.name).flatMap((candidate) => {
+      if (typeof candidate !== "string") return [];
+      const documentId = candidate.trim();
+      if (!documentId) return [];
+      if (!/^[A-Za-z0-9_-]{1,120}$/.test(documentId)) {
+        throw new Error(`${field.label} contains an invalid content identifier.`);
+      }
+      return [documentId];
+    }))];
+    if (field.required && documentIds.length === 0) {
+      throw new Error(`${field.label} is required.`);
+    }
+    return { set: field.multiple ? documentIds : documentIds.slice(0, 1) };
+  }
+
+  if (field.type === "scripture") {
+    return delimitedLines(formString(formData, field.name), field.label).map((parts, index) => {
+      const [label, book, chapter, verseStart, verseEnd, translation, rawUrl] = parts;
+      if (!label || label.length > 200) {
+        throw new Error(`${field.label} line ${index + 1} needs a label of at most 200 characters.`);
+      }
+      const url = rawUrl ? validateUrl(rawUrl, `${field.label} line ${index + 1} URL`) : null;
+      return {
+        label,
+        ...(book ? { book: book.slice(0, 100) } : {}),
+        ...(chapter ? { chapter: boundedInteger(chapter, `${field.label} chapter`) } : {}),
+        ...(verseStart ? { verseStart: boundedInteger(verseStart, `${field.label} first verse`) } : {}),
+        ...(verseEnd ? { verseEnd: boundedInteger(verseEnd, `${field.label} last verse`) } : {}),
+        translation: (translation || "ESV").slice(0, 30),
+        ...(url ? { url } : {}),
+      };
+    });
+  }
+
+  if (field.type === "external-links") {
+    return delimitedLines(formString(formData, field.name), field.label).map((parts, index) => {
+      const [label, rawUrl, description] = parts;
+      if (!label || label.length > 200 || !rawUrl) {
+        throw new Error(`${field.label} line ${index + 1} needs a label and URL.`);
+      }
+      return {
+        label,
+        url: validateUrl(rawUrl, `${field.label} line ${index + 1} URL`),
+        ...(description ? { description: description.slice(0, 2_000) } : {}),
+      };
+    });
+  }
+
+  if (field.type === "seo") {
+    const title = formString(formData, `${field.name}.title`).slice(0, 70);
+    const description = formString(formData, `${field.name}.description`).slice(0, 180);
+    const rawCanonicalUrl = formString(formData, `${field.name}.canonicalUrl`);
+    const canonicalUrl = rawCanonicalUrl ? validateUrl(rawCanonicalUrl, `${field.label} canonical URL`) : null;
+    const noIndex = formData.get(`${field.name}.noIndex`) === "on";
+    if (!title && !description && !canonicalUrl && !noIndex) return null;
+    return { title, description, canonicalUrl, noIndex };
   }
 
   const value = formString(formData, field.name);
@@ -114,7 +198,7 @@ function parseField(field: StructuredFieldDefinition, formData: FormData) {
   }
 
   if (field.type === "datetime") {
-    const date = new Date(value);
+    const date = new Date(/[zZ]|[+-]\d{2}:\d{2}$/.test(value) ? value : `${value}Z`);
     if (Number.isNaN(date.getTime())) {
       throw new Error(`${field.label} must be a valid date and time.`);
     }
@@ -282,7 +366,14 @@ export async function saveStructuredEntryAction(
 ) {
   const user = await requireContentManagerApiUser();
   const data = await structuredPayload(key, formData, { creating: false });
-  await updateStructuredEntry(key, documentId, data, user, formString(formData, "changeNote"));
+  await updateStructuredEntry(
+    key,
+    documentId,
+    data,
+    user,
+    expectedVersion(formData),
+    formString(formData, "changeNote"),
+  );
   revalidateStructuredPaths(key, documentId);
   const definition = getStructuredCollection(key);
   redirect(`${definition?.editorPath || `/content/structured/${key}`}/${documentId}?saved=1`);
@@ -300,6 +391,7 @@ export async function transitionStructuredEntryAction(
     documentId,
     action,
     user,
+    expectedVersion(formData),
     formString(formData, "transitionNote"),
   );
   revalidateStructuredPaths(key, documentId);
@@ -309,7 +401,12 @@ export async function transitionStructuredEntryAction(
 
 export async function retryEpisodeProcessingAction(documentId: string, formData: FormData) {
   const user = await requireContentManagerApiUser();
-  await retryEpisodeProcessing(documentId, user, formString(formData, "processingRetryNote"));
+  await retryEpisodeProcessing(
+    documentId,
+    user,
+    expectedVersion(formData),
+    formString(formData, "processingRetryNote"),
+  );
   revalidateStructuredPaths("episodes", documentId);
   redirect(`/content/podcast/${documentId}?processingRetry=1`);
 }
@@ -326,6 +423,7 @@ export async function rollbackStructuredEntryAction(
     documentId,
     revisionDocumentId,
     user,
+    expectedVersion(formData),
     formString(formData, "rollbackNote"),
   );
   revalidateStructuredPaths(key, documentId);
@@ -362,6 +460,7 @@ export async function deleteStructuredEntryAction(
     documentId,
     "delete",
     user,
+    expectedVersion(formData),
     formString(formData, "deleteNote") || "Deleted from the AIC content manager.",
     confirmation,
   );

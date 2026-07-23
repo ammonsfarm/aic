@@ -13,6 +13,7 @@ RUN_STRAPI_BACKUP_VERIFY="${RUN_STRAPI_BACKUP_VERIFY:-0}"
 INSTALL_ADMIN_OPERATIONS_WORKER="${INSTALL_ADMIN_OPERATIONS_WORKER:-1}"
 INSTALL_EPISODE_PUBLISH_WORKER="${INSTALL_EPISODE_PUBLISH_WORKER:-1}"
 INSTALL_SUBSCRIPTION_PROVIDER_WORKER="${INSTALL_SUBSCRIPTION_PROVIDER_WORKER:-1}"
+INSTALL_SCHEDULED_PUBLICATION_WORKER="${INSTALL_SCHEDULED_PUBLICATION_WORKER:-1}"
 SERVICE_URL="http://127.0.0.1:${REMOTE_PORT}"
 
 ssh_target="${REMOTE_USER}@${REMOTE_HOST}"
@@ -95,6 +96,11 @@ fi
 if [ "${INSTALL_SUBSCRIPTION_PROVIDER_WORKER}" = "1" ]; then
   echo "Installing Mailchimp subscription provider worker timer..."
   bash scripts/install-subscription-provider-worker.sh
+fi
+
+if [ "${INSTALL_SCHEDULED_PUBLICATION_WORKER}" = "1" ]; then
+  echo "Installing scheduled Strapi publication worker timer..."
+  bash scripts/install-scheduled-publication-worker.sh
 fi
 
 if [ "${RUN_STRAPI_BACKUP_VERIFY}" = "1" ]; then

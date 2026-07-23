@@ -1,0 +1,18 @@
+[Unit]
+Description=Publish due PastorWood Strapi content
+After=network-online.target aic-strapi.service
+Wants=network-online.target aic-strapi.service
+
+[Service]
+Type=oneshot
+User=ammonsfarm
+Group=ammonsfarm
+WorkingDirectory=/mnt/storage/aic
+ExecStart=/usr/bin/node /mnt/storage/aic/scripts/publish_scheduled_strapi_content.mjs --env-file /mnt/storage/aic/.env --limit 25
+TimeoutStartSec=2m
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/mnt/storage/aic
+

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { StructuredContentForm } from "@/components/structured-content-form";
 import { getStructuredCollection } from "@/lib/structured-content-config";
+import { listStructuredPeopleOptions } from "@/lib/strapi-structured-management";
 import { createStructuredEntryAction } from "../../actions";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +20,9 @@ export default async function NewStructuredEntryPage({
   }
 
   const action = createStructuredEntryAction.bind(null, definition.key);
+  const relationOptions = definition.fields.some((field) => field.relationTarget === "people")
+    ? await listStructuredPeopleOptions()
+    : [];
 
   return (
     <div className="stack">
@@ -40,7 +44,7 @@ export default async function NewStructuredEntryPage({
             <h2>Content details</h2>
           </div>
         </div>
-        <StructuredContentForm definition={definition} entry={null} action={action} />
+        <StructuredContentForm definition={definition} entry={null} action={action} relationOptions={relationOptions} />
       </section>
     </div>
   );

@@ -1240,6 +1240,24 @@ input:disabled {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.editor-field-group {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+}
+
+.editor-field-group > legend {
+  padding: 0 6px;
+  color: var(--cypress);
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
 .editor-form small {
   color: var(--soft-ink);
   font-size: 0.78rem;

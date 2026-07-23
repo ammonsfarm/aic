@@ -72,6 +72,11 @@ export type StructuredEntryPage = {
   pagination: StructuredPagination;
 };
 
+export type StructuredRelationOption = {
+  documentId: string;
+  label: string;
+};
+
 export type StructuredInventorySummary = {
   total: number;
   draft: number;
@@ -318,6 +323,32 @@ export async function getStructuredInventorySummary(
   };
 }
 
+export async function listStructuredPeopleOptions(): Promise<StructuredRelationOption[]> {
+  const definition = getStructuredCollection("people");
+  if (!definition) {
+    return [];
+  }
+
+  const options: StructuredRelationOption[] = [];
+  for (let page = 1; page <= 10; page += 1) {
+    const result = await listVersionPage(definition, {
+      status: "draft",
+      page,
+      pageSize: 100,
+      archived: "exclude",
+    });
+    options.push(...result.entries.map((entry) => ({
+      documentId: entry.documentId,
+      label: String(entry.name || entry.title || entry.documentId),
+    })));
+    if (page >= result.pagination.pageCount || result.entries.length < result.pagination.pageSize) {
+      return options.sort((left, right) => left.label.localeCompare(right.label));
+    }
+  }
+
+  throw new Error("People options exceed the supported 1,000-item editor safety bound.");
+}
+
 async function getVersion(
   definition: StructuredCollectionDefinition,
   documentId: string,
@@ -391,6 +422,7 @@ export async function updateStructuredEntry(
   documentId: string,
   data: Record<string, unknown>,
   user: CurrentAppUser,
+  expectedUpdatedAt: string,
   note = "",
 ) {
   const definition = getStructuredCollection(key);
@@ -402,7 +434,7 @@ export async function updateStructuredEntry(
     `/api/editorial/${definition.entityType}/${encodeURIComponent(documentId)}`,
     {
       method: "PUT",
-      body: JSON.stringify({ data, actor: actorFor(user), note }),
+      body: JSON.stringify({ data, actor: actorFor(user), expectedUpdatedAt, note }),
     },
   );
   const entry = normalizeEntry(response?.data);
@@ -417,6 +449,7 @@ export async function transitionStructuredEntry(
   documentId: string,
   action: "publish" | "unpublish" | "archive" | "restore" | "delete",
   user: CurrentAppUser,
+  expectedUpdatedAt: string,
   note = "",
   expectedTitle = "",
 ) {
@@ -429,7 +462,12 @@ export async function transitionStructuredEntry(
     `/api/editorial/${definition.entityType}/${encodeURIComponent(documentId)}/${action}`,
     {
       method: "POST",
-      body: JSON.stringify({ actor: actorFor(user), note, ...(expectedTitle ? { expectedTitle } : {}) }),
+      body: JSON.stringify({
+        actor: actorFor(user),
+        expectedUpdatedAt,
+        note,
+        ...(expectedTitle ? { expectedTitle } : {}),
+      }),
     },
   );
 }
@@ -439,6 +477,7 @@ export async function rollbackStructuredEntry(
   documentId: string,
   revisionDocumentId: string,
   user: CurrentAppUser,
+  expectedUpdatedAt: string,
   note = "",
 ) {
   const definition = getStructuredCollection(key);
@@ -450,7 +489,7 @@ export async function rollbackStructuredEntry(
     `/api/editorial/${definition.entityType}/${encodeURIComponent(documentId)}/rollback`,
     {
       method: "POST",
-      body: JSON.stringify({ actor: actorFor(user), note, revisionDocumentId }),
+      body: JSON.stringify({ actor: actorFor(user), expectedUpdatedAt, note, revisionDocumentId }),
     },
   );
 }
@@ -494,13 +533,14 @@ export async function getLatestEpisodeProcessingRequest(documentId: string): Pro
 export async function retryEpisodeProcessing(
   documentId: string,
   user: CurrentAppUser,
+  expectedUpdatedAt: string,
   note = "",
 ) {
   return strapiRequest<StrapiEnvelope<unknown>>(
     `/api/editorial/episode/${encodeURIComponent(documentId)}/retry-processing`,
     {
       method: "POST",
-      body: JSON.stringify({ actor: actorFor(user), note }),
+      body: JSON.stringify({ actor: actorFor(user), expectedUpdatedAt, note }),
     },
   );
 }

@@ -21,6 +21,7 @@ export type ManagedStrapiPage = {
   heroBody: string;
   seoTitle: string;
   seoDescription: string;
+  scheduledFor: string;
   publishedAt: string;
   updatedAt: string;
   createdAt: string;
@@ -74,6 +75,7 @@ export type ManagedStrapiPageInput = {
   heroBody: string;
   seoTitle: string;
   seoDescription: string;
+  scheduledFor?: string | null;
   sections: Array<Record<string, unknown>>;
 };
 
@@ -209,6 +211,7 @@ function normalizePage(entity: StrapiEntity<ManagedStrapiPage>): ManagedStrapiPa
     heroBody: getString(source.heroBody),
     seoTitle: getString(source.seoTitle),
     seoDescription: getString(source.seoDescription),
+    scheduledFor: getString(source.scheduledFor),
     publishedAt: getString(source.publishedAt),
     publicationStatus: getString(source.publishedAt) ? "published" : "draft",
     updatedAt: getString(source.updatedAt),
@@ -359,6 +362,7 @@ function pagePayload(input: ManagedStrapiPageInput) {
       heroBody: input.heroBody,
       seoTitle: input.seoTitle,
       seoDescription: input.seoDescription,
+      scheduledFor: input.scheduledFor || null,
       sections: input.sections,
     },
   };
@@ -554,12 +558,13 @@ export async function updateManagedStrapiPageWithWorkflow(
   documentId: string,
   input: ManagedStrapiPageInput,
   user: CurrentAppUser,
+  expectedUpdatedAt: string,
   note = "",
 ) {
   const payload = await editorialPageRequest(
     `/api/editorial/page/${encodeURIComponent(documentId)}`,
     "PUT",
-    { data: pagePayload(input).data, actor: editorialActor(user), note },
+    { data: pagePayload(input).data, actor: editorialActor(user), expectedUpdatedAt, note },
   ) as StrapiSingleResponse<ManagedStrapiPage>;
   const page = payload.data ? normalizePage(payload.data) : null;
   if (!page) {
@@ -572,13 +577,19 @@ export async function transitionManagedStrapiPage(
   documentId: string,
   action: "publish" | "unpublish" | "archive" | "restore" | "delete",
   user: CurrentAppUser,
+  expectedUpdatedAt: string,
   note = "",
   expectedTitle = "",
 ) {
   return editorialPageRequest(
     `/api/editorial/page/${encodeURIComponent(documentId)}/${action}`,
     "POST",
-    { actor: editorialActor(user), note, ...(expectedTitle ? { expectedTitle } : {}) },
+    {
+      actor: editorialActor(user),
+      expectedUpdatedAt,
+      note,
+      ...(expectedTitle ? { expectedTitle } : {}),
+    },
   );
 }
 
@@ -586,12 +597,13 @@ export async function rollbackManagedStrapiPage(
   documentId: string,
   revisionDocumentId: string,
   user: CurrentAppUser,
+  expectedUpdatedAt: string,
   note = "",
 ) {
   return editorialPageRequest(
     `/api/editorial/page/${encodeURIComponent(documentId)}/rollback`,
     "POST",
-    { actor: editorialActor(user), note, revisionDocumentId },
+    { actor: editorialActor(user), expectedUpdatedAt, note, revisionDocumentId },
   );
 }
 

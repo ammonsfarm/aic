@@ -43,6 +43,14 @@ function formString(formData: FormData, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function expectedVersion(formData: FormData) {
+  const value = formString(formData, "expectedUpdatedAt");
+  if (!value) {
+    throw new Error("This editor is missing its page version. Reload before saving.");
+  }
+  return value;
+}
+
 function formNumber(formData: FormData, key: string) {
   const value = formString(formData, key);
   if (!value) {
@@ -51,6 +59,16 @@ function formNumber(formData: FormData, key: string) {
 
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formDateTime(formData: FormData, key: string) {
+  const value = formString(formData, key);
+  if (!value) return null;
+  const date = new Date(/[zZ]|[+-]\d{2}:\d{2}$/.test(value) ? value : `${value}Z`);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error("Scheduled publication must use a valid date and time.");
+  }
+  return date.toISOString();
 }
 
 function formBoolean(formData: FormData, key: string) {
@@ -242,6 +260,7 @@ async function parsePageInput(
     heroBody: formString(formData, "heroBody"),
     seoTitle: formString(formData, "seoTitle"),
     seoDescription: formString(formData, "seoDescription"),
+    scheduledFor: formDateTime(formData, "scheduledFor"),
     sections: await parseSections(formData),
   };
 }
@@ -297,18 +316,31 @@ export async function saveStrapiPageAction(documentId: string, formData: FormDat
   await assertPageSlugIsUnique(input, documentId);
   const intent = publicationIntent(formData);
   const note = formString(formData, "changeNote");
+  const expectedUpdatedAt = expectedVersion(formData);
 
   if (intent === "unpublish") {
-    await updateManagedStrapiPageWithWorkflow(documentId, input, user, note);
-    await transitionManagedStrapiPage(documentId, "unpublish", user, note);
+    const updated = await updateManagedStrapiPageWithWorkflow(
+      documentId,
+      input,
+      user,
+      expectedUpdatedAt,
+      note,
+    );
+    await transitionManagedStrapiPage(documentId, "unpublish", user, updated.updatedAt, note);
     revalidateManagedPageEditor(documentId);
     revalidatePublishedPage(input, previousIdentity);
     redirect(`/content/site-pages/${documentId}?state=unpublished`);
   }
 
-  await updateManagedStrapiPageWithWorkflow(documentId, input, user, note);
+  const updated = await updateManagedStrapiPageWithWorkflow(
+    documentId,
+    input,
+    user,
+    expectedUpdatedAt,
+    note,
+  );
   if (intent === "publish") {
-    await transitionManagedStrapiPage(documentId, "publish", user, note);
+    await transitionManagedStrapiPage(documentId, "publish", user, updated.updatedAt, note);
   }
   revalidateManagedPageEditor(documentId);
   if (intent === "publish") {
@@ -325,7 +357,7 @@ export async function createStrapiPageAction(formData: FormData) {
   const note = formString(formData, "changeNote");
   const page = await createManagedStrapiPageWithWorkflow(input, user, note);
   if (status === "published") {
-    await transitionManagedStrapiPage(page.documentId, "publish", user, note);
+    await transitionManagedStrapiPage(page.documentId, "publish", user, page.updatedAt, note);
   }
   revalidateManagedPageEditor(page.documentId);
   if (status === "published") {
@@ -345,7 +377,7 @@ export async function transitionStrapiPageAction(
     throw new Error("The page no longer exists in Strapi.");
   }
   const note = formString(formData, "transitionNote");
-  await transitionManagedStrapiPage(documentId, action, user, note);
+  await transitionManagedStrapiPage(documentId, action, user, expectedVersion(formData), note);
   revalidateManagedPageEditor(documentId);
   revalidatePublishedPage({ ...page, sections: [] }, { pageKey: page.pageKey, slug: page.slug });
   redirect(`/content/site-pages/${documentId}?state=${action}d`);
@@ -365,6 +397,7 @@ export async function rollbackStrapiPageAction(
     documentId,
     revisionDocumentId,
     user,
+    expectedVersion(formData),
     formString(formData, "rollbackNote"),
   );
   revalidateManagedPageEditor(documentId);
@@ -392,6 +425,7 @@ export async function deleteStrapiPageAction(
     documentId,
     "delete",
     user,
+    expectedVersion(formData),
     formString(formData, "deleteNote") || "Deleted from the AIC page builder.",
     confirmation,
   );

@@ -131,7 +131,8 @@ test("editorial workflow exposes create, update, transition, and revision reads"
   assert.match(controller, /Site settings have already been initialized\./);
   assert.match(controller, /action === 'baseline'/);
   assert.match(controller, /adoptedExisting: true/);
-  assert.match(controller, /siteSettingsVersionMatches/);
+  assert.match(controller, /function versionMatches/);
+  assert.match(controller, /action === 'publish-scheduled'/);
   assert.match(controller, /atomic publication transition/);
   assert.match(controller, /enqueueEpisodeProcessing/);
   assert.match(controller, /hasPermanentEpisodeIdentity/);

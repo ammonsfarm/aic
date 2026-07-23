@@ -29,6 +29,21 @@ function mediaRecord(value: unknown): Record<string, unknown> | null {
   return record;
 }
 
+function records(value: unknown): Record<string, unknown>[] {
+  if (Array.isArray(value)) {
+    return value.map(mediaRecord).filter((item): item is Record<string, unknown> => Boolean(item));
+  }
+  const record = mediaRecord(value);
+  if (Array.isArray(record?.data)) {
+    return record.data.map(mediaRecord).filter((item): item is Record<string, unknown> => Boolean(item));
+  }
+  if (record?.data) {
+    const item = mediaRecord(record.data);
+    return item ? [item] : [];
+  }
+  return record ? [record] : [];
+}
+
 function previewMediaHref(value: unknown) {
   const rawUrl = typeof value === "string" ? value.trim() : "";
   if (!rawUrl || rawUrl.startsWith("//")) return "";
@@ -90,6 +105,46 @@ function PreviewField({ field, value }: { field: StructuredFieldDefinition; valu
   if (field.type === "url") {
     const href = safeCmsHref(display(value));
     return href ? <p><a href={href}>{href}</a></p> : <p>—</p>;
+  }
+  if (field.type === "relation") {
+    const related = records(value);
+    return related.length ? (
+      <ul>{related.map((item) => (
+        <li key={String(item.documentId || item.id || item.name)}>{display(item.name || item.title || item.attribution || item.documentId)}</li>
+      ))}</ul>
+    ) : <p>—</p>;
+  }
+  if (field.type === "scripture") {
+    const references = records(value);
+    return references.length ? (
+      <ul>{references.map((reference, index) => {
+        const href = safeCmsHref(display(reference.url));
+        const label = display(reference.label);
+        return <li key={String(reference.id || `${label}-${index}`)}>{href ? <a href={href}>{label}</a> : label}</li>;
+      })}</ul>
+    ) : <p>—</p>;
+  }
+  if (field.type === "external-links") {
+    const links = records(value);
+    return links.length ? (
+      <ul>{links.map((link, index) => {
+        const href = safeCmsHref(display(link.url));
+        const label = display(link.label);
+        return <li key={String(link.id || `${label}-${index}`)}>{href ? <a href={href}>{label}</a> : label}{link.description ? ` — ${display(link.description)}` : ""}</li>;
+      })}</ul>
+    ) : <p>—</p>;
+  }
+  if (field.type === "seo") {
+    const seo = mediaRecord(value);
+    if (!seo) return <p>—</p>;
+    return (
+      <dl>
+        <dt>Search title</dt><dd>{display(seo.title)}</dd>
+        <dt>Description</dt><dd>{display(seo.description)}</dd>
+        <dt>Canonical URL</dt><dd>{display(seo.canonicalUrl)}</dd>
+        <dt>Hidden from search engines</dt><dd>{seo.noIndex ? "Yes" : "No"}</dd>
+      </dl>
+    );
   }
   return <p style={{ whiteSpace: "pre-wrap" }}>{display(value)}</p>;
 }

@@ -72,7 +72,7 @@ const entityModels = {
 
 type EntityType = keyof typeof entityModels;
 type EditorialAction = 'baseline' | 'create' | 'save' | 'publish' | 'unpublish' | 'archive' | 'restore' | 'rollback' | 'delete' | 'upload';
-type WorkflowAction = EditorialAction | 'retry-processing';
+type WorkflowAction = EditorialAction | 'publish-scheduled' | 'retry-processing';
 
 const revisionUid = 'api::editorial-revision.editorial-revision';
 const eventUid = 'api::editorial-event.editorial-event';
@@ -339,15 +339,20 @@ function requestBody(ctx: EditorialContext): WorkflowBody {
   return candidate && typeof candidate === 'object' ? candidate as WorkflowBody : {};
 }
 
-function siteSettingsVersionMatches(
+function versionMatches(
   ctx: EditorialContext,
   current: DocumentRecord,
   input: WorkflowBody,
+  entityType: EntityType,
 ) {
   const expectedUpdatedAt = typeof input.expectedUpdatedAt === 'string' ? input.expectedUpdatedAt.trim() : '';
   const currentUpdatedAt = typeof current.updatedAt === 'string' ? current.updatedAt : '';
   if (!expectedUpdatedAt || !currentUpdatedAt || expectedUpdatedAt !== currentUpdatedAt) {
-    ctx.badRequest('Site settings changed after this editor was loaded. Reload before saving.');
+    ctx.badRequest(
+      entityType === 'site-setting'
+        ? 'Site settings changed after this editor was loaded. Reload before saving.'
+        : 'This content item changed after this editor was loaded. Reload before saving.',
+    );
     return false;
   }
   return true;
@@ -406,14 +411,15 @@ const editorialWorkflowController = {
       if (!current) {
         return ctx.notFound('Content item was not found.');
       }
+      if (!versionMatches(ctx, current, input, entityType)) {
+        return;
+      }
       if (entityType === 'page') {
         const requestedPageKey = data.pageKey;
         if (typeof requestedPageKey === 'string' && requestedPageKey !== current.pageKey) {
           return ctx.badRequest('Page identity cannot be changed after creation.');
         }
         data.pageKey = current.pageKey;
-      } else if (entityType === 'site-setting' && !siteSettingsVersionMatches(ctx, current, input)) {
-        return;
       }
       if (entityType === 'episode' && Object.prototype.hasOwnProperty.call(data, 'trackId')) {
         const requestedTrackId = operationalTrackId(data.trackId);
@@ -475,12 +481,13 @@ const editorialWorkflowController = {
         return;
       }
 
+      if (!versionMatches(ctx, current, input, entityType)) {
+        return;
+      }
+
       if (entityType === 'site-setting' && (action === 'publish' || action === 'unpublish')) {
         if (!input.data || typeof input.data !== 'object') {
           return ctx.badRequest('Site settings data is required for an atomic publication transition.');
-        }
-        if (!siteSettingsVersionMatches(ctx, current, input)) {
-          return;
         }
         current = await documents(model.uid).update({
           documentId,
@@ -489,7 +496,49 @@ const editorialWorkflowController = {
           populate: editorialPopulate(model),
         });
         await recordAction(entityType, model, documentId, current, 'save', actor, input.note);
-      } else if (entityType === 'site-setting' && action === 'rollback' && !siteSettingsVersionMatches(ctx, current, input)) {
+      }
+
+      if (action === 'publish-scheduled') {
+        if (!['page', 'post', 'episode'].includes(entityType)) {
+          return ctx.badRequest('Scheduled publication is only available for pages, posts, and episodes.');
+        }
+        if (!model.publishable || current.archivedAt) {
+          return ctx.badRequest('This content item is not eligible for scheduled publication.');
+        }
+        const scheduledFor = typeof current.scheduledFor === 'string' ? current.scheduledFor : '';
+        const scheduledAt = Date.parse(scheduledFor);
+        if (!scheduledFor || !Number.isFinite(scheduledAt) || scheduledAt > Date.now()) {
+          return ctx.badRequest('This content item is not due for scheduled publication.');
+        }
+        if (entityType === 'episode' && !operationalTrackId(current.trackId)) {
+          return ctx.badRequest('Episode publication requires a valid permanent Track ID.');
+        }
+        const scheduleUpdate: Record<string, unknown> = { scheduledFor: null };
+        if (contentTypeAttributes(model.uid).publishDate && !current.publishDate) {
+          scheduleUpdate.publishDate = scheduledFor;
+        }
+        current = await documents(model.uid).update({
+          documentId,
+          data: scheduleUpdate,
+          status: 'draft',
+          populate: editorialPopulate(model),
+        });
+        const result = await documents(model.uid).publish({ documentId, populate: editorialPopulate(model) });
+        const published = result.entries?.[0] || current;
+        const revisionNumber = await recordAction(
+          entityType,
+          model,
+          documentId,
+          published,
+          'publish',
+          actor,
+          input.note || 'Published automatically at the scheduled time.',
+          { scheduled: true, scheduledFor },
+        );
+        if (entityType === 'episode') {
+          await enqueueEpisodeProcessing(documentId, published, revisionNumber, actor);
+        }
+        ctx.body = { data: published };
         return;
       }
 
@@ -502,6 +551,14 @@ const editorialWorkflowController = {
         }
         if (entityType === 'episode' && !operationalTrackId(current.trackId)) {
           return ctx.badRequest('Episode publication requires a valid permanent Track ID.');
+        }
+        if (current.scheduledFor) {
+          current = await documents(model.uid).update({
+            documentId,
+            data: { scheduledFor: null },
+            status: 'draft',
+            populate: editorialPopulate(model),
+          });
         }
         const result = await documents(model.uid).publish({ documentId, populate: editorialPopulate(model) });
         const published = result.entries?.[0] || current;
