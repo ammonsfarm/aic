@@ -2472,6 +2472,55 @@ def build_media_records(
     return records, rejected
 
 
+def merge_external_media_records(
+    media_records: Sequence[MediaRecord],
+    external_media_records: Sequence[MediaRecord],
+) -> list[MediaRecord]:
+    """Replace only the synthetic records created from localized external-image references."""
+    records_by_path: dict[str, MediaRecord] = {}
+    records_by_identity: dict[str, MediaRecord] = {}
+    for record in media_records:
+        if record.relative_path in records_by_path:
+            raise RuntimeError(f"Media inventory has a duplicate path: {record.relative_path}")
+        if record.attachment_id in records_by_identity:
+            raise RuntimeError(f"Media inventory has a duplicate identity: {record.attachment_id}")
+        records_by_path[record.relative_path] = record
+        records_by_identity[record.attachment_id] = record
+
+    for external_record in external_media_records:
+        existing = records_by_path.get(external_record.relative_path)
+        if existing is not None:
+            expected_placeholder_url = (
+                f"{LEGACY_ORIGIN}/wp-content/uploads/"
+                f"{urllib.parse.quote(external_record.relative_path, safe='/')}"
+            )
+            replaceable_placeholder = (
+                existing.attachment_id.startswith("referenced-")
+                and existing.source_url == expected_placeholder_url
+                and existing.visibility == "public"
+                and existing.exists
+                and existing.size_bytes == external_record.size_bytes
+                and existing.mime_type == external_record.mime_type
+            )
+            if not replaceable_placeholder:
+                raise RuntimeError(
+                    "External image backup collides with an existing media path: "
+                    f"{external_record.relative_path}"
+                )
+            records_by_identity.pop(existing.attachment_id)
+
+        identity_collision = records_by_identity.get(external_record.attachment_id)
+        if identity_collision is not None and identity_collision.relative_path != external_record.relative_path:
+            raise RuntimeError(
+                "External image backup collides with an existing media identity: "
+                f"{external_record.attachment_id}"
+            )
+        records_by_path[external_record.relative_path] = external_record
+        records_by_identity[external_record.attachment_id] = external_record
+
+    return sorted(records_by_path.values(), key=lambda record: record.relative_path)
+
+
 def build_media_reference_coverage(
     references: defaultdict[str, set[str]],
     media_records: Sequence[MediaRecord],
@@ -4341,12 +4390,7 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]
         args.restricted_media_root,
         args.verify_media,
     )
-    media_records.extend(external_media_records)
-    if len({record.relative_path for record in media_records}) != len(media_records):
-        raise RuntimeError("External image backup collides with an existing media path")
-    if len({record.attachment_id for record in media_records}) != len(media_records):
-        raise RuntimeError("External image backup collides with an existing media identity")
-    media_records.sort(key=lambda record: record.relative_path)
+    media_records = merge_external_media_records(media_records, external_media_records)
     missing_episode_media = reconcile_episode_media(episodes, media_records)
     aic_track_ids = {
         text(row.get("trackId"))

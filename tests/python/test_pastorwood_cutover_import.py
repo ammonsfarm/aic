@@ -793,6 +793,39 @@ class CutoverBoundaryTests(unittest.TestCase):
         self.assertEqual(target, "/radio/")
         self.assertEqual(reason, "radio-taxonomy-archive-fallback")
 
+    def test_external_media_merge_replaces_only_the_localized_synthetic_record(self):
+        relative_path = "pastorwood-import/external-images/" + "a" * 64 + ".jpg"
+        placeholder = MODULE.MediaRecord(
+            "referenced-placeholder", "Image", relative_path,
+            f"https://www.pastorwood.org/wp-content/uploads/{relative_path}",
+            "image/jpeg", "public", ("post:wp-post:7",), True, 123,
+        )
+        external = MODULE.MediaRecord(
+            "external-source", "Image", relative_path,
+            "https://gallery.mailchimp.com/example.jpg",
+            "image/jpeg", "public", ("posts:7",), True, 123,
+        )
+
+        merged = MODULE.merge_external_media_records([placeholder], [external])
+
+        self.assertEqual(merged, [external])
+
+    def test_external_media_merge_rejects_a_real_path_collision(self):
+        relative_path = "pastorwood-import/external-images/" + "b" * 64 + ".jpg"
+        attachment = MODULE.MediaRecord(
+            "42", "Attachment", relative_path,
+            f"https://www.pastorwood.org/wp-content/uploads/{relative_path}",
+            "image/jpeg", "public", ("legacy-public-sitemap",), True, 123,
+        )
+        external = MODULE.MediaRecord(
+            "external-source", "External", relative_path,
+            "https://gallery.mailchimp.com/example.jpg",
+            "image/jpeg", "public", ("posts:7",), True, 123,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, relative_path):
+            MODULE.merge_external_media_records([attachment], [external])
+
     def test_every_legacy_radio_taxonomy_family_maps_to_the_archive(self):
         for taxonomy in ("book", "preacher", "series", "topics", "service-type"):
             with self.subTest(taxonomy=taxonomy):
