@@ -25,7 +25,7 @@ if [[ ! "${token}" =~ ^[0-9a-f]{256}$ ]]; then
   exit 1
 fi
 
-temporary_env="$(mktemp /mnt/storage/aic/.env.strapi.XXXXXX)"
+temporary_env="$(mktemp /tmp/.aic-strapi-env.XXXXXX)"
 cleanup() {
   rm -f -- "${temporary_env:-}"
 }

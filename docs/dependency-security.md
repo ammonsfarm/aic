@@ -110,6 +110,8 @@ Strapi-owned APIs; track their removal in a compatible Strapi release.
 1. Update direct packages without changing the Strapi major.
 2. Refresh both lockfiles and review every override against upstream ranges.
 3. Run root tests, type checking, lint, and a production Next.js build.
-4. Run Strapi tests/build plus `ops/strapi/contract-start-test.sh`.
+4. Run Strapi tests/build plus the root Strapi operations contract tests. Perform
+   deployed service acceptance only against the canonical existing AIC database;
+   do not create a disposable or restored validation database.
 5. Exercise Next image optimization and the sharp transform test.
 6. Re-run both production audits and update this document when counts change.

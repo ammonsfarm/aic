@@ -42,6 +42,12 @@ DATABASE_USERNAME=strapi
 
 `DATABASE_PASSWORD` should stay in `.env` only.
 
+Production does not use this local database. The native service maps the
+existing AIC `DB_*` target from `/mnt/storage/aic/.env` and routes
+Strapi-managed objects to the `aic_strapi` schema in that same database.
+Because production intentionally reuses the existing AIC database login, this
+schema is a namespace boundary rather than a separate authorization role.
+
 ## Administrative access
 
 The production service binds only to `127.0.0.1`. Content managers work through
@@ -59,5 +65,5 @@ Episodes, People, Endorsements, governed Media Assets, Redirects, Editorial
 Revisions, and Editorial Events. The protected AIC editor owns create, save,
 preview, publish, unpublish, archive, restore, rollback, and audit workflows.
 
-Production provisioning, service installation, backups, and restore drills are
+Production provisioning, service installation, and non-restoring backup checks are
 documented in `../../../ops/strapi/README.md`.

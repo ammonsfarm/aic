@@ -61,13 +61,14 @@ npm run build
 
 ## Production operations
 
-The native service, durable upload, backup, and restore-drill contract lives in
+The native service, durable upload, and schema-scoped backup contract lives in
 `../../ops/strapi/README.md`. Those artifacts are intentionally not installed by
 this source tree.
 
 Before launch, operations must run the checked-in provisioning and service
-installers, verify a real backup/restore drill, run the controlled legacy import,
-and complete an authenticated content-manager acceptance pass. The service
+installers, verify a real schema-scoped archive and its checksums without a
+database restore, run the controlled legacy import, and complete an authenticated
+content-manager acceptance pass. The service
 bootstrap maintains a custom least-privilege AIC token and revokes Strapi's broad
 first-run defaults.
 
