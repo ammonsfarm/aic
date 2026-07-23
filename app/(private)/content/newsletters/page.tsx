@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export default async function NewsletterSubscribersPage() {
   await requireContentManagerOrAdmin();
   const summary = await getSubscriptionProviderSummary();
-  const providerReady = summary.provider.configured && summary.provider.webhookConfigured;
+  const providerReady = summary.provider.configured;
   return (
     <div className="stack">
       <MountainPanel
@@ -37,6 +37,7 @@ export default async function NewsletterSubscribersPage() {
               <tr><th scope="row">Pending confirmation</th><td>{summary.subscribers.pending}</td><td>{summary.provider.pending} provider pending</td></tr>
               <tr><th scope="row">Active</th><td>{summary.subscribers.active}</td><td>{summary.provider.subscribed} provider subscribed</td></tr>
               <tr><th scope="row">Unsubscribed / suppressed</th><td>{summary.subscribers.unsubscribed + summary.subscribers.suppressed}</td><td>{summary.provider.unsubscribed} unsubscribed, {summary.provider.cleaned} cleaned</td></tr>
+              <tr><th scope="row">Provider attention</th><td>{summary.provider.unknown} unknown</td><td>{summary.provider.error} provider errors</td></tr>
               <tr><th scope="row">Outbox</th><td>{summary.outbox.queued} queued, {summary.outbox.running} running</td><td>{summary.outbox.failed} failed, {summary.outbox.exhausted} exhausted</td></tr>
             </tbody>
           </table>
@@ -45,7 +46,10 @@ export default async function NewsletterSubscribersPage() {
           Latest provider synchronization: {summary.provider.latestSyncAt ? new Date(summary.provider.latestSyncAt).toLocaleString("en-US", { timeZone: "America/New_York" }) : "No completed synchronization recorded"}.
         </p>
         {!providerReady ? (
-          <p className="notice-card status-item--warn" role="status">Set the protected Mailchimp API and signed-webhook secrets before enabling delivery. The audience identifier is retained as configuration; no secret value is displayed here.</p>
+          <p className="notice-card status-item--warn" role="status">Set all protected Mailchimp, signed-webhook, rate-limit, and unsubscribe settings with valid provider routing before enabling delivery. No secret value is displayed here.</p>
+        ) : null}
+        {!summary.provider.publicCaptureEnabled ? (
+          <p className="notice-card status-item--warn" role="status">Public signup is explicitly disabled at runtime. Existing unsubscribe and provider-reconciliation work remains visible here.</p>
         ) : null}
         {summary.outbox.latestError ? <p className="notice-card status-item--warn" role="alert">Latest provider error: {summary.outbox.latestError}</p> : null}
         <SubscriptionProviderRetryForm disabled={!summary.outbox.failed} />

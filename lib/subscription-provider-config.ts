@@ -20,6 +20,10 @@ export function subscriptionProviderConfigReady(environment: NodeJS.ProcessEnv =
     && MAILCHIMP_AUDIENCE_ID_PATTERN.test(environment.MAILCHIMP_AUDIENCE_ID!.trim());
 }
 
+export function publicSubscriptionCaptureEnabled(environment: NodeJS.ProcessEnv = process.env) {
+  return environment.PASTORWOOD_SUBSCRIPTIONS_ENABLED?.trim().toLowerCase() === "true";
+}
+
 export function missingSubscriptionProviderConfig(environment: NodeJS.ProcessEnv = process.env) {
   return REQUIRED_SUBSCRIPTION_PROVIDER_KEYS.filter((key) => {
     const value = environment[key]?.trim() || "";

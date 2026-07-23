@@ -30,8 +30,12 @@ export async function POST(request: Request) {
     const result = await unsubscribePublicSubscription(token);
     if (!result.ok) return NextResponse.json({ error: "This unsubscribe link is invalid." }, { status: 400 });
     return NextResponse.json(
-      { ok: true, message: "You will no longer receive the weekly devotional at this address." },
-      { headers: { "Cache-Control": "no-store" } },
+      {
+        ok: true,
+        state: "provider-pending",
+        message: "Your unsubscribe is recorded here; removal from the email provider is queued.",
+      },
+      { status: 202, headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
     console.error("Public unsubscribe failed.", error);

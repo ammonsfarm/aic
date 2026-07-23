@@ -5,7 +5,6 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { queryRows } from "@/lib/db";
 import { normalizeSubscriberEmail, subscriptionFingerprint } from "@/lib/public-subscriptions";
 
-export const DEFAULT_MAILCHIMP_AUDIENCE_ID = "9ad7bbba36";
 const WEBHOOK_TOLERANCE_SECONDS = 300;
 
 export type MailchimpWebhookEvent = {
@@ -27,8 +26,10 @@ export class MailchimpWebhookError extends Error {
 }
 
 export function mailchimpAudienceId() {
-  const value = process.env.MAILCHIMP_AUDIENCE_ID?.trim() || DEFAULT_MAILCHIMP_AUDIENCE_ID;
-  if (!/^[a-f0-9]{10,32}$/i.test(value)) throw new Error("Mailchimp audience configuration is invalid.");
+  const value = process.env.MAILCHIMP_AUDIENCE_ID?.trim() || "";
+  if (!/^[a-f0-9]{10,32}$/i.test(value)) {
+    throw new MailchimpWebhookError("Mailchimp audience configuration is missing or invalid.", 503);
+  }
   return value;
 }
 

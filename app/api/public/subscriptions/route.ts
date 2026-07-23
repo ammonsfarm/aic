@@ -7,7 +7,11 @@ import {
   SubscriptionBodyTooLargeError,
   validateSubscriptionPayload,
 } from "@/lib/public-subscriptions";
-import { subscriptionProviderConfigReady } from "@/lib/subscription-provider-config";
+import {
+  publicSubscriptionCaptureEnabled,
+  subscriptionProviderConfigReady,
+} from "@/lib/subscription-provider-config";
+import { getStrapiSiteSettings } from "@/lib/strapi-site-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +19,14 @@ export async function POST(request: Request) {
   if (!isSameSiteSubscriptionRequest(request)) {
     return NextResponse.json({ error: "Cross-site subscription requests are not accepted." }, { status: 403 });
   }
-  if (!subscriptionProviderConfigReady()) {
+  if (!publicSubscriptionCaptureEnabled() || !subscriptionProviderConfigReady()) {
+    return NextResponse.json(
+      { error: "Subscriptions are temporarily unavailable." },
+      { status: 503, headers: { "Cache-Control": "no-store", "Retry-After": "300" } },
+    );
+  }
+  const settings = await getStrapiSiteSettings();
+  if (settings?.subscriptionEnabled !== true) {
     return NextResponse.json(
       { error: "Subscriptions are temporarily unavailable." },
       { status: 503, headers: { "Cache-Control": "no-store", "Retry-After": "300" } },

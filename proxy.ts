@@ -6,7 +6,12 @@ import { getStrapiPageBySlug } from "@/lib/strapi";
 import { isKnownPrivatePath, singleSegmentSlug } from "@/lib/route-access";
 
 const isApiRoute = createRouteMatcher(["/api(.*)"]);
-const isPublicApiRoute = createRouteMatcher(["/api/revalidate/strapi", "/api/public/contact", "/api/public/subscriptions(.*)"]);
+const isPublicApiRoute = createRouteMatcher([
+  "/api/revalidate/strapi",
+  "/api/public/contact",
+  "/api/public/subscriptions(.*)",
+  "/api/webhooks/mailchimp",
+]);
 const isPublicPageRoute = createRouteMatcher([
   "/",
   "/about-pastor-wood(.*)",

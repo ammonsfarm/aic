@@ -1,6 +1,10 @@
 import "server-only";
 
 import { queryRows } from "@/lib/db";
+import {
+  publicSubscriptionCaptureEnabled,
+  subscriptionProviderConfigReady,
+} from "@/lib/subscription-provider-config";
 
 export type SubscriptionProviderSummary = {
   subscribers: {
@@ -12,6 +16,7 @@ export type SubscriptionProviderSummary = {
   provider: {
     configured: boolean;
     webhookConfigured: boolean;
+    publicCaptureEnabled: boolean;
     unknown: number;
     pending: number;
     subscribed: number;
@@ -57,6 +62,10 @@ export async function getSubscriptionProviderSummary(): Promise<SubscriptionProv
         (select count(*)::text from public_subscription_provider_outbox where status = 'failed') as outbox_failed,
         (select count(*)::text from public_subscription_provider_outbox where status = 'failed' and attempt_count >= 10) as outbox_exhausted,
         coalesce((
+          select provider_last_error from public_subscriptions
+          where provider_last_error is not null and provider_last_error <> ''
+          order by updated_at desc limit 1
+        ), (
           select last_error from public_subscription_provider_outbox
           where status = 'failed' and last_error <> ''
           order by updated_at desc limit 1
@@ -73,8 +82,9 @@ export async function getSubscriptionProviderSummary(): Promise<SubscriptionProv
       suppressed: count(row, "subscriber_suppressed"),
     },
     provider: {
-      configured: Boolean(process.env.MAILCHIMP_API_KEY?.trim()),
+      configured: subscriptionProviderConfigReady(),
       webhookConfigured: Boolean(process.env.MAILCHIMP_WEBHOOK_SECRET?.trim()),
+      publicCaptureEnabled: publicSubscriptionCaptureEnabled(),
       unknown: count(row, "provider_unknown"),
       pending: count(row, "provider_pending"),
       subscribed: count(row, "provider_subscribed"),

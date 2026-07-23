@@ -4,12 +4,16 @@ import { createHmac } from "node:crypto";
 const mocks = vi.hoisted(() => ({
   queryRows: vi.fn(),
   requireContentManagerApiUser: vi.fn(),
+  getStrapiSiteSettings: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({ queryRows: mocks.queryRows }));
 vi.mock("@/lib/rbac", () => ({
   isForbiddenError: () => false,
   requireContentManagerApiUser: mocks.requireContentManagerApiUser,
+}));
+vi.mock("@/lib/strapi-site-settings", () => ({
+  getStrapiSiteSettings: mocks.getStrapiSiteSettings,
 }));
 
 import {
@@ -27,6 +31,8 @@ import {
   SUBSCRIPTION_CONSENT_VERSION,
 } from "@/lib/public-subscription-contract";
 import { POST as subscribe } from "@/app/api/public/subscriptions/route";
+import { POST as unsubscribe } from "@/app/api/public/subscriptions/unsubscribe/route";
+import { POST as receiveMailchimpWebhook } from "@/app/api/webhooks/mailchimp/route";
 import {
   missingSubscriptionProviderConfig,
   subscriptionProviderConfigReady,
@@ -54,6 +60,8 @@ describe("public subscription boundary", () => {
   beforeEach(() => {
     mocks.queryRows.mockReset();
     mocks.requireContentManagerApiUser.mockReset().mockResolvedValue({ email: "editor@example.com" });
+    mocks.getStrapiSiteSettings.mockReset().mockResolvedValue({ subscriptionEnabled: true });
+    process.env.PASTORWOOD_SUBSCRIPTIONS_ENABLED = "true";
     process.env.SUBSCRIPTION_RATE_LIMIT_SECRET = "test-only-rate-secret";
     process.env.SUBSCRIPTION_UNSUBSCRIBE_SECRET = "test-only-unsubscribe-secret";
     process.env.MAILCHIMP_API_KEY = "test-only-api-key-us21";
@@ -83,6 +91,37 @@ describe("public subscription boundary", () => {
     expect(missingSubscriptionProviderConfig()).toContain("MAILCHIMP_AUDIENCE_ID");
   });
 
+  it("requires both the explicit runtime gate and the published CMS enablement", async () => {
+    delete process.env.PASTORWOOD_SUBSCRIPTIONS_ENABLED;
+    let response = await subscribe(new Request("https://www.pastorwood.org/api/public/subscriptions", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://www.pastorwood.org" },
+      body: JSON.stringify(validPayload(Date.now())),
+    }));
+    expect(response.status).toBe(503);
+    expect(mocks.getStrapiSiteSettings).not.toHaveBeenCalled();
+    expect(mocks.queryRows).not.toHaveBeenCalled();
+
+    process.env.PASTORWOOD_SUBSCRIPTIONS_ENABLED = "true";
+    mocks.getStrapiSiteSettings.mockResolvedValueOnce({ subscriptionEnabled: false });
+    response = await subscribe(new Request("https://www.pastorwood.org/api/public/subscriptions", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://www.pastorwood.org" },
+      body: JSON.stringify(validPayload(Date.now())),
+    }));
+    expect(response.status).toBe(503);
+    expect(mocks.queryRows).not.toHaveBeenCalled();
+
+    mocks.getStrapiSiteSettings.mockResolvedValueOnce(null);
+    response = await subscribe(new Request("https://www.pastorwood.org/api/public/subscriptions", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://www.pastorwood.org" },
+      body: JSON.stringify(validPayload(Date.now())),
+    }));
+    expect(response.status).toBe(503);
+    expect(mocks.queryRows).not.toHaveBeenCalled();
+  });
+
   it("uses opaque tamper-evident signed unsubscribe tokens", () => {
     process.env.SUBSCRIPTION_UNSUBSCRIBE_SECRET = "test-only-unsubscribe-secret";
     const token = subscriptionUnsubscribeToken("Listener@Example.com");
@@ -108,6 +147,24 @@ describe("public subscription boundary", () => {
     expect(values).toEqual([subscriptionUnsubscribeTokenHash(token)]);
     expect(JSON.stringify(values)).not.toContain("listener@example.com");
     expect(JSON.stringify(values)).not.toContain(token);
+  });
+
+  it("reports local unsubscribe completion and queued provider removal truthfully", async () => {
+    const token = subscriptionUnsubscribeToken("Listener@Example.com");
+    mocks.queryRows.mockResolvedValueOnce([{ subscription_id: "42" }]);
+
+    const response = await unsubscribe(new Request("https://www.pastorwood.org/api/public/subscriptions/unsubscribe", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://www.pastorwood.org" },
+      body: JSON.stringify({ token }),
+    }));
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      state: "provider-pending",
+      message: "Your unsubscribe is recorded here; removal from the email provider is queued.",
+    });
   });
 
   it("persists matching opaque-token hashes before exporting unsubscribe URLs", async () => {
@@ -267,6 +324,22 @@ describe("public subscription boundary", () => {
     expect(() => verifyMailchimpWebhookSignature(new TextEncoder().encode("changed"), `t=${timestamp},v1=${signature}`, timestamp)).toThrow(/verified/);
   });
 
+  it("rejects an unsigned Mailchimp webhook before any database mutation", async () => {
+    const response = await receiveMailchimpWebhook(new Request("https://www.pastorwood.org/api/webhooks/mailchimp", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        type: "subscribe",
+        fired_at: "2026-07-22T12:00:00Z",
+        data: { list_id: "9ad7bbba36", email: "listener@example.com", id: "member_1" },
+      }),
+    }));
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(mocks.queryRows).not.toHaveBeenCalled();
+  });
+
   it("parses both signed webhook encodings and rejects another audience", () => {
     const json = new TextEncoder().encode(JSON.stringify({
       type: "subscribe",
@@ -295,6 +368,9 @@ describe("public subscription boundary", () => {
       data: { list_id: "aaaaaaaaaa", email: "listener@example.com", id: "member_1" },
     }));
     expect(() => parseMailchimpWebhook(wrongAudience, "application/json")).toThrow(/audience/);
+
+    delete process.env.MAILCHIMP_AUDIENCE_ID;
+    expect(() => parseMailchimpWebhook(json, "application/json")).toThrow(/configuration/);
   });
 
   it("deduplicates provider events and preserves local suppression", async () => {

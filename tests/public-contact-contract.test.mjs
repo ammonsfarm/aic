@@ -26,6 +26,34 @@ test("contact capture stays public, bounded, durable, and independent of Strapi"
   assert.match(migration, /public_contact_message_events/);
 });
 
+test("only the exact signed Mailchimp webhook endpoint bypasses Clerk", async () => {
+  const [proxy, route] = await Promise.all([
+    source("proxy.ts"),
+    source("app/api/webhooks/mailchimp/route.ts"),
+  ]);
+  assert.match(proxy, /"\/api\/webhooks\/mailchimp"/);
+  assert.doesNotMatch(proxy, /"\/api\/webhooks\/mailchimp\(\.\*\)"/);
+  assert.match(route, /verifyMailchimpWebhookSignature\(rawBody/);
+  assert.match(route, /MAX_WEBHOOK_BYTES = 100_000/);
+});
+
+test("subscription readiness and admin status use the same complete provider contract", async () => {
+  const [route, config, admin, page] = await Promise.all([
+    source("app/api/public/subscriptions/route.ts"),
+    source("lib/subscription-provider-config.ts"),
+    source("lib/subscription-provider-admin.ts"),
+    source("app/(private)/content/newsletters/page.tsx"),
+  ]);
+  assert.match(config, /PASTORWOOD_SUBSCRIPTIONS_ENABLED/);
+  assert.match(route, /publicSubscriptionCaptureEnabled\(\)/);
+  assert.match(route, /getStrapiSiteSettings\(\)/);
+  assert.match(route, /settings\?\.subscriptionEnabled !== true/);
+  assert.match(admin, /configured: subscriptionProviderConfigReady\(\)/);
+  assert.match(admin, /publicCaptureEnabled: publicSubscriptionCaptureEnabled\(\)/);
+  assert.match(page, /summary\.provider\.unknown/);
+  assert.match(page, /summary\.provider\.error/);
+});
+
 test("contact UI remains present with CMS content and has explicit privacy consent", async () => {
   const [site, form, privacy] = await Promise.all([
     source("components/pastor-wood-site.tsx"),
