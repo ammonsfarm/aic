@@ -7,8 +7,10 @@ vi.mock("@/lib/public-content-projection", () => ({
 }));
 
 import { getStrapiPageBySlugResult, strapiPageCacheTag } from "@/lib/strapi";
+import { resetPublicStrapiCircuitForTests } from "@/lib/strapi-request";
 
 beforeEach(() => {
+  resetPublicStrapiCircuitForTests();
   process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED = "true";
   projection.identity.mockReset();
   projection.identity.mockResolvedValue({ status: "absent" });

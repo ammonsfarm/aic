@@ -7,11 +7,13 @@ vi.mock("@/lib/public-content-projection", () => ({
 }));
 
 import { getPublishedPageSitemapListing, listAllPublishedPageSlugs } from "@/lib/strapi-public-pages";
+import { resetPublicStrapiCircuitForTests } from "@/lib/strapi-request";
 
 const originalPublicUrl = process.env.STRAPI_PUBLIC_URL;
 const originalUrl = process.env.STRAPI_URL;
 
 beforeEach(() => {
+  resetPublicStrapiCircuitForTests();
   process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED = "true";
   projection.listAll.mockReset();
   projection.listAll.mockResolvedValue({ items: [], hasState: false });

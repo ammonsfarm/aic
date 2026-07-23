@@ -101,7 +101,7 @@ export async function getPublishedPageSitemapListing(): Promise<PublishedPageSit
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         next: { revalidate: 300, tags: [STRAPI_PAGES_CACHE_TAG] },
       },
-      { label: "Published Strapi page sitemap request" },
+      { label: "Published Strapi page sitemap request", publicRequest: true },
     );
     if (result.status === "unavailable") return projectedPages();
     const entities = result.data?.data;

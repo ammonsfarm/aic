@@ -27,6 +27,7 @@ vi.mock("@/lib/public-content-projection", () => ({
 }));
 
 import { listAllPublishedEpisodes } from "@/lib/strapi-structured-public";
+import { resetPublicStrapiCircuitForTests } from "@/lib/strapi-request";
 
 function strapiEpisode(index: number) {
   return {
@@ -53,6 +54,7 @@ function fallbackEpisode(index: number) {
 }
 
 beforeEach(() => {
+  resetPublicStrapiCircuitForTests();
   process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED = "true";
   process.env.STRAPI_URL = "http://127.0.0.1:1337";
   vi.restoreAllMocks();

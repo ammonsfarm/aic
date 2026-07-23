@@ -16,7 +16,7 @@ import {
   listAllProjectedContent,
   listProjectedContentPage,
 } from "@/lib/public-content-projection";
-import { fetchWithTimeout } from "@/lib/strapi-request";
+import { fetchStrapiJsonResult } from "@/lib/strapi-request";
 import { STRAPI_STRUCTURED_CACHE_TAG, strapiStructuredCacheTag } from "@/lib/strapi-cache-tags";
 import type { StructuredCollectionKey } from "@/lib/structured-content-config";
 import { STRUCTURED_COLLECTIONS } from "@/lib/structured-content-config";
@@ -334,26 +334,25 @@ async function publishedCollectionPage(
 
   try {
     const token = readToken();
-    const response = await fetchWithTimeout(new URL(`/api/${definition.apiPath}?${query.toString()}`, origin), {
-      headers: {
-        Accept: "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      next: {
-        revalidate: 300,
-        tags: [STRAPI_STRUCTURED_CACHE_TAG, strapiStructuredCacheTag(key)],
-      },
-    });
-
-    if (!response.ok) {
-      console.error(`Published Strapi ${key} lookup failed with ${response.status}.`);
-      return empty;
-    }
-
-    const payload = (await response.json()) as {
+    const result = await fetchStrapiJsonResult<{
       data?: unknown[];
       meta?: { pagination?: { page?: number; pageSize?: number; pageCount?: number; total?: number } };
-    };
+    }>(
+      new URL(`/api/${definition.apiPath}?${query.toString()}`, origin),
+      {
+        headers: {
+          Accept: "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        next: {
+          revalidate: 300,
+          tags: [STRAPI_STRUCTURED_CACHE_TAG, strapiStructuredCacheTag(key)],
+        },
+      },
+      { label: `Published Strapi ${key} lookup`, publicRequest: true },
+    );
+    if (result.status === "unavailable") return empty;
+    const payload = result.data;
     const pagination = payload.meta?.pagination;
     if (!Array.isArray(payload.data) || !pagination) {
       console.error(`Published Strapi ${key} lookup returned malformed collection data.`);

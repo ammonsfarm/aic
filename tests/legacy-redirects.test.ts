@@ -8,6 +8,7 @@ vi.mock("@/lib/public-content-projection", () => ({
 
 import redirects from "@/data/legacy-redirects.json";
 import media from "@/data/public-media-manifest.json";
+import { resetPublicStrapiCircuitForTests } from "@/lib/strapi-request";
 import {
   isReservedLegacyRedirectSource,
   isSafeLegacyRedirectTarget,
@@ -17,6 +18,7 @@ import {
 } from "@/lib/legacy-redirects";
 
 beforeEach(() => {
+  resetPublicStrapiCircuitForTests();
   process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED = "true";
   projection.identity.mockReset();
   projection.identity.mockResolvedValue({ status: "absent" });

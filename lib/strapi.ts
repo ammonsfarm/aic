@@ -193,7 +193,7 @@ async function fetchStrapiPagesResult(url: URL, tags: string[]): Promise<StrapiP
         tags,
       },
     },
-    { label: "Strapi page request" },
+    { label: "Strapi page request", publicRequest: true },
   );
 
   if (result.status === "unavailable") return result;

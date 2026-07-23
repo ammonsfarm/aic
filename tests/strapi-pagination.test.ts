@@ -27,11 +27,13 @@ import {
   listPublishedEndorsementsResult,
   listPublishedEpisodesPage,
 } from "@/lib/strapi-structured-public";
+import { resetPublicStrapiCircuitForTests } from "@/lib/strapi-request";
 
 const originalUrl = process.env.STRAPI_URL;
 const originalCutover = process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED;
 
 beforeEach(() => {
+  resetPublicStrapiCircuitForTests();
   process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED = "true";
   const unavailable = new Error("projection unavailable in isolated test");
   projection.page.mockReset().mockRejectedValue(unavailable);

@@ -1,7 +1,7 @@
 import redirectManifest from "@/data/legacy-redirects.json";
 import { pastorWoodPublicCmsCutoverEnabled } from "@/lib/pastorwood-public-cms-cutover";
 import { getProjectedContentByIdentity } from "@/lib/public-content-projection";
-import { fetchWithTimeout } from "@/lib/strapi-request";
+import { fetchStrapiJsonResult } from "@/lib/strapi-request";
 import { STRAPI_STRUCTURED_CACHE_TAG, strapiStructuredCacheTag } from "@/lib/strapi-cache-tags";
 
 export type LegacyRedirect = {
@@ -156,18 +156,22 @@ export async function resolvePublicLegacyRedirect(pathname: string): Promise<Leg
   url.searchParams.set("filters[fromPath][$eq]", source);
   const token = process.env.STRAPI_READ_TOKEN?.trim() || process.env.STRAPI_API_TOKEN?.trim() || "";
   try {
-    const response = await fetchWithTimeout(url, {
-      headers: {
-        Accept: "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    const result = await fetchStrapiJsonResult<{ data?: unknown[] }>(
+      url,
+      {
+        headers: {
+          Accept: "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        next: {
+          revalidate: 300,
+          tags: [STRAPI_STRUCTURED_CACHE_TAG, strapiStructuredCacheTag("redirects")],
+        },
       },
-      next: {
-        revalidate: 300,
-        tags: [STRAPI_STRUCTURED_CACHE_TAG, strapiStructuredCacheTag("redirects")],
-      },
-    });
-    if (!response.ok) return projectedOrBootstrap();
-    const payload = await response.json() as { data?: unknown[] };
+      { label: "Managed legacy redirect lookup", publicRequest: true },
+    );
+    if (result.status === "unavailable") return projectedOrBootstrap();
+    const payload = result.data;
     if (!Array.isArray(payload.data)) return projectedOrBootstrap();
     if (payload.data.length !== 1) return null;
     return managedRedirect(payload.data[0], source);

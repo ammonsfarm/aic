@@ -35,6 +35,7 @@ import { resolveLegacyRedirect, resolvePublicLegacyRedirect } from "@/lib/legacy
 import { pastorWoodPublicCmsCutoverEnabled } from "@/lib/pastorwood-public-cms-cutover";
 import { getStrapiPageByPageKeyResult, getStrapiPageBySlugResult } from "@/lib/strapi";
 import { getPublishedPageSitemapListing } from "@/lib/strapi-public-pages";
+import { resetPublicStrapiCircuitForTests } from "@/lib/strapi-request";
 import { getManagedSiteSettings, getPublishedManagedSiteSettings } from "@/lib/strapi-site-settings-management";
 import { getStrapiSiteSettings } from "@/lib/strapi-site-settings";
 import {
@@ -71,6 +72,7 @@ const fallbackEpisode = {
 };
 
 beforeEach(() => {
+  resetPublicStrapiCircuitForTests();
   delete process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED;
   process.env.STRAPI_URL = "https://strapi.example.test";
   process.env.STRAPI_PUBLIC_URL = "https://strapi.example.test";

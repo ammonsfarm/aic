@@ -224,7 +224,7 @@ export async function getStrapiSiteSettings(): Promise<StrapiSiteSettings | null
         tags: [STRAPI_SITE_SETTINGS_CACHE_TAG, STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag("site-settings")],
       },
     },
-    { label: "Strapi site settings request" },
+    { label: "Strapi site settings request", publicRequest: true },
   );
 
   if (result.status === "unavailable") return projectedSettings();

@@ -7,8 +7,10 @@ vi.mock("@/lib/public-content-projection", () => ({
 }));
 
 import { getStrapiSiteSettings } from "@/lib/strapi-site-settings";
+import { resetPublicStrapiCircuitForTests } from "@/lib/strapi-request";
 
 beforeEach(() => {
+  resetPublicStrapiCircuitForTests();
   vi.stubEnv("PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED", "true");
   process.env.STRAPI_URL = "https://strapi.example.test";
   process.env.STRAPI_API_TOKEN = "read-token";
