@@ -4,6 +4,13 @@ import { notFound } from "next/navigation";
 import * as PastorWoodModule from "@/components/pastor-wood-site";
 import type { PastorWoodCmsPage } from "@/components/pastor-wood-site";
 import {
+  PUBLIC_RADIO_MAX_YEAR,
+  PUBLIC_RADIO_MIN_YEAR,
+  PUBLIC_RADIO_QUERY_MAX_LENGTH,
+  publicRadioArchivePath,
+  type PublicRadioArchiveState,
+} from "@/lib/public-radio-search";
+import {
   listPublishedBoardMembers,
   listPublishedEndorsements,
   getPublishedEpisodeBySlug,
@@ -79,13 +86,26 @@ async function StructuredUnavailable({
   );
 }
 
-function PublicPagination({ basePath, page, pageCount }: { basePath: string; page: number; pageCount: number }) {
+function PublicPagination({
+  basePath,
+  page,
+  pageCount,
+  pageHref,
+  label = "Archive pages",
+}: {
+  basePath: string;
+  page: number;
+  pageCount: number;
+  pageHref?: (page: number) => string;
+  label?: string;
+}) {
   if (pageCount <= 1) return null;
+  const href = pageHref || ((targetPage: number) => `${basePath}?page=${targetPage}`);
   return (
-    <nav className="pw-pagination" aria-label="Archive pages">
-      {page > 1 ? <Link href={`${basePath}?page=${page - 1}`} rel="prev">Previous</Link> : <span />}
+    <nav className="pw-pagination" aria-label={label}>
+      {page > 1 ? <Link href={href(page - 1)} rel="prev">Previous</Link> : <span />}
       <span>Page {page} of {pageCount}</span>
-      {page < pageCount ? <Link href={`${basePath}?page=${page + 1}`} rel="next">Next</Link> : <span />}
+      {page < pageCount ? <Link href={href(page + 1)} rel="next">Next</Link> : <span />}
     </nav>
   );
 }
@@ -245,16 +265,19 @@ function EpisodeCard({ episode }: { episode: PublishedEpisode }) {
 
 export async function PastorWoodStructuredRadioPage({
   slug = [],
-  page = 1,
+  archive = { page: 1, query: "", year: null, hasFilters: false },
   cmsPage,
 }: {
   slug?: string[];
-  page?: number;
+  archive?: PublicRadioArchiveState;
   cmsPage?: PastorWoodCmsPage | null;
 }) {
   const requestedSlug = slug.join("/");
   const episode = requestedSlug ? await getPublishedEpisodeBySlug(requestedSlug) : null;
-  const result = requestedSlug ? null : await listPublishedEpisodesPage(page, 24);
+  const result = requestedSlug ? null : await listPublishedEpisodesPage(archive.page, 24, {
+    query: archive.query,
+    year: archive.year,
+  });
   const episodes = result?.items || (episode ? [episode] : []);
 
   if (requestedSlug && !episode) {
@@ -263,22 +286,102 @@ export async function PastorWoodStructuredRadioPage({
 
   const Shell = hooks.PastorWoodShell;
   const Hero = hooks.PageHero;
-  if (!Shell || !Hero || !episodes.length) {
-    return StructuredUnavailable({ cmsPage, eyebrow: "Radio Archive", title: "Radio Show Listings", body: "Listen to Abiding in Christ broadcasts." });
+  if (!Shell || !Hero) return null;
+
+  if (episode) {
+    return (
+      <Shell siteSettings={await shellSettings()}>
+        <Hero eyebrow="Radio Archive" title={episode.title} body={episode.summary || "Listen to this Abiding in Christ broadcast."} />
+        <section className="pw-section">
+          <div className="pw-audio-list"><EpisodeCard episode={episode} /></div>
+        </section>
+      </Shell>
+    );
   }
+
+  const resultDescription = result?.available
+    ? `${result.total.toLocaleString("en-US")} broadcast${result.total === 1 ? "" : "s"} found.`
+    : "The archive service is temporarily unavailable.";
+  const pageOutsideResults = Boolean(
+    result?.available && result.total > 0 && result.pageCount > 0 && result.page > result.pageCount,
+  );
 
   return (
     <Shell siteSettings={await shellSettings()}>
       <Hero
         eyebrow="Radio Archive"
-        title={episode?.title || cmsPage?.heroTitle || "Radio Show Listings"}
-        body={episode?.summary || cmsPage?.heroBody || "Listen to recent Abiding in Christ broadcasts."}
+        title={cmsPage?.heroTitle || "Radio Show Listings"}
+        body={cmsPage?.heroBody || "Search and listen across the Abiding in Christ broadcast archive."}
       />
       <section className="pw-section pw-radio-layout">
-        <div className="pw-audio-list">
-          {episode ? <EpisodeCard episode={episode} /> : episodes.map((item) => <EpisodeCard key={item.documentId} episode={item} />)}
+        <aside className="pw-radio-intro" aria-labelledby="radio-search-title">
+          <div>
+            <p className="pw-kicker">Find a broadcast</p>
+            <h2 id="radio-search-title">Search the radio archive</h2>
+            <p>Search titles, descriptions, summaries, or track IDs. Add a year to narrow the results.</p>
+          </div>
+          <form className="pw-radio-search" action="/radio/" method="get" role="search" aria-label="Search radio broadcasts">
+            <label>
+              <span>Keywords or track ID</span>
+              <input
+                type="search"
+                name="q"
+                defaultValue={archive.query}
+                maxLength={PUBLIC_RADIO_QUERY_MAX_LENGTH}
+                autoComplete="off"
+              />
+            </label>
+            <label>
+              <span>Program year</span>
+              <input
+                type="number"
+                name="year"
+                defaultValue={archive.year || ""}
+                min={PUBLIC_RADIO_MIN_YEAR}
+                max={PUBLIC_RADIO_MAX_YEAR}
+                inputMode="numeric"
+              />
+            </label>
+            <div className="pw-radio-search__actions">
+              <button className="pw-button pw-button--primary" type="submit">Search archive</button>
+              {archive.hasFilters ? <Link href="/radio/">Clear filters</Link> : null}
+            </div>
+          </form>
+          <p className="pw-radio-result-count" role="status" aria-live="polite">{resultDescription}</p>
+        </aside>
+        <div className="pw-radio-results">
+          {!result?.available ? (
+            <div className="pw-content-unavailable" role="alert">
+              <h2>Radio archive temporarily unavailable</h2>
+              <p>The public content service could not return broadcasts. Please try again shortly.</p>
+            </div>
+          ) : pageOutsideResults ? (
+            <div className="pw-content-unavailable" role="status">
+              <h2>This archive page has no broadcasts</h2>
+              <p>Return to the first page of the current results.</p>
+              <Link href={publicRadioArchivePath(archive, 1)}>View the first results page</Link>
+            </div>
+          ) : episodes.length ? (
+            <div className="pw-audio-list">
+              {episodes.map((item) => <EpisodeCard key={item.documentId} episode={item} />)}
+            </div>
+          ) : (
+            <div className="pw-content-unavailable" role="status">
+              <h2>{archive.hasFilters ? "No broadcasts match these filters" : "No broadcasts are published yet"}</h2>
+              <p>{archive.hasFilters ? "Try fewer keywords, a different year, or clear the filters." : "Please check back for published broadcasts."}</p>
+              {archive.hasFilters ? <Link href="/radio/">View the full archive</Link> : null}
+            </div>
+          )}
+          {result?.available && !pageOutsideResults ? (
+            <PublicPagination
+              basePath="/radio/"
+              page={result.page}
+              pageCount={result.pageCount}
+              pageHref={(targetPage) => publicRadioArchivePath(archive, targetPage)}
+              label="Radio archive pages"
+            />
+          ) : null}
         </div>
-        {result ? <PublicPagination basePath="/radio/" page={result.page} pageCount={result.pageCount} /> : null}
       </section>
     </Shell>
   );

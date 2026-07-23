@@ -22,7 +22,10 @@ export const metadata: Metadata = {
     ? { index: true, follow: true }
     : { index: false, follow: false, noarchive: true, nosnippet: true },
   manifest: "/manifest.webmanifest",
-  alternates: { canonical: "/" },
+  alternates: {
+    canonical: "/",
+    types: { "application/rss+xml": "/feed/" },
+  },
   icons: { icon: "/images/pastorwood/deep-forest-logo-transparent.png" },
   openGraph: {
     type: "website",

@@ -23,6 +23,7 @@ const isPublicPageRoute = createRouteMatcher([
   "/privacy(.*)",
   "/privacy-terms-conditions(.*)",
   "/unsubscribe(.*)",
+  "/feed(.*)",
   "/media(.*)",
   "/wp-content/uploads(.*)",
 ]);

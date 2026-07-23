@@ -36,3 +36,7 @@ test("unsubscribe is public while unknown signed-out paths fall through to a rea
   assert.match(proxy, /if \(isKnownPrivatePath\(request\.nextUrl\.pathname\)\) \{\s*return redirectToLogin\(request\);\s*\}/);
   assert.doesNotMatch(routeAccess, /"missing-page"/);
 });
+
+test("the RSS feed is an explicit signed-out public route", () => {
+  assert.match(proxy, /"\/feed\(\.\*\)"/);
+});

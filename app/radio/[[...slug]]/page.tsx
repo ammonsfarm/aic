@@ -2,13 +2,14 @@ import type { Metadata } from "next";
 
 import { PastorWoodStructuredRadioPage } from "@/components/pastor-wood-structured-listings";
 import { publicArchiveCanonicalPath, publicArchivePage } from "@/lib/public-pagination";
+import { parsePublicRadioArchiveState, publicRadioArchivePath } from "@/lib/public-radio-search";
 import { publicCmsPageMetadata, publicMetadata } from "@/lib/public-seo";
 import { getStrapiPageByPageKey } from "@/lib/strapi";
 import { getPublishedEpisodeBySlug } from "@/lib/strapi-structured-public";
 
 type PageProps = {
   params: Promise<{ slug?: string[] }>;
-  searchParams: Promise<{ page?: string }>;
+  searchParams: Promise<{ page?: string | string[]; q?: string | string[]; year?: string | string[] }>;
 };
 
 async function getRadioPage() {
@@ -29,13 +30,17 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
   const { slug = [] } = await params;
   const requestedSlug = slug.join("/");
   if (!requestedSlug) {
-    const page = publicArchivePage((await searchParams).page);
-    return publicCmsPageMetadata({
+    const archive = parsePublicRadioArchiveState(await searchParams);
+    const path = archive.hasFilters
+      ? publicRadioArchivePath(archive)
+      : publicArchiveCanonicalPath("/radio/", publicArchivePage(String(archive.page)));
+    const metadata = publicCmsPageMetadata({
       page: await getRadioPage(),
       fallbackTitle: "Radio Show Listings",
       fallbackDescription: "Listen to Abiding in Christ radio broadcasts and Bible teaching from Pastor Jim Wood.",
-      path: publicArchiveCanonicalPath("/radio/", page),
+      path,
     });
+    return archive.hasFilters ? { ...metadata, robots: { index: false, follow: true } } : metadata;
   }
 
   const episode = await getPublishedEpisodeBySlug(requestedSlug);
@@ -53,6 +58,6 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
 
 export default async function Page({ params, searchParams }: PageProps) {
   const { slug = [] } = await params;
-  const page = publicArchivePage((await searchParams).page);
-  return <PastorWoodStructuredRadioPage slug={slug} page={page} cmsPage={slug.length ? null : await getRadioPage()} />;
+  const archive = parsePublicRadioArchiveState(await searchParams);
+  return <PastorWoodStructuredRadioPage slug={slug} archive={archive} cmsPage={slug.length ? null : await getRadioPage()} />;
 }

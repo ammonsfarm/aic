@@ -4,6 +4,7 @@ import {
   getPublishedEpisodeByTrackId,
   getPublishedEpisodeBySlug,
   listAllPublishedEpisodes,
+  listLatestPublishedPostsResult,
   listPublishedBoardMembers,
   listPublishedEpisodesPage,
 } from "@/lib/strapi-structured-public";
@@ -111,6 +112,97 @@ describe("published Strapi archive pagination", () => {
     const result = await listPublishedEpisodesPage(1, 24);
 
     expect(result.items[0]?.audioUrl).toBe("/media/cms/audio-doc/new.mp3");
+  });
+
+  it("applies bounded server-side archive search and year filters with Strapi pagination", async () => {
+    process.env.STRAPI_URL = "http://127.0.0.1:1337";
+    const fetchMock = vi.fn(async (input: URL | RequestInfo) => {
+      const url = new URL(String(input));
+      expect(url.searchParams.get("status")).toBe("published");
+      expect(url.searchParams.get("pagination[page]")).toBe("2");
+      expect(url.searchParams.get("pagination[pageSize]")).toBe("24");
+      expect(url.searchParams.get("filters[archivedAt][$null]")).toBe("true");
+      expect(url.searchParams.get("filters[$or][0][title][$containsi]")).toBe("grace");
+      expect(url.searchParams.get("filters[$or][1][summary][$containsi]")).toBe("grace");
+      expect(url.searchParams.get("filters[$or][2][description][$containsi]")).toBe("grace");
+      expect(url.searchParams.get("filters[$or][3][trackId][$containsi]")).toBe("grace");
+      expect(url.searchParams.get("filters[programDate][$gte]")).toBe("2024-01-01");
+      expect(url.searchParams.get("filters[programDate][$lt]")).toBe("2025-01-01");
+      return new Response(JSON.stringify({
+        data: [episode(25)],
+        meta: { pagination: { page: 2, pageSize: 24, pageCount: 2, total: 25 } },
+      }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await listPublishedEpisodesPage(2, 24, { query: "grace", year: 2024 });
+
+    expect(result).toMatchObject({ available: true, page: 2, pageSize: 24, pageCount: 2, total: 25 });
+    expect(result.items[0]?.trackId).toBe("25");
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("distinguishes a valid zero-result archive from an unavailable Strapi response", async () => {
+    process.env.STRAPI_URL = "http://127.0.0.1:1337";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      data: [],
+      meta: { pagination: { page: 1, pageSize: 24, pageCount: 0, total: 0 } },
+    }), { status: 200 })));
+
+    await expect(listPublishedEpisodesPage(1, 24, { query: "no-match" })).resolves.toMatchObject({
+      available: true,
+      items: [],
+      total: 0,
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("unavailable", { status: 503 })));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await expect(listPublishedEpisodesPage(1, 24, { query: "no-match" })).resolves.toMatchObject({
+      available: false,
+      items: [],
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "bad gateway payload" }), { status: 200 })));
+    await expect(listPublishedEpisodesPage(1, 24, { query: "no-match" })).resolves.toMatchObject({
+      available: false,
+      items: [],
+    });
+  });
+
+  it("bounds the feed source to one latest published-post page", async () => {
+    process.env.STRAPI_URL = "http://127.0.0.1:1337";
+    const fetchMock = vi.fn(async (input: URL | RequestInfo) => {
+      const url = new URL(String(input));
+      expect(url.searchParams.get("pagination[page]")).toBe("1");
+      expect(url.searchParams.get("pagination[pageSize]")).toBe("100");
+      expect(url.searchParams.get("sort")).toBe("publishDate:desc");
+      return new Response(JSON.stringify({
+        data: Array.from({ length: 100 }, (_, index) => ({
+          documentId: `post-${index + 1}`,
+          title: `Post ${index + 1}`,
+          slug: `post-${index + 1}`,
+          body: "Body",
+        })),
+        meta: { pagination: { page: 1, pageSize: 100, pageCount: 20, total: 2000 } },
+      }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await listLatestPublishedPostsResult(100);
+
+    expect(result.available).toBe(true);
+    expect(result.items).toHaveLength(100);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("marks the bounded latest-post window unavailable without returning partial feed data", async () => {
+    process.env.STRAPI_URL = "http://127.0.0.1:1337";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("unavailable", { status: 503 })));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const result = await listLatestPublishedPostsResult(100);
+
+    expect(result).toEqual({ items: [], available: false, page: 1, pageSize: 100, pageCount: 0, total: 0 });
   });
 
   it("serves imported board portraits only through the verified same-origin legacy route", async () => {

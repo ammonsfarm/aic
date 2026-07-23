@@ -17,6 +17,7 @@ export type PublishedPage<T> = {
   pageSize: number;
   pageCount: number;
   total: number;
+  available: boolean;
 };
 
 type PublicEntryPage = PublishedPage<PublicEntry>;
@@ -134,6 +135,8 @@ async function publishedCollectionPage(
   key: StructuredCollectionKey,
   options: {
     filters?: Record<string, string | boolean>;
+    containsAny?: { fields: readonly string[]; value: string };
+    ranges?: Array<{ field: string; operator: "gte" | "gt" | "lte" | "lt"; value: string }>;
     sort?: string;
     pageSize?: number;
     page?: number;
@@ -141,7 +144,7 @@ async function publishedCollectionPage(
 ): Promise<PublicEntryPage> {
   const requestedPage = Math.max(1, Math.floor(options.page || 1));
   const requestedPageSize = strapiPageSize(options.pageSize);
-  const empty = { items: [], page: requestedPage, pageSize: requestedPageSize, pageCount: 0, total: 0 };
+  const empty = { items: [], page: requestedPage, pageSize: requestedPageSize, pageCount: 0, total: 0, available: false };
   const origin = baseUrl();
   if (!origin) return empty;
 
@@ -157,6 +160,14 @@ async function publishedCollectionPage(
   query.set("filters[archivedAt][$null]", "true");
   for (const [field, value] of Object.entries(options.filters || {})) {
     query.set(`filters[${field}][$eq]`, String(value));
+  }
+  if (options.containsAny?.value) {
+    options.containsAny.fields.forEach((field, index) => {
+      query.set(`filters[$or][${index}][${field}][$containsi]`, options.containsAny?.value || "");
+    });
+  }
+  for (const range of options.ranges || []) {
+    query.set(`filters[${range.field}][$${range.operator}]`, range.value);
   }
 
   try {
@@ -183,7 +194,11 @@ async function publishedCollectionPage(
       meta?: { pagination?: { page?: number; pageSize?: number; pageCount?: number; total?: number } };
     };
     const pagination = payload.meta?.pagination;
-    const items = (payload.data || [])
+    if (!Array.isArray(payload.data) || !pagination) {
+      console.error(`Published Strapi ${key} lookup returned malformed collection data.`);
+      return empty;
+    }
+    const items = payload.data
       .map(normalizeEntry)
       .filter((entry): entry is PublicEntry => Boolean(entry));
     return {
@@ -192,6 +207,7 @@ async function publishedCollectionPage(
       pageSize: number(pagination?.pageSize) || requestedPageSize,
       pageCount: number(pagination?.pageCount) || (items.length ? requestedPage : 0),
       total: number(pagination?.total) || items.length,
+      available: true,
     };
   } catch (error) {
     console.error(`Published Strapi ${key} lookup failed; using empty fallback.`, error);
@@ -208,14 +224,14 @@ async function publishedCollection(
 
 async function allPublishedEntries(key: StructuredCollectionKey, options: Parameters<typeof publishedCollectionPage>[1] = {}) {
   const items: PublicEntry[] = [];
-  let page = 1;
-  do {
+  for (let page = 1; page <= 10_000; page += 1) {
     const result = await publishedCollectionPage(key, { ...options, page, pageSize: STRAPI_MAX_PAGE_SIZE });
+    if (!result.available) return [];
     items.push(...result.items);
-    if (!result.pageCount || page >= result.pageCount) break;
-    page += 1;
-  } while (page <= 10_000);
-  return items;
+    if (!result.pageCount || page >= result.pageCount) return items;
+  }
+  console.error(`Published Strapi ${key} lookup exceeded the complete collection page limit.`);
+  return [];
 }
 
 function publishedPost(entry: PublicEntry): PublishedPost {
@@ -266,13 +282,35 @@ export async function listAllPublishedPosts(): Promise<PublishedPost[]> {
   return (await allPublishedEntries("posts", { sort: "publishDate:desc" })).map(publishedPost);
 }
 
+export async function listLatestPublishedPostsResult(pageSize = STRAPI_MAX_PAGE_SIZE): Promise<{ items: PublishedPost[]; available: boolean }> {
+  const result = await publishedCollectionPage("posts", { sort: "publishDate:desc", page: 1, pageSize });
+  return { ...result, items: result.items.map(publishedPost) };
+}
+
 export async function listPublishedEpisodes(): Promise<PublishedEpisode[]> {
   const entries = await publishedCollection("episodes", { sort: "programDate:desc" });
   return entries.map(publishedEpisode);
 }
 
-export async function listPublishedEpisodesPage(page = 1, pageSize = 24): Promise<PublishedPage<PublishedEpisode>> {
-  const result = await publishedCollectionPage("episodes", { sort: "programDate:desc", page, pageSize });
+export async function listPublishedEpisodesPage(
+  page = 1,
+  pageSize = 24,
+  filters: { query?: string; year?: number | null } = {},
+): Promise<PublishedPage<PublishedEpisode>> {
+  const query = Array.from((filters.query || "").trim()).slice(0, 80).join("");
+  const year = Number.isSafeInteger(filters.year) && Number(filters.year) >= 1900 && Number(filters.year) <= 2100
+    ? Number(filters.year)
+    : null;
+  const result = await publishedCollectionPage("episodes", {
+    sort: "programDate:desc",
+    page,
+    pageSize,
+    containsAny: query ? { fields: ["title", "summary", "description", "trackId"], value: query } : undefined,
+    ranges: year ? [
+      { field: "programDate", operator: "gte", value: `${year}-01-01` },
+      { field: "programDate", operator: "lt", value: `${year + 1}-01-01` },
+    ] : undefined,
+  });
   return { ...result, items: result.items.map(publishedEpisode) };
 }
 
