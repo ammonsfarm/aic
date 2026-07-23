@@ -1,5 +1,6 @@
 import importlib.util
 import hashlib
+import io
 import json
 import os
 import sys
@@ -8,6 +9,7 @@ import types
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 PSYCOPG_STUB = types.ModuleType("psycopg")
 PSYCOPG_ROWS_STUB = types.ModuleType("psycopg.rows")
@@ -129,16 +131,36 @@ class CutoverIdentityTests(unittest.TestCase):
             self.assertEqual(set(actions), {"page:home"})
             self.assertEqual(state, "pending")
 
-    def test_verified_snapshot_is_the_default_and_live_wordpress_is_explicit(self):
+    def test_verified_snapshot_is_the_only_production_wordpress_source(self):
         args = MODULE.parse_args([])
         self.assertEqual(args.wordpress_source, "verified-snapshot")
         self.assertEqual(args.wordpress_rest_snapshot, MODULE.DEFAULT_WORDPRESS_SNAPSHOT)
         self.assertEqual(args.reviewed_mutation_manifest_sha256, "")
-        with self.assertRaisesRegex(RuntimeError, "disabled by default"):
-            MODULE.fetch_wordpress_direct_refresh(SimpleNamespace(
-                wordpress_source="verified-snapshot",
-                confirm_wordpress_refresh="",
-            ))
+        with mock.patch.dict(os.environ, {
+            "NODE_ENV": "production",
+            MODULE.DIRECT_WORDPRESS_REFRESH_TEST_MODE_ENV: "1",
+        }), mock.patch.object(sys, "stderr", io.StringIO()):
+            with self.assertRaises(SystemExit):
+                MODULE.parse_args(["--wordpress-source", "direct-database-refresh"])
+            with self.assertRaisesRegex(RuntimeError, "unavailable outside explicit non-production test mode"):
+                MODULE.fetch_wordpress_direct_refresh(SimpleNamespace(
+                    wordpress_source="direct-database-refresh",
+                    confirm_wordpress_refresh=MODULE.WORDPRESS_REFRESH_CONFIRMATION,
+                ))
+
+    def test_direct_wordpress_source_exists_only_in_explicit_test_mode(self):
+        with mock.patch.dict(os.environ, {
+            "NODE_ENV": "test",
+            MODULE.DIRECT_WORDPRESS_REFRESH_TEST_MODE_ENV: "1",
+        }):
+            args = MODULE.parse_args([
+                "--wordpress-source",
+                "direct-database-refresh",
+                "--confirm-wordpress-refresh",
+                MODULE.WORDPRESS_REFRESH_CONFIRMATION,
+            ])
+        self.assertEqual(args.wordpress_source, "direct-database-refresh")
+        self.assertEqual(args.confirm_wordpress_refresh, MODULE.WORDPRESS_REFRESH_CONFIRMATION)
 
     def test_cutover_upsert_uses_editorial_draft_workflow_without_direct_publish(self):
         client = MODULE.StrapiClient("http://127.0.0.1:1337", "token")

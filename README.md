@@ -22,6 +22,10 @@ database target. Deployment reads its database name, user, and password from
 `/mnt/storage/aic/.env`, replaces inherited `DB_*` and libpq routing variables,
 and aborts before checkout mutation if the exact target is unavailable. Do not
 copy, clone, restore, substitute, or create an alternate deployment database.
+The PastorWood release importer likewise accepts only its checksum-pinned
+verified WordPress snapshot. Its historical direct WordPress database reader
+is unreachable unless both `NODE_ENV=test` and the dedicated test-mode guard
+are set.
 
 After deploy, validate with:
 

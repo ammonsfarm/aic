@@ -119,6 +119,7 @@ RESERVED_REDIRECT_PREFIXES = (
 APPLY_CONFIRMATION = "APPLY_PASTORWOOD_PUBLIC_CUTOVER"
 PUBLISH_REVIEWED_CONFIRMATION = "PUBLISH_REVIEWED_PASTORWOOD_CUTOVER"
 WORDPRESS_REFRESH_CONFIRMATION = "REFRESH_FROM_LIVE_WORDPRESS_DATABASE"
+DIRECT_WORDPRESS_REFRESH_TEST_MODE_ENV = "PASTORWOOD_DIRECT_DATABASE_REFRESH_TEST_MODE"
 PUBLIC_CACHE_INVALIDATION_URL = "http://127.0.0.1:8087/api/revalidate/strapi"
 PUBLIC_CACHE_INVALIDATION_SOURCE = "pastorwood-cutover"
 KNOWN_SHORTCODE_PATTERN = re.compile(
@@ -246,24 +247,42 @@ class MediaRecord:
     size_bytes: int | None
 
 
+def direct_wordpress_refresh_test_mode() -> bool:
+    return (
+        os.environ.get("NODE_ENV") == "test"
+        and os.environ.get(DIRECT_WORDPRESS_REFRESH_TEST_MODE_ENV) == "1"
+    )
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--env-file", type=Path, default=CANONICAL_AIC_ENV, help="Canonical AIC/Strapi environment file")
+    wordpress_sources = ("verified-snapshot",)
+    if direct_wordpress_refresh_test_mode():
+        wordpress_sources += ("direct-database-refresh",)
     parser.add_argument(
         "--wordpress-source",
-        choices=("verified-snapshot", "direct-database-refresh"),
+        choices=wordpress_sources,
         default="verified-snapshot",
-        help="Use the checksum-pinned snapshot by default; direct database access is an explicit future refresh mode",
+        help="Use only the checksum-pinned verified WordPress snapshot for this release",
     )
-    parser.add_argument(
-        "--confirm-wordpress-refresh",
-        default="",
-        help=f"Required only with --wordpress-source direct-database-refresh: {WORDPRESS_REFRESH_CONFIRMATION}",
+    parser.set_defaults(
+        confirm_wordpress_refresh="",
+        pwood_db_host="",
+        pwood_db_port="",
+        pwood_db_name="",
+        pwood_db_user="",
     )
-    parser.add_argument("--pwood-db-host", default=os.environ.get("PWOOD_DB_HOST", "127.0.0.1"))
-    parser.add_argument("--pwood-db-port", default=os.environ.get("PWOOD_DB_PORT", "5433"))
-    parser.add_argument("--pwood-db-name", default=os.environ.get("PWOOD_DB_NAME", "pwood"))
-    parser.add_argument("--pwood-db-user", default=os.environ.get("PWOOD_DB_USER", "farmfam"))
+    if direct_wordpress_refresh_test_mode():
+        parser.add_argument(
+            "--confirm-wordpress-refresh",
+            default="",
+            help=f"Non-production test mode only: {WORDPRESS_REFRESH_CONFIRMATION}",
+        )
+        parser.add_argument("--pwood-db-host", default=os.environ.get("PWOOD_DB_HOST", "127.0.0.1"))
+        parser.add_argument("--pwood-db-port", default=os.environ.get("PWOOD_DB_PORT", "5433"))
+        parser.add_argument("--pwood-db-name", default=os.environ.get("PWOOD_DB_NAME", "pwood"))
+        parser.add_argument("--pwood-db-user", default=os.environ.get("PWOOD_DB_USER", "farmfam"))
     parser.add_argument("--wordpress-rest-snapshot", type=Path, default=DEFAULT_WORDPRESS_SNAPSHOT, help="Required two-pass immutable WordPress snapshot")
     parser.add_argument("--wordpress-rest-checksum", type=Path, help="Snapshot SHA-256 file (defaults to <snapshot>.sha256)")
     parser.add_argument("--rest-media-backup-manifest", type=Path, default=DEFAULT_REST_MEDIA_BACKUP_MANIFEST, help="SHA-256 manifest for the verified snapshot media increment")
@@ -321,9 +340,13 @@ def json_rows(value: Any) -> list[dict[str, Any]]:
 
 
 def fetch_wordpress_direct_refresh(args: argparse.Namespace) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    if not direct_wordpress_refresh_test_mode():
+        raise RuntimeError(
+            "Direct WordPress database refresh is unavailable outside explicit non-production test mode."
+        )
     if args.wordpress_source != "direct-database-refresh" or args.confirm_wordpress_refresh != WORDPRESS_REFRESH_CONFIRMATION:
         raise RuntimeError(
-            "Live WordPress database access is disabled by default; use the explicit direct refresh mode and confirmation."
+            "Direct WordPress database test refresh requires its exact source mode and confirmation."
         )
     host = str(args.pwood_db_host).strip()
     port = str(args.pwood_db_port).strip()

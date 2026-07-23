@@ -95,7 +95,7 @@ Production refuses to start with SQLite.
 7. Run `sudo /usr/local/libexec/aic-strapi/install-strapi-service.sh`. It installs the Strapi,
    schema-preparation, backup-service, and backup-timer units,
    prepares only the dedicated `aic_strapi` schema as `ammonsfarm`, starts the
-   private service, leaves the enabled backup timer inactive until acceptance,
+   private service, leaves the backup timer disabled until a backup is verified,
    verifies loopback-only binding and health, and
    safely configures the AIC server token.
 8. Run `sudo systemctl start aic-strapi-backup.service` once and inspect its
@@ -104,6 +104,10 @@ Production refuses to start with SQLite.
    re-lists both PostgreSQL archives without network access, compares their
    stored listings and exact object inventories, fully parses both archives to
    `/dev/null`, and never creates or restores a database.
+10. Only after step 9 succeeds, run
+    `sudo systemctl enable --now aic-strapi-backup.timer`. The deployment
+    script enforces this ordering automatically and leaves the timer disabled
+    when backup creation or verification is skipped or fails.
 
 Do not expose the Strapi write token or draft APIs through a public browser.
 

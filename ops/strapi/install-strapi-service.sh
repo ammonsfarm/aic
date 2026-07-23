@@ -42,7 +42,10 @@ install -o root -g root -m 0644 \
   /etc/systemd/system/aic-strapi-backup.timer
 
 systemctl daemon-reload
-systemctl enable aic-strapi.service aic-strapi-backup.timer >/dev/null
+systemctl enable aic-strapi.service >/dev/null
+# A newly installed timer must not become persistent until deploy-farm-web.sh
+# has created and offline-verified the first canonical backup set.
+systemctl disable --now aic-strapi-backup.timer >/dev/null 2>&1 || true
 systemctl restart aic-strapi-schema.service
 systemctl restart aic-strapi.service
 
@@ -58,11 +61,14 @@ curl --fail --silent --show-error http://127.0.0.1:1337/_health >/dev/null
 test -s /run/aic-strapi/aic-api-token
 "${ops_root}/sync-aic-strapi-env.sh"
 systemctl is-active --quiet aic-strapi.service
-systemctl is-enabled --quiet aic-strapi-backup.timer
+if systemctl is-enabled --quiet aic-strapi-backup.timer; then
+  echo "The Strapi backup timer became enabled before backup verification." >&2
+  exit 1
+fi
 
 if ss -ltnH 'sport = :1337' | awk '{print $4}' | grep -Ev '^(127\.0\.0\.1|\[::1\]):1337$' | grep -q .; then
   echo "Strapi port 1337 is listening beyond loopback." >&2
   exit 1
 fi
 
-echo "Installed and verified the private Strapi service; the backup timer is enabled but not started."
+echo "Installed and verified the private Strapi service; the backup timer remains disabled pending backup verification."

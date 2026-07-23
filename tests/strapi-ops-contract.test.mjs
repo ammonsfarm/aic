@@ -592,6 +592,9 @@ test("deploy builds Strapi before installing it and optionally verifies without 
   const strapiHealthIndex = deploy.indexOf("Checking required private Strapi health");
   const existingStrapiRestartIndex = deploy.indexOf("Restarting the previously active private Strapi service");
   const schemaBackupIndex = deploy.indexOf("systemctl start aic-strapi-backup.service");
+  const backupVerifyIndex = deploy.indexOf("/usr/local/libexec/aic-strapi/verify-strapi-backup.sh");
+  const backupTimerEnableIndex = deploy.indexOf("systemctl enable aic-strapi-backup.timer");
+  const backupTimerAppendIndex = deploy.indexOf("timers_to_start+=(aic-strapi-backup.timer)");
   const startTimersIndex = deploy.indexOf('sudo systemctl start "\\${timers_to_start[@]}"');
   assert.ok(preflightIndex >= 0 && quiesceIndex > preflightIndex && fetchIndex > quiesceIndex);
   assert.ok(strapiPrecheckIndex > preflightIndex && strapiPrecheckIndex < quiesceIndex);
@@ -606,6 +609,12 @@ test("deploy builds Strapi before installing it and optionally verifies without 
   assert.ok(buildIndex >= 0 && installIndex > buildIndex);
   assert.ok(migrationIndex > buildIndex && strapiHealthIndex > installIndex && schemaBackupIndex > strapiHealthIndex);
   assert.ok(startTimersIndex > strapiHealthIndex && startTimersIndex > schemaBackupIndex);
+  assert.ok(
+    schemaBackupIndex < backupVerifyIndex
+      && backupVerifyIndex < backupTimerEnableIndex
+      && backupTimerEnableIndex < backupTimerAppendIndex
+      && backupTimerAppendIndex < startTimersIndex,
+  );
   assert.ok(existingStrapiRestartIndex > migrationIndex && existingStrapiRestartIndex < strapiHealthIndex);
   assert.match(deploy, /all_timers=\([\s\S]*aic-strapi-backup\.timer[\s\S]*\)/);
   assert.match(deploy, /all_worker_services=\([\s\S]*aic-scheduled-publication-worker\.service[\s\S]*\)/);
@@ -634,6 +643,12 @@ test("deploy builds Strapi before installing it and optionally verifies without 
   assert.match(deploy, /NODE_ENV=production ops\/strapi\/with-aic-db-env\.sh npm --prefix services\/jimwood-cms run build/);
   assert.match(deploy, /RUN_STRAPI_BACKUP_VERIFY="\$\{RUN_STRAPI_BACKUP_VERIFY:-1\}"/);
   assert.match(deploy, /sudo \/usr\/local\/libexec\/aic-strapi\/verify-strapi-backup\.sh/);
+  assert.match(deploy, /disable --now aic-strapi-backup\.timer/);
+  assert.match(deploy, /Backup verification was skipped; the Strapi backup timer remains disabled/);
+  const serviceInstaller = source("ops/strapi/install-strapi-service.sh");
+  assert.match(serviceInstaller, /systemctl enable aic-strapi\.service >\/dev\/null/);
+  assert.match(serviceInstaller, /systemctl disable --now aic-strapi-backup\.timer/);
+  assert.doesNotMatch(serviceInstaller, /systemctl enable aic-strapi\.service aic-strapi-backup\.timer/);
   assert.doesNotMatch(deploy, /RUN_STRAPI_BACKUP_DRILL|restore-drill|createdb|pg_restore[^\n]*--dbname/);
   assert.doesNotMatch(deploy, /publish-reviewed|PUBLISH_REVIEWED_PASTORWOOD_CUTOVER/);
   assert.doesNotMatch(deploy, /PRECHANGE_BACKUP|pre-change backup/i);
@@ -653,6 +668,9 @@ test("PastorWood cutover defaults to the pinned snapshot, imports drafts, and se
   const initialFlushIndex = publication.indexOf('if cache_invalidation_state == "pending":');
   assert.match(cutover, /DEFAULT_WORDPRESS_SNAPSHOT/);
   assert.match(cutover, /default="verified-snapshot"/);
+  assert.match(cutover, /wordpress_sources = \("verified-snapshot",\)/);
+  assert.match(cutover, /os\.environ\.get\("NODE_ENV"\) == "test"[\s\S]*DIRECT_WORDPRESS_REFRESH_TEST_MODE_ENV/);
+  assert.match(cutover, /Direct WordPress database refresh is unavailable outside explicit non-production test mode/);
   assert.match(cutover, /pastorwood-reviewed-media-dispositions\.json/);
   assert.match(cutover, /--reviewed-mutation-manifest-sha256/);
   assert.match(cutover, /exact independently confirmed phase-one mutation manifest SHA-256/);

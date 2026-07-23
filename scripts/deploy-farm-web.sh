@@ -386,11 +386,9 @@ else
   sudo systemctl disable --now aic-public-data-retention-worker.timer >/dev/null 2>&1 || true
 fi
 
-if [ "${INSTALL_STRAPI_SERVICE}" = "1" ]; then
-  timers_to_start+=(aic-strapi-backup.timer)
-else
-  sudo systemctl disable aic-strapi-backup.timer >/dev/null 2>&1 || true
-fi
+# The backup timer stays disabled until this deployment has created and
+# offline-verified a canonical backup set below.
+sudo systemctl disable --now aic-strapi-backup.timer >/dev/null 2>&1 || true
 
 if [ "${INSTALL_STRAPI_SERVICE}" = "0" ] && [[ "\${strapi_was_active}" == "1" ]]; then
   echo "Restarting the previously active private Strapi service..."
@@ -418,6 +416,10 @@ if [ "${INSTALL_STRAPI_SERVICE}" = "1" ] && [ "${RUN_STRAPI_BACKUP_VERIFY}" = "1
   echo "Running and verifying the post-health schema-scoped Strapi backup..."
   sudo systemctl start aic-strapi-backup.service
   sudo /usr/local/libexec/aic-strapi/verify-strapi-backup.sh
+  sudo systemctl enable aic-strapi-backup.timer
+  timers_to_start+=(aic-strapi-backup.timer)
+elif [ "${INSTALL_STRAPI_SERVICE}" = "1" ]; then
+  echo "Backup verification was skipped; the Strapi backup timer remains disabled."
 fi
 
 if [[ "\${#timers_to_start[@]}" -gt 0 ]]; then
