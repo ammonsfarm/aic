@@ -54,7 +54,7 @@ export async function POST(request: Request) {
       );
     }
     return NextResponse.json(
-      { ok: true, message: "You are subscribed to the weekly devotional." },
+      { ok: true, state: "pending", message: "Check your email to confirm your weekly devotional subscription." },
       { status: 201, headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
