@@ -4,6 +4,7 @@ import {
   deleteStructuredFile,
   getStructuredEntry,
   getStructuredInventorySummary,
+  listReusableMediaOptions,
   listStructuredEntriesPage,
   transitionStructuredEntry,
 } from "@/lib/strapi-structured-management";
@@ -133,5 +134,34 @@ describe("structured Strapi inventory", () => {
     expect(url.pathname).toBe("/api/upload/files/41");
     expect(init.method).toBe("DELETE");
     expect(new Headers(init.headers).get("authorization")).toBe("Bearer test-token");
+  });
+
+  it("loads reusable files without recursively populating private upload relations", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(payload([{
+      documentId: "media-1",
+      title: "Pastor portrait",
+      visibility: "public",
+      assetType: "image",
+      asset: {
+        id: 41,
+        name: "pastor.jpg",
+        url: "/uploads/pastor.jpg",
+        mime: "image/jpeg",
+        alternativeText: "Pastor Jim Wood",
+      },
+    }], 1, 1, 100));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(listReusableMediaOptions()).resolves.toEqual([{
+      id: 41,
+      label: "Pastor portrait",
+      url: "https://strapi.example.test/uploads/pastor.jpg",
+      mime: "image/jpeg",
+      assetType: "image",
+      altText: "Pastor Jim Wood",
+    }]);
+    const [url] = fetchMock.mock.calls[0] as [URL];
+    expect(url.searchParams.getAll("populate[0]")).toContain("asset");
+    expect(url.searchParams.has("populate[asset]")).toBe(false);
   });
 });

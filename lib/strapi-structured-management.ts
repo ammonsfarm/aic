@@ -387,7 +387,7 @@ export async function listReusableMediaOptions(): Promise<ReusableMediaOption[]>
     query.set("status", "published");
     query.set("filters[visibility][$eq]", "public");
     query.set("filters[archivedAt][$null]", "true");
-    query.set("populate[asset]", "*");
+    query.append("populate[0]", "asset");
     query.set("sort", "title:asc");
     query.set("pagination[page]", String(page));
     query.set("pagination[pageSize]", "100");
