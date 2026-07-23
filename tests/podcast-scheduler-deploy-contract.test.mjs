@@ -22,6 +22,8 @@ test("deployment serializes legacy and canonical podcast jobs across mutation", 
   assert.ok(migrations > checkout);
   assert.ok(timerStart > migrations);
   assert.ok(cronMigration > timerStart);
+  assert.match(deploy, /ENABLE_TIMERS=0 START_TIMERS=0 bash scripts\/install-podcast-scheduled-workers\.sh/);
+  assert.match(deploy, /systemctl enable aic-podcast-daily-ingest\.timer aic-podtrac-daily-ingest\.timer/);
   assert.match(deploy, /aic-podcast-daily-ingest\.timer/);
   assert.match(deploy, /aic-podtrac-daily-ingest\.timer/);
   assert.match(deploy, /INSTALL_PODCAST_SCHEDULED_WORKERS/);

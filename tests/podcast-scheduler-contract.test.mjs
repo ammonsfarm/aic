@@ -23,6 +23,8 @@ test("scheduled worker installer and exact cron migration scripts are executable
   assert.match(installer, /aic-podcast-daily-ingest\.timer/);
   assert.match(installer, /aic-podtrac-daily-ingest\.timer/);
   assert.match(installer, /sudo install -o root -g root -m 0644/);
+  assert.match(installer, /ENABLE_TIMERS="\$\{ENABLE_TIMERS:-0\}"/);
+  assert.match(installer, /START_TIMERS=1 requires ENABLE_TIMERS=1/);
   assert.match(installer, /repo_dir.*\/mnt\/storage\/aic/);
   assert.match(source("scripts/migrate-legacy-podcast-cron.sh"), /must run from \/mnt\/storage\/aic/);
 });

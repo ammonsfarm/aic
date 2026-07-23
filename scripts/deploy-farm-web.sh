@@ -406,7 +406,7 @@ fi
 
 if [ "${INSTALL_PODCAST_SCHEDULED_WORKERS}" = "1" ]; then
   echo "Installing canonical daily podcast and Podtrac timers..."
-  START_TIMERS=0 bash scripts/install-podcast-scheduled-workers.sh
+  ENABLE_TIMERS=0 START_TIMERS=0 bash scripts/install-podcast-scheduled-workers.sh
   timers_to_start+=(aic-podcast-daily-ingest.timer aic-podtrac-daily-ingest.timer)
 else
   sudo systemctl disable aic-podcast-daily-ingest.timer aic-podtrac-daily-ingest.timer >/dev/null 2>&1 || true
@@ -457,6 +457,8 @@ if [[ "\${#timers_to_start[@]}" -gt 0 ]]; then
 fi
 
 if [ "${INSTALL_PODCAST_SCHEDULED_WORKERS}" = "1" ]; then
+  echo "Enabling verified canonical podcast timers..."
+  sudo systemctl enable aic-podcast-daily-ingest.timer aic-podtrac-daily-ingest.timer
   echo "Removing only the two exact legacy podcast cron commands after replacement timers are active..."
   bash scripts/migrate-legacy-podcast-cron.sh
 fi
