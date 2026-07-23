@@ -576,16 +576,27 @@ test("backup service can read but never write the canonical environment", () => 
 
 test("deploy builds Strapi before installing it and optionally verifies without copying or restoring a database", () => {
   const deploy = source("scripts/deploy-farm-web.sh");
+  const restoreRuntime = deploy.slice(
+    deploy.indexOf("restore_predeployment_runtime()"),
+    deploy.indexOf("deployment_failed()"),
+  );
   const preflightIndex = deploy.indexOf('--command "select 1"');
+  const strapiPrecheckIndex = deploy.indexOf("Pre-checking the existing private Strapi");
   const quiesceIndex = deploy.indexOf("Quiescing worker and backup timers");
+  const stopServicesIndex = deploy.indexOf("Stopping web and private Strapi before mutating release files");
   const fetchIndex = deploy.indexOf("git fetch --all");
+  const dependencyInstallIndex = deploy.indexOf("\nnpm ci\n");
   const buildIndex = deploy.indexOf("npm --prefix services/jimwood-cms run build");
   const installIndex = deploy.indexOf("sudo /usr/local/libexec/aic-strapi/install-strapi-service.sh");
   const migrationIndex = deploy.indexOf("apply_postgres_migrations.py --env-file /mnt/storage/aic/.env");
-  const strapiHealthIndex = deploy.indexOf("curl -fsS http://127.0.0.1:1337/_health");
+  const strapiHealthIndex = deploy.indexOf("Checking required private Strapi health");
+  const existingStrapiRestartIndex = deploy.indexOf("Restarting the previously active private Strapi service");
   const schemaBackupIndex = deploy.indexOf("systemctl start aic-strapi-backup.service");
   const startTimersIndex = deploy.indexOf('sudo systemctl start "\\${timers_to_start[@]}"');
   assert.ok(preflightIndex >= 0 && quiesceIndex > preflightIndex && fetchIndex > quiesceIndex);
+  assert.ok(strapiPrecheckIndex > preflightIndex && strapiPrecheckIndex < quiesceIndex);
+  assert.ok(stopServicesIndex > quiesceIndex && fetchIndex > stopServicesIndex);
+  assert.ok(dependencyInstallIndex > stopServicesIndex);
   assert.match(deploy, /with-aic-db-env\.sh \\\n\s+\/usr\/bin\/bash -c 'exec \/usr\/bin\/env/);
   assert.match(deploy, /PGOPTIONS="-c default_transaction_read_only=on -c statement_timeout=5000 -c lock_timeout=1000"/);
   assert.match(deploy, /\/usr\/lib\/postgresql\/16\/bin\/psql/);
@@ -595,6 +606,7 @@ test("deploy builds Strapi before installing it and optionally verifies without 
   assert.ok(buildIndex >= 0 && installIndex > buildIndex);
   assert.ok(migrationIndex > buildIndex && strapiHealthIndex > installIndex && schemaBackupIndex > strapiHealthIndex);
   assert.ok(startTimersIndex > strapiHealthIndex && startTimersIndex > schemaBackupIndex);
+  assert.ok(existingStrapiRestartIndex > migrationIndex && existingStrapiRestartIndex < strapiHealthIndex);
   assert.match(deploy, /all_timers=\([\s\S]*aic-strapi-backup\.timer[\s\S]*\)/);
   assert.match(deploy, /all_worker_services=\([\s\S]*aic-scheduled-publication-worker\.service[\s\S]*\)/);
   assert.match(deploy, /all_timers=\([\s\S]*aic-public-data-retention-worker\.timer[\s\S]*\)/);
@@ -603,6 +615,21 @@ test("deploy builds Strapi before installing it and optionally verifies without 
   assert.match(deploy, /trap 'deployment_failed \\\$\?' EXIT/);
   assert.match(deploy, /migrations_started=1\n\.venv-pg\/bin\/python apply_postgres_migrations\.py/);
   assert.match(deploy, /forward-only migration phase started; no database or code rollback was attempted/);
+  assert.match(deploy, /restore_predeployment_runtime\(\)[\s\S]*sudo systemctl start "\\\$\{previous_active_timers\[@\]\}"/);
+  assert.match(deploy, /deployment_failed\(\)[\s\S]*restore_predeployment_runtime \|\| rollback_ok=0/);
+  assert.match(deploy, /stop_release_runtime\(\)[\s\S]*sudo systemctl stop "\$\{REMOTE_SERVICE\}"[\s\S]*sudo systemctl stop aic-strapi\.service/);
+  assert.match(deploy, /Stopping web and private Strapi[\s\S]*systemctl stop "\\\$\{service\}"[^\n]*\|\| true[\s\S]*systemctl is-active --quiet "\\\$\{service\}"/);
+  assert.match(restoreRuntime, /systemctl stop aic-strapi\.service[^\n]*\|\| true/);
+  assert.match(restoreRuntime, /if sudo systemctl is-active --quiet aic-strapi\.service; then\n\s+return 1/);
+  assert.match(deploy, /Release runtime is fail-closed: web, Strapi, workers, and timers were stopped/);
+  assert.match(
+    deploy,
+    /if \[ "\$\{INSTALL_STRAPI_SERVICE\}" = "0" \][\s\S]*?INSTALL_SCHEDULED_PUBLICATION_WORKER[\s\S]*?INSTALL_EPISODE_PUBLISH_WORKER[\s\S]*?Pre-checking the existing private Strapi/,
+  );
+  assert.match(
+    deploy,
+    /if \[ "\$\{INSTALL_STRAPI_SERVICE\}" = "1" \][\s\S]*?\[ "\$\{INSTALL_SCHEDULED_PUBLICATION_WORKER\}" = "1" \][\s\S]*?\[ "\$\{INSTALL_EPISODE_PUBLISH_WORKER\}" = "1" \][\s\S]*?strapi_was_active[\s\S]*?systemctl is-active --quiet aic-strapi\.service[\s\S]*?wait_for_strapi_health/,
+  );
   assert.doesNotMatch(deploy, /git reset|git checkout\s+--force|pg_restore[^\n]*--dbname/);
   assert.match(deploy, /NODE_ENV=production ops\/strapi\/with-aic-db-env\.sh npm --prefix services\/jimwood-cms run build/);
   assert.match(deploy, /RUN_STRAPI_BACKUP_VERIFY="\$\{RUN_STRAPI_BACKUP_VERIFY:-1\}"/);
@@ -635,6 +662,7 @@ test("PastorWood cutover defaults to the pinned snapshot, imports drafts, and se
   assert.match(cutover, /publicMediaEvidence/);
   assert.match(cutover, /wp-sermon:\[0-9\]\+\|cms_\[a-z0-9\]/);
   assert.match(cutover, /PUBLISH_REVIEWED_CONFIRMATION = "PUBLISH_REVIEWED_PASTORWOOD_CUTOVER"/);
+  assert.match(cutover, /if publishable and api_path in \{"pages", "posts", "episodes"\}:[\s\S]*mutation_data\["scheduledFor"\] = None/);
   assert.match(cutover, /\/api\/editorial\/\{entity_type\}/);
   assert.match(cutover, /\{\*\*redirect, "active": False\}/);
   assert.match(cutover, /mutationManifestSha256/);

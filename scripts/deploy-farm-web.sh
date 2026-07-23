@@ -73,6 +73,34 @@ if [[ "\${preflight_result}" != "1" ]]; then
   exit 1
 fi
 
+wait_for_strapi_health() {
+  for _attempt in \$(seq 1 30); do
+    if curl -fsS http://127.0.0.1:1337/_health >/dev/null; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+wait_for_web_health() {
+  for _attempt in \$(seq 1 15); do
+    if curl -fsS "${SERVICE_URL}/" >/dev/null &&
+       curl -fsS "${SERVICE_URL}/login" >/dev/null; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+if [ "${INSTALL_STRAPI_SERVICE}" = "0" ] && \
+   { [ "${INSTALL_SCHEDULED_PUBLICATION_WORKER}" = "1" ] || [ "${INSTALL_EPISODE_PUBLISH_WORKER}" = "1" ]; }; then
+  echo "Pre-checking the existing private Strapi required by enabled workers..."
+  sudo systemctl is-active --quiet aic-strapi.service
+  wait_for_strapi_health
+fi
+
 previous_sha="\$(git rev-parse HEAD)"
 if [[ -n "\$(git status --porcelain --untracked-files=no)" ]]; then
   echo "Deployment checkout has tracked changes; refusing to mutate or overwrite them." >&2
@@ -108,43 +136,103 @@ sudo systemctl is-active --quiet "${REMOTE_SERVICE}" && web_was_active=1 || true
 sudo systemctl is-active --quiet aic-strapi.service && strapi_was_active=1 || true
 checkout_changed=0
 migrations_started=0
+ops_install_started=0
+
+stop_release_runtime() {
+  for unit in "\${all_timers[@]}" "\${all_worker_services[@]}" aic-strapi-backup.service; do
+    sudo systemctl stop "\${unit}" >/dev/null 2>&1 || true
+  done
+  sudo systemctl stop "${REMOTE_SERVICE}" >/dev/null 2>&1 || true
+  sudo systemctl stop aic-strapi.service >/dev/null 2>&1 || true
+}
+
+restore_predeployment_runtime() {
+  local service_action=start
+  if [[ "\${checkout_changed}" == "1" ]]; then
+    service_action=restart
+  fi
+
+  if [[ "\${strapi_was_active}" == "1" ]]; then
+    sudo systemctl "\${service_action}" aic-strapi.service || return 1
+    wait_for_strapi_health || return 1
+  else
+    sudo systemctl stop aic-strapi.service >/dev/null 2>&1 || true
+    if sudo systemctl is-active --quiet aic-strapi.service; then
+      return 1
+    fi
+  fi
+
+  if [[ "\${web_was_active}" == "1" ]]; then
+    sudo systemctl "\${service_action}" "${REMOTE_SERVICE}" || return 1
+    wait_for_web_health || return 1
+  else
+    sudo systemctl stop "${REMOTE_SERVICE}" >/dev/null 2>&1 || true
+    if sudo systemctl is-active --quiet "${REMOTE_SERVICE}"; then
+      return 1
+    fi
+  fi
+
+  if [[ "\${#previous_active_timers[@]}" -gt 0 ]]; then
+    sudo systemctl start "\${previous_active_timers[@]}" || return 1
+    for timer in "\${previous_active_timers[@]}"; do
+      sudo systemctl is-active --quiet "\${timer}" || return 1
+    done
+  fi
+  return 0
+}
 
 deployment_failed() {
   status="\$1"
   trap - EXIT INT TERM
   set +e
-  echo "Deployment failed with status \${status}; leaving every worker and backup timer stopped." >&2
+  echo "Deployment failed with status \${status}." >&2
   for unit in "\${all_timers[@]}" "\${all_worker_services[@]}" aic-strapi-backup.service; do
     sudo systemctl stop "\${unit}" >/dev/null 2>&1 || true
   done
 
-  if [[ "\${checkout_changed}" == "1" && "\${migrations_started}" == "0" ]]; then
-    echo "No migration command started; attempting a bounded application rollback to \${previous_sha}." >&2
-    sudo systemctl stop "${REMOTE_SERVICE}" >/dev/null 2>&1 || true
-    sudo systemctl stop aic-strapi.service >/dev/null 2>&1 || true
+  if [[ "\${migrations_started}" == "0" ]]; then
     rollback_ok=1
-    git checkout --detach "\${previous_sha}" || rollback_ok=0
+    if [[ "\${checkout_changed}" == "1" ]]; then
+      echo "No migration command started; attempting a bounded application rollback to \${previous_sha}." >&2
+      sudo systemctl stop "${REMOTE_SERVICE}" >/dev/null 2>&1 || true
+      sudo systemctl stop aic-strapi.service >/dev/null 2>&1 || true
+      git checkout --detach "\${previous_sha}" || rollback_ok=0
+      if [[ "\${rollback_ok}" == "1" ]]; then
+        npm ci || rollback_ok=0
+        npm --prefix services/jimwood-cms ci || rollback_ok=0
+        .venv-pg/bin/python -m pip install -r requirements-postgres.txt || rollback_ok=0
+        NODE_ENV=production ops/strapi/with-aic-db-env.sh npm --prefix services/jimwood-cms run build || rollback_ok=0
+        npm run build || rollback_ok=0
+      fi
+    fi
+
+    if [[ "\${rollback_ok}" == "1" && "\${ops_install_started}" == "1" ]]; then
+      sudo install -o root -g root -m 0755 \
+        ops/strapi/install-strapi-ops.sh \
+        /usr/local/sbin/aic-install-strapi-ops || rollback_ok=0
+      if [[ "\${rollback_ok}" == "1" ]]; then
+        sudo /usr/local/sbin/aic-install-strapi-ops || rollback_ok=0
+      fi
+    fi
+
     if [[ "\${rollback_ok}" == "1" ]]; then
-      npm ci || rollback_ok=0
-      npm --prefix services/jimwood-cms ci || rollback_ok=0
-      NODE_ENV=production ops/strapi/with-aic-db-env.sh npm --prefix services/jimwood-cms run build || rollback_ok=0
-      npm run build || rollback_ok=0
-    fi
-    if [[ "\${rollback_ok}" == "1" && "\${strapi_was_active}" == "1" ]]; then
-      sudo systemctl start aic-strapi.service || rollback_ok=0
-    fi
-    if [[ "\${rollback_ok}" == "1" && "\${web_was_active}" == "1" ]]; then
-      sudo systemctl start "${REMOTE_SERVICE}" || rollback_ok=0
+      restore_predeployment_runtime || rollback_ok=0
     fi
     if [[ "\${rollback_ok}" == "1" ]]; then
-      echo "Previous application revision and builds were restored; checkout is intentionally detached at \${previous_sha}." >&2
-    else
-      echo "Automatic application rollback was incomplete; keep timers stopped and repair the checkout/services manually." >&2
+      echo "Pre-deployment application, service, and active-timer state was restored." >&2
+      if [[ "\${checkout_changed}" == "1" ]]; then
+        echo "The checkout is intentionally detached at \${previous_sha}." >&2
+      fi
+      exit "\${status}"
     fi
-  elif [[ "\${migrations_started}" == "1" ]]; then
+    echo "Automatic pre-migration rollback was incomplete." >&2
+  else
     echo "The forward-only migration phase started; no database or code rollback was attempted." >&2
   fi
-  echo "Timers active before deployment: \${previous_active_timers[*]:-none}. Re-enable only after both services are healthy." >&2
+
+  stop_release_runtime
+  echo "Release runtime is fail-closed: web, Strapi, workers, and timers were stopped." >&2
+  echo "Timers active before deployment: \${previous_active_timers[*]:-none}. Repair the release and verify both services before restarting them." >&2
   exit "\${status}"
 }
 trap 'deployment_failed \$?' EXIT
@@ -158,6 +246,17 @@ done
 for unit in "\${all_timers[@]}" "\${all_worker_services[@]}" aic-strapi-backup.service; do
   if sudo systemctl is-active --quiet "\${unit}"; then
     echo "Could not quiesce \${unit}; aborting before checkout mutation." >&2
+    exit 1
+  fi
+done
+
+echo "Stopping web and private Strapi before mutating release files..."
+for service in "${REMOTE_SERVICE}" aic-strapi.service; do
+  sudo systemctl stop "\${service}" >/dev/null 2>&1 || true
+done
+for service in "${REMOTE_SERVICE}" aic-strapi.service; do
+  if sudo systemctl is-active --quiet "\${service}"; then
+    echo "Could not stop \${service}; aborting before checkout mutation." >&2
     exit 1
   fi
 done
@@ -195,6 +294,7 @@ if .venv-pg/bin/python scripts/process_subscription_provider_outbox.py \
   subscription_provider_ready=1
 fi
 echo "Installing root-owned Strapi operations..."
+ops_install_started=1
 sudo install -o root -g root -m 0755 \
   ops/strapi/install-strapi-ops.sh \
   /usr/local/sbin/aic-install-strapi-ops
@@ -274,6 +374,11 @@ else
   sudo systemctl disable aic-strapi-backup.timer >/dev/null 2>&1 || true
 fi
 
+if [ "${INSTALL_STRAPI_SERVICE}" = "0" ] && [[ "\${strapi_was_active}" == "1" ]]; then
+  echo "Restarting the previously active private Strapi service..."
+  sudo systemctl restart aic-strapi.service
+fi
+
 echo "Restarting service: ${REMOTE_SERVICE}"
 sudo systemctl restart "${REMOTE_SERVICE}"
 sudo systemctl is-active "${REMOTE_SERVICE}"
@@ -282,8 +387,13 @@ sleep 1
 echo "Checking health on ${SERVICE_URL}"
 curl -fsS "${SERVICE_URL}/"
 curl -fsS "${SERVICE_URL}/login" >/dev/null
-if [ "${INSTALL_STRAPI_SERVICE}" = "1" ]; then
-  curl -fsS http://127.0.0.1:1337/_health >/dev/null
+if [ "${INSTALL_STRAPI_SERVICE}" = "1" ] || \
+   [ "${INSTALL_SCHEDULED_PUBLICATION_WORKER}" = "1" ] || \
+   [ "${INSTALL_EPISODE_PUBLISH_WORKER}" = "1" ] || \
+   [[ "\${strapi_was_active}" == "1" ]]; then
+  echo "Checking required private Strapi health before any dependent timer starts..."
+  sudo systemctl is-active --quiet aic-strapi.service
+  wait_for_strapi_health
 fi
 
 if [ "${INSTALL_STRAPI_SERVICE}" = "1" ] && [ "${RUN_STRAPI_BACKUP_VERIFY}" = "1" ]; then

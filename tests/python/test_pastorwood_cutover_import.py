@@ -4,9 +4,16 @@ import json
 import os
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+
+PSYCOPG_STUB = types.ModuleType("psycopg")
+PSYCOPG_ROWS_STUB = types.ModuleType("psycopg.rows")
+PSYCOPG_ROWS_STUB.dict_row = object()
+sys.modules.setdefault("psycopg", PSYCOPG_STUB)
+sys.modules.setdefault("psycopg.rows", PSYCOPG_ROWS_STUB)
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "pastorwood_cutover_import.py"
@@ -146,12 +153,27 @@ class CutoverIdentityTests(unittest.TestCase):
             return {"data": {"documentId": "doc-1", "legacyId": "7", "updatedAt": "2026-07-22T10:01:00Z"}}
 
         client.request = request
-        result = client.upsert("posts", "legacyId", "7", {"legacyId": "7", "title": "Reviewed"})
+        result = client.upsert(
+            "posts",
+            "legacyId",
+            "7",
+            {
+                "legacyId": "7",
+                "title": "Reviewed",
+                "scheduledFor": "2026-07-22T09:00:00Z",
+            },
+        )
 
         self.assertEqual(result["outcome"], "updated")
         self.assertTrue(any(path == "/api/editorial/post/doc-1/baseline" for path, _method, _payload in calls))
         self.assertTrue(any(path == "/api/editorial/post/doc-1" and method == "PUT" for path, method, _payload in calls))
         self.assertFalse(any("status=published" in path for path, _method, _payload in calls))
+        update_payload = next(
+            payload
+            for path, method, payload in calls
+            if path == "/api/editorial/post/doc-1" and method == "PUT"
+        )
+        self.assertIsNone(update_payload["data"]["scheduledFor"])
 
     def test_apply_requires_complete_media_rehearsal_flags(self):
         self.assertEqual(MODULE.main(["--apply"]), 1)

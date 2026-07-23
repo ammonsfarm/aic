@@ -3057,6 +3057,13 @@ class StrapiClient:
         entity_type = self.ENTITY_TYPES.get(api_path)
         if not entity_type:
             raise RuntimeError(f"Unsupported editorial collection: {api_path}")
+        mutation_data = dict(data)
+        if publishable and api_path in {"pages", "posts", "episodes"}:
+            # Phase one must always leave imported content unscheduled. Without
+            # this explicit clear, updating an existing due draft can preserve
+            # its old schedule and let the publication worker publish it before
+            # the independently reviewed phase-two manifest is applied.
+            mutation_data["scheduledFor"] = None
         query = urllib.parse.urlencode({
             f"filters[{identity_field}][$eq]": identity_value,
             "pagination[pageSize]": "1",
@@ -3088,7 +3095,7 @@ class StrapiClient:
                 "PUT",
                 {
                     "actor": self.CUTOVER_ACTOR,
-                    "data": data,
+                    "data": mutation_data,
                     "expectedUpdatedAt": expected_updated_at,
                     "note": "Updated from the checksum-pinned PastorWood cutover plan; retained as a draft for validation.",
                 },
@@ -3100,7 +3107,7 @@ class StrapiClient:
                 "POST",
                 {
                     "actor": self.CUTOVER_ACTOR,
-                    "data": data,
+                    "data": mutation_data,
                     "note": "Created from the checksum-pinned PastorWood cutover plan; retained as a draft for validation.",
                 },
             )
