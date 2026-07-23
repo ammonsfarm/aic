@@ -25,6 +25,7 @@ const input: ManagedSiteSettingsInput = {
   showDonateButton: true,
   donateButtonLabel: "Donate",
   donateButtonUrl: "/donate/",
+  donorDashboardUrl: "https://www.pastorwood.org/donor-dashboard/",
   headerLogoId: null,
   subscriptionEnabled: true,
 };

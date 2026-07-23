@@ -140,6 +140,7 @@ const payload = {
     showDonateButton: true,
     donateButtonLabel: "Donate",
     donateButtonUrl: "/donate/",
+    donorDashboardUrl: "https://www.pastorwood.org/donor-dashboard/",
     headerLogo: null,
     subscriptionEnabled: true,
   },
@@ -168,6 +169,7 @@ console.log(JSON.stringify({
   footerNavigation: data.footerNavigation?.length ?? 0,
   showDonateButton: data.showDonateButton,
   donateButtonLabel: data.donateButtonLabel,
+  donorDashboardUrl: data.donorDashboardUrl,
   subscriptionEnabled: data.subscriptionEnabled,
   initialized: true,
 }, null, 2));

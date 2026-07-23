@@ -1008,6 +1008,8 @@ export interface ApiSiteSettingSiteSetting extends Struct.SingleTypeSchema {
       Schema.Attribute.DefaultTo<'Donate'>;
     donateButtonUrl: Schema.Attribute.String &
       Schema.Attribute.DefaultTo<'/donate'>;
+    donorDashboardUrl: Schema.Attribute.String &
+      Schema.Attribute.DefaultTo<'https://www.pastorwood.org/donor-dashboard/'>;
     footerNavigation: Schema.Attribute.Component<
       'navigation.navigation-item',
       true

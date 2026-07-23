@@ -68,6 +68,13 @@ const contentAreas = [
     status: "Audit workflow active",
   },
   {
+    title: "Contact inbox",
+    eyebrow: "Correspondence / prayer",
+    description: "Review public messages, track response status, and see whether staff notification is configured or delivered.",
+    href: "/content/inbox",
+    status: "Durable private inbox active",
+  },
+  {
     title: "Devotional subscribers",
     eyebrow: "Consent / export",
     description: "Export consented weekly devotional subscribers without exposing request fingerprints or changing suppression status.",
