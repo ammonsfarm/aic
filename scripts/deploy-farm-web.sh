@@ -9,7 +9,7 @@ REMOTE_SERVICE="${REMOTE_SERVICE:-aic-web.service}"
 REMOTE_PORT="${REMOTE_PORT:-8087}"
 INSTALL_TRANSCRIPT_EDIT_WORKER="${INSTALL_TRANSCRIPT_EDIT_WORKER:-1}"
 INSTALL_STRAPI_SERVICE="${INSTALL_STRAPI_SERVICE:-1}"
-RUN_STRAPI_BACKUP_DRILL="${RUN_STRAPI_BACKUP_DRILL:-0}"
+RUN_STRAPI_BACKUP_VERIFY="${RUN_STRAPI_BACKUP_VERIFY:-0}"
 INSTALL_ADMIN_OPERATIONS_WORKER="${INSTALL_ADMIN_OPERATIONS_WORKER:-1}"
 INSTALL_EPISODE_PUBLISH_WORKER="${INSTALL_EPISODE_PUBLISH_WORKER:-1}"
 INSTALL_SUBSCRIPTION_PROVIDER_WORKER="${INSTALL_SUBSCRIPTION_PROVIDER_WORKER:-1}"
@@ -28,6 +28,10 @@ EOF
 ssh "${ssh_target}" <<SSH
 set -euo pipefail
 
+# The checked-in .env is authoritative. Prevent an SSH/session environment from
+# overriding the exact database target later loaded by migration and build tools.
+unset DB_HOST DB_PORT DB_NAME DB_USER DB_PASSWORD
+
 echo "Updating code..."
 cd "${REMOTE_DIR}"
 git fetch --all
@@ -37,6 +41,15 @@ git pull --ff-only origin "${REMOTE_BRANCH}"
 echo "Installing dependencies..."
 npm ci
 npm --prefix services/jimwood-cms ci
+
+echo "Installing root-owned Strapi operations..."
+sudo install -o root -g root -m 0755 \
+  ops/strapi/install-strapi-ops.sh \
+  /usr/local/sbin/aic-install-strapi-ops
+sudo /usr/local/sbin/aic-install-strapi-ops
+
+echo "Validating the existing AIC PostgreSQL target..."
+/usr/local/libexec/aic-strapi/with-aic-db-env.sh /usr/bin/true
 
 echo "Applying database migrations..."
 MIGRATION_PYTHON="python3"
@@ -51,12 +64,12 @@ fi
 "\${MIGRATION_PYTHON}" apply_postgres_migrations.py
 
 echo "Building Strapi..."
-npm --prefix services/jimwood-cms run build
+/usr/local/libexec/aic-strapi/with-aic-db-env.sh npm --prefix services/jimwood-cms run build
 
 if [ "${INSTALL_STRAPI_SERVICE}" = "1" ]; then
   echo "Provisioning and installing private Strapi service..."
-  sudo bash ops/strapi/provision-strapi.sh
-  sudo bash ops/strapi/install-strapi-service.sh
+  sudo /usr/local/libexec/aic-strapi/provision-strapi.sh
+  sudo /usr/local/libexec/aic-strapi/install-strapi-service.sh
   echo "Ensuring the first audited site-settings draft exists..."
   node scripts/seed-strapi-site-settings.mjs
 fi
@@ -84,10 +97,10 @@ if [ "${INSTALL_SUBSCRIPTION_PROVIDER_WORKER}" = "1" ]; then
   bash scripts/install-subscription-provider-worker.sh
 fi
 
-if [ "${RUN_STRAPI_BACKUP_DRILL}" = "1" ]; then
-  echo "Running verified Strapi backup and isolated restore drill..."
+if [ "${RUN_STRAPI_BACKUP_VERIFY}" = "1" ]; then
+  echo "Running and verifying a schema-scoped Strapi backup..."
   sudo systemctl start aic-strapi-backup.service
-  sudo bash ops/strapi/restore-drill.sh
+  sudo /usr/local/libexec/aic-strapi/verify-strapi-backup.sh
 fi
 
 echo "Restarting service: ${REMOTE_SERVICE}"

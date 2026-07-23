@@ -9,10 +9,16 @@ restart anything by themselves.
 - Service user: `ammonsfarm`
 - Bind address: `127.0.0.1:1337`
 - Source: `/mnt/storage/aic/services/jimwood-cms`
-- Secrets: `/etc/aic/strapi.env` (root-owned, mode 0600)
+- Generated Strapi application secrets: `/etc/aic/strapi.env` (root-owned,
+  mode 0600, and contains no database target or credentials)
+- Database source: the existing `/mnt/storage/aic/.env` `DB_HOST`, `DB_PORT`,
+  `DB_NAME`, `DB_USER`, and `DB_PASSWORD` values
+- Pinned production target: `192.168.1.106:5432`; startup fails if the canonical
+  environment points anywhere else
 - Secrets recovery copy: `/mnt/storage/backups/aic-strapi-secrets` (root-only,
   checksummed, and separate from service-user database/media backups)
-- Database: a separate PostgreSQL database, never the AIC application schema
+- Database namespace: dedicated schema `aic_strapi` inside that same existing
+  AIC PostgreSQL database; no local or copied Strapi database
 - Durable new uploads: `/mnt/storage/pastorwood-media/strapi/uploads`
 - Backups: `/mnt/storage/backups/aic-strapi`
 - PostgreSQL backup client: local Docker image `postgres:16` with `--pull=never`
@@ -24,11 +30,26 @@ direct admin access is required.
 ## Required environment
 
 `provision-strapi.sh` creates `/etc/aic/strapi.env` with independent random
-secrets, creates the isolated `aic_strapi` role/database in `farm-postgres`, and
-locks the environment file to root mode 0600. It also maintains a checksummed,
-root-only recovery copy on `/mnt/storage`; that copy is required to decrypt API
-tokens after a database restore. Provisioning is idempotent and refuses
-unexpected paths or database settings.
+application secrets and locks it to root mode 0600. It never generates, copies,
+or stores database credentials. `with-aic-db-env.sh` reads the canonical AIC
+environment at command start, maps its `DB_*` values to Strapi's `DATABASE_*`
+variables, removes `DATABASE_URL`, and pins `DATABASE_SCHEMA=aic_strapi`.
+The service prepares only that schema as the unprivileged `ammonsfarm` user
+before Strapi starts; no root process sources the application-owned AIC
+environment. It does not create a role or database. Provisioning also maintains
+a checksummed, root-only recovery copy of the application secrets on
+`/mnt/storage`.
+
+The dedicated schema prevents Strapi migrations and tables from being mixed
+into `public`; it is not a PostgreSQL authorization boundary. The explicit
+deployment requirement reuses the existing `DB_USER` and its existing database
+privileges. The schema initializer verifies that `aic_strapi` is owned by that
+user and removes `PUBLIC` schema access, but it does not and cannot reduce the
+login role's permissions on other AIC schemas.
+
+Schema preparation runs in a short-lived oneshot unit. The long-running Strapi
+unit cannot see `/run/docker.sock` or `/var/run/docker.sock`, even when the
+service account belongs to the host's Docker group.
 
 At service bootstrap, Strapi creates or reconciles one custom least-privilege
 token for the AIC server. Its key is written only to the mode-0600 runtime file
@@ -41,44 +62,63 @@ Production refuses to start with SQLite.
 
 ## Install after branch integration
 
-1. Run `sudo ops/strapi/provision-strapi.sh` to create the private environment,
-   PostgreSQL database, and least-privilege role.
-2. Run `npm ci && npm run build` in `services/jimwood-cms` as `ammonsfarm`.
-3. Install and inspect the backup client image explicitly with
+1. Confirm `/mnt/storage/aic/.env` has the existing AIC PostgreSQL `DB_*`
+   settings. Do not copy, restore, or repoint the database.
+2. Copy the small operations installer to a root-owned path, then use it to
+   install immutable service scripts and unit sources:
+   `sudo install -o root -g root -m 0755 ops/strapi/install-strapi-ops.sh
+   /usr/local/sbin/aic-install-strapi-ops && sudo
+   /usr/local/sbin/aic-install-strapi-ops`.
+3. Run `sudo /usr/local/libexec/aic-strapi/provision-strapi.sh` to create the private application
+   secrets. It does not connect to PostgreSQL.
+4. From `/mnt/storage/aic`, run `npm --prefix services/jimwood-cms ci` and
+   `NODE_ENV=production /usr/local/libexec/aic-strapi/with-aic-db-env.sh npm --prefix
+   services/jimwood-cms run build` as `ammonsfarm`.
+5. Install and inspect the backup client image explicitly with
    `docker pull postgres:16` and `docker image inspect postgres:16`. The backup
    job never pulls an image on its own.
-4. Run the no-write client check with
-   `STRAPI_BACKUP_DRY_RUN=1 ops/strapi/backup-strapi.sh`. It still reads the
-   configured environment file and requires the database variables, but it
-   connects to no database and creates no backup directory.
-5. Run `sudo ops/strapi/install-strapi-service.sh`. It installs all three units,
-   starts the private service and timer, verifies loopback-only binding and
-   health, and safely configures the AIC server token.
-6. Run `sudo systemctl start aic-strapi-backup.service` once and inspect its
+6. Run the no-write client check with
+   `STRAPI_BACKUP_DRY_RUN=1 /usr/local/libexec/aic-strapi/with-aic-db-env.sh
+   /usr/local/libexec/aic-strapi/backup-strapi.sh`. It validates the canonical database variables
+   and pinned client image, but connects to no database and creates no backup
+   directory.
+7. Run `sudo /usr/local/libexec/aic-strapi/install-strapi-service.sh`. It installs the Strapi,
+   schema-preparation, backup-service, and backup-timer units,
+   prepares only the dedicated `aic_strapi` schema as `ammonsfarm`, starts the
+   private service and timer, verifies loopback-only binding and health, and
+   safely configures the AIC server token.
+8. Run `sudo systemctl start aic-strapi-backup.service` once and inspect its
    journal and output directory.
-7. Run `sudo ops/strapi/restore-drill.sh`; it restores only into a generated
-   disposable database and temporary media directory, verifies contents, and
-   removes both drill targets.
+9. Run `sudo /usr/local/libexec/aic-strapi/verify-strapi-backup.sh`. It checks SHA-256 sums,
+   re-lists the PostgreSQL archive without network access, compares both stored
+   archive listings, and never creates or restores a database.
 
 Do not expose the Strapi write token or draft APIs through a public browser.
 
-## Backup verification and restore drill
+## Backup verification
 
-Each successful backup contains a PostgreSQL custom-format dump, a media archive,
-file listings, metadata, and SHA-256 checksums. The backup command validates both
-archives before atomically naming the backup directory.
+Each successful backup contains a PostgreSQL custom-format dump scoped with
+`pg_dump --schema aic_strapi`, a media archive, file listings, metadata, and
+SHA-256 checksums. The backup command validates the database archive with
+`pg_restore --list` and a full offline `pg_restore --file=/dev/null`, validates
+the media archive with `tar --list`, checksums the archives and listings, and
+only then atomically names the backup directory.
 
 The farm host's `pg_dump` and `pg_restore` wrappers are not usable without a
-versioned client package, so the script deliberately runs both tools from the
-already-installed `postgres:16` image. It uses host networking only for the dump,
-mounts only the in-progress backup directory, passes the password through the
-container environment rather than command arguments, drops capabilities, and
-runs with a read-only container filesystem and the service user's UID/GID.
+versioned client package, so the scripts deliberately run both tools from the
+already-installed `postgres:16` image. Backup creation uses host networking only
+for the schema-scoped dump. Verification uses `--network none`, mounts the
+completed backup read-only, and lists the archive without a database target.
+Neither checked-in script creates a validation database or invokes a restore.
+The coordinated backup service temporarily stops Strapi, runs the database and
+media backup as `ammonsfarm`, and restarts Strapi even when backup creation
+fails. This prevents a successful archive from pairing database metadata with a
+different point-in-time media tree.
 
-A restore drill must be performed into a disposable PostgreSQL database and a
-temporary media directory before launch and at least quarterly. Never restore
-over the live database or uploads directory. The checked-in drill intentionally
-does not accept a database name and never uses `pg_restore --clean`.
+The configured backup directory and media root are currently on the same
+`/mnt/storage` failure domain. An independently configured off-host or offsite
+copy remains required for storage-loss recovery; the checked-in scripts do not
+claim that same-host retention provides it.
 
 ## Legacy media boundary
 

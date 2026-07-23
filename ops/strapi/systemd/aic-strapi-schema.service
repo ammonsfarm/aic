@@ -1,0 +1,17 @@
+[Unit]
+Description=Prepare the AIC Pastor Wood Strapi database schema
+Requires=docker.service
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=ammonsfarm
+Group=ammonsfarm
+ExecStart=/usr/local/libexec/aic-strapi/with-aic-db-env.sh /usr/local/libexec/aic-strapi/ensure-strapi-schema.sh
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/mnt/storage/aic/.env

@@ -37,11 +37,12 @@ esac
       encoding: "utf8",
       env: {
         ...process.env,
-        DATABASE_HOST: "127.0.0.1",
+        DATABASE_HOST: "192.168.1.106",
         DATABASE_PORT: "5432",
-        DATABASE_NAME: "aic_strapi_contract",
-        DATABASE_USERNAME: "aic_strapi_contract",
+        DATABASE_NAME: "aic_contract",
+        DATABASE_USERNAME: "aic_contract_user",
         DATABASE_PASSWORD: password,
+        DATABASE_SCHEMA: "aic_strapi",
         MOCK_DOCKER_LOG: dockerLog,
         STRAPI_BACKUP_DOCKER_BIN: mockDocker,
         STRAPI_BACKUP_DRY_RUN: "1",
@@ -74,7 +75,16 @@ test("Strapi backup dump contract keeps credentials out of argv", () => {
   assert.match(source, /--network host/);
   assert.match(source, /--env PGPASSWORD/);
   assert.match(source, /--mount "type=bind,src=\$\{partial_dir\},dst=\/backup"/);
+  assert.match(source, /--schema "\$\{DATABASE_SCHEMA\}"/);
   assert.match(source, /pg_restore --list \/backup\/database\.dump/);
+  assert.match(source, /pg_restore --exit-on-error --file=\/dev\/null \/backup\/database\.dump/);
+  assert.match(source, /database_schema=%s/);
+  assert.match(source, /database_port=%s/);
+  assert.match(source, /192\.168\.1\.106/);
+  assert.match(source, /sha256sum database\.dump database\.contents media\.contents manifest\.env/);
+  assert.match(source, /Required Strapi media root is missing/);
+  assert.doesNotMatch(source, /Media root was absent at backup time/);
   assert.doesNotMatch(source, /--env PGPASSWORD=/);
   assert.doesNotMatch(source, /PGPASSWORD="\$\{DATABASE_PASSWORD\}"\s+pg_dump/);
+  assert.doesNotMatch(source, /CREATE DATABASE|DROP DATABASE|pg_restore\s+--dbname/);
 });

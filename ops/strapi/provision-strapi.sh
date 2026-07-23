@@ -7,24 +7,23 @@ if [[ "${EUID}" -ne 0 ]]; then
   exit 1
 fi
 
+ops_root="${STRAPI_OPS_ROOT:-/usr/local/libexec/aic-strapi}"
 env_file="${STRAPI_ENV_FILE:-/etc/aic/strapi.env}"
 secrets_backup="${STRAPI_SECRETS_BACKUP:-/mnt/storage/backups/aic-strapi-secrets}"
-postgres_container="${STRAPI_POSTGRES_CONTAINER:-farm-postgres}"
-database_name="aic_strapi"
-database_role="aic_strapi"
 cms_tmp_root="/mnt/storage/aic/services/jimwood-cms/.tmp"
 media_root="/mnt/storage/pastorwood-media/strapi"
 backup_root="/mnt/storage/backups/aic-strapi"
 
-if [[ "${env_file}" != "/etc/aic/strapi.env" ||
+if [[ "${ops_root}" != "/usr/local/libexec/aic-strapi" ||
+      "${env_file}" != "/etc/aic/strapi.env" ||
       "${secrets_backup}" != "/mnt/storage/backups/aic-strapi-secrets" ]]; then
-  echo "Refusing unexpected Strapi environment or secrets-backup path." >&2
+  echo "Refusing unexpected Strapi repository, environment, or secrets-backup path." >&2
   exit 1
 fi
 
 command -v openssl >/dev/null
-command -v docker >/dev/null
-docker inspect "${postgres_container}" >/dev/null
+test -x "${ops_root}/with-aic-db-env.sh"
+test -x "${ops_root}/ensure-strapi-schema.sh"
 
 random_hex() {
   openssl rand -hex "$1"
@@ -37,15 +36,12 @@ if [[ -e "${env_file}" ]]; then
     echo "Existing ${env_file} must be a root-owned mode-0600 regular file." >&2
     exit 1
   fi
-  # shellcheck disable=SC1090
-  source "${env_file}"
 else
   APP_KEYS="$(random_hex 32),$(random_hex 32),$(random_hex 32),$(random_hex 32)"
   API_TOKEN_SALT="$(random_hex 32)"
   ADMIN_JWT_SECRET="$(random_hex 32)"
   TRANSFER_TOKEN_SALT="$(random_hex 32)"
   ENCRYPTION_KEY="$(random_hex 16)"
-  DATABASE_PASSWORD="$(random_hex 32)"
 
   temporary_env="$(mktemp /etc/aic/.strapi.env.XXXXXX)"
   cleanup_env() {
@@ -62,17 +58,6 @@ else
     printf 'ADMIN_JWT_SECRET=%s\n' "${ADMIN_JWT_SECRET}"
     printf 'TRANSFER_TOKEN_SALT=%s\n' "${TRANSFER_TOKEN_SALT}"
     printf 'ENCRYPTION_KEY=%s\n' "${ENCRYPTION_KEY}"
-    printf 'DATABASE_CLIENT=postgres\n'
-    printf 'DATABASE_HOST=127.0.0.1\n'
-    printf 'DATABASE_PORT=5433\n'
-    printf 'DATABASE_NAME=%s\n' "${database_name}"
-    printf 'DATABASE_USERNAME=%s\n' "${database_role}"
-    printf 'DATABASE_PASSWORD=%s\n' "${DATABASE_PASSWORD}"
-    printf 'DATABASE_SCHEMA=public\n'
-    printf 'DATABASE_SSL=false\n'
-    printf 'DATABASE_POOL_MIN=1\n'
-    printf 'DATABASE_POOL_MAX=10\n'
-    printf 'DATABASE_CONNECTION_TIMEOUT=60000\n'
     printf 'UPLOAD_MAX_FILE_SIZE=268435456\n'
     printf 'FLAG_NPS=false\n'
     printf 'FLAG_PROMOTE_EE=false\n'
@@ -87,24 +72,27 @@ else
   trap - EXIT
 fi
 
-# Re-read the canonical file so first-run and idempotent validation use the
-# exact persisted values rather than transient shell state.
-source "${env_file}"
-: "${DATABASE_CLIENT:?DATABASE_CLIENT is required}"
-: "${DATABASE_HOST:?DATABASE_HOST is required}"
-: "${DATABASE_PORT:?DATABASE_PORT is required}"
-: "${DATABASE_NAME:?DATABASE_NAME is required}"
-: "${DATABASE_USERNAME:?DATABASE_USERNAME is required}"
-: "${DATABASE_PASSWORD:?DATABASE_PASSWORD is required}"
-
-if [[ "${DATABASE_CLIENT}" != "postgres" || "${DATABASE_HOST}" != "127.0.0.1" ||
-      "${DATABASE_PORT}" != "5433" || "${DATABASE_NAME}" != "${database_name}" ||
-      "${DATABASE_USERNAME}" != "${database_role}" ]]; then
-  echo "Existing Strapi database settings do not match the farm production contract." >&2
+# This file contains only generated Strapi application secrets and runtime
+# settings. Database credentials remain exclusively in /mnt/storage/aic/.env.
+if grep -Eq '^(DB_|DATABASE_)' "${env_file}"; then
+  echo "${env_file} must not contain database credentials or targets." >&2
   exit 1
 fi
-if [[ ! "${DATABASE_PASSWORD}" =~ ^[0-9a-f]{64}$ ]]; then
-  echo "Strapi database password does not match the generated secret format." >&2
+
+# shellcheck disable=SC1090
+source "${env_file}"
+: "${APP_KEYS:?APP_KEYS is required}"
+: "${API_TOKEN_SALT:?API_TOKEN_SALT is required}"
+: "${ADMIN_JWT_SECRET:?ADMIN_JWT_SECRET is required}"
+: "${TRANSFER_TOKEN_SALT:?TRANSFER_TOKEN_SALT is required}"
+: "${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}"
+
+if [[ ! "${APP_KEYS}" =~ ^[0-9a-f]{64},[0-9a-f]{64},[0-9a-f]{64},[0-9a-f]{64}$ ||
+      ! "${API_TOKEN_SALT}" =~ ^[0-9a-f]{64}$ ||
+      ! "${ADMIN_JWT_SECRET}" =~ ^[0-9a-f]{64}$ ||
+      ! "${TRANSFER_TOKEN_SALT}" =~ ^[0-9a-f]{64}$ ||
+      ! "${ENCRYPTION_KEY}" =~ ^[0-9a-f]{32}$ ]]; then
+  echo "Existing Strapi application secrets do not match the generated secret format." >&2
   exit 1
 fi
 if [[ "${STRAPI_MEDIA_ROOT:-}" != "${media_root}/uploads" ||
@@ -114,25 +102,12 @@ if [[ "${STRAPI_MEDIA_ROOT:-}" != "${media_root}/uploads" ||
 fi
 
 # systemd resolves ReadWritePaths before ExecStartPre. Create every writable
-# namespace target during provisioning so the first service start cannot fail
-# before prepare-strapi-storage.sh is allowed to run.
+# namespace target during provisioning so the first service start cannot fail.
 install -d -o ammonsfarm -g ammonsfarm -m 0750 \
   "${cms_tmp_root}" \
   "${media_root}" \
   "${media_root}/uploads" \
   "${backup_root}"
-
-{
-  printf "SELECT format('CREATE ROLE %%I LOGIN PASSWORD %%L', '%s', '%s') WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '%s') \\gexec\n" \
-    "${database_role}" "${DATABASE_PASSWORD}" "${database_role}"
-  printf "ALTER ROLE %s WITH LOGIN PASSWORD '%s' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;\n" \
-    "${database_role}" "${DATABASE_PASSWORD}"
-  printf "SELECT format('CREATE DATABASE %%I OWNER %%I', '%s', '%s') WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = '%s') \\gexec\n" \
-    "${database_name}" "${database_role}" "${database_name}"
-  printf "REVOKE ALL ON DATABASE %s FROM PUBLIC;\n" "${database_name}"
-  printf "GRANT CONNECT, TEMPORARY ON DATABASE %s TO %s;\n" "${database_name}" "${database_role}"
-} | docker exec -i "${postgres_container}" sh -lc \
-  'psql -X --set ON_ERROR_STOP=1 --quiet -U "$POSTGRES_USER" -d postgres'
 
 install -d -o root -g root -m 0700 "${secrets_backup}"
 install -o root -g root -m 0600 "${env_file}" "${secrets_backup}/strapi.env"
@@ -144,4 +119,4 @@ install -o root -g root -m 0600 "${env_file}" "${secrets_backup}/strapi.env"
   sha256sum --check SHA256SUMS
 )
 
-echo "Provisioned private Strapi configuration, recovery copy, and isolated PostgreSQL database."
+echo "Provisioned private Strapi application secrets; service startup will prepare only the aic_strapi schema."

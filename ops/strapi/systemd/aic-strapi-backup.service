@@ -1,16 +1,14 @@
 [Unit]
 Description=Back up AIC Pastor Wood Strapi database and media
-After=network-online.target
+After=network-online.target aic-strapi.service
 Wants=network-online.target
 
 [Service]
 Type=oneshot
-User=ammonsfarm
-Group=ammonsfarm
-EnvironmentFile=/etc/aic/strapi.env
-ExecStart=/mnt/storage/aic/ops/strapi/backup-strapi.sh
+ExecStart=/usr/local/libexec/aic-strapi/run-consistent-backup.sh
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
-ProtectSystem=full
+ProtectSystem=strict
+ReadWritePaths=/mnt/storage/aic/.env
 ReadWritePaths=/mnt/storage/backups/aic-strapi

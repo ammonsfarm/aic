@@ -9,6 +9,29 @@ const config = ({ env }: Core.Config.Shared.ConfigParams): Core.Config.Database 
     throw new Error('Production Strapi requires DATABASE_CLIENT=postgres.');
   }
 
+  if (production) {
+    const required = [
+      'DATABASE_HOST',
+      'DATABASE_PORT',
+      'DATABASE_NAME',
+      'DATABASE_USERNAME',
+      'DATABASE_PASSWORD',
+    ];
+    const missing = required.filter((name) => !env(name, ''));
+    if (missing.length > 0) {
+      throw new Error(`Production Strapi is missing database settings: ${missing.join(', ')}.`);
+    }
+    if (env('DATABASE_URL', '')) {
+      throw new Error('Production Strapi does not accept DATABASE_URL; use the canonical AIC DB_* target.');
+    }
+    if (env('DATABASE_HOST', '') !== '192.168.1.106' || env.int('DATABASE_PORT', 0) !== 5432) {
+      throw new Error('Production Strapi requires the existing AIC PostgreSQL target at 192.168.1.106:5432.');
+    }
+    if (env('DATABASE_SCHEMA', '') !== 'aic_strapi') {
+      throw new Error('Production Strapi requires DATABASE_SCHEMA=aic_strapi.');
+    }
+  }
+
   const connections = {
     mysql: {
       connection: {

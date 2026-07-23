@@ -1,6 +1,7 @@
 [Unit]
 Description=AIC Pastor Wood Strapi CMS
-After=network-online.target
+Requires=aic-strapi-schema.service
+After=network-online.target aic-strapi-schema.service
 Wants=network-online.target
 
 [Service]
@@ -15,8 +16,8 @@ Environment=STRAPI_CMS_ROOT=/mnt/storage/aic/services/jimwood-cms
 Environment=STRAPI_MEDIA_ROOT=/mnt/storage/pastorwood-media/strapi/uploads
 Environment=AIC_API_TOKEN_OUTPUT_FILE=/run/aic-strapi/aic-api-token
 EnvironmentFile=/etc/aic/strapi.env
-ExecStartPre=/mnt/storage/aic/ops/strapi/prepare-strapi-storage.sh
-ExecStart=/mnt/storage/aic/services/jimwood-cms/node_modules/.bin/strapi start
+ExecStartPre=/usr/local/libexec/aic-strapi/prepare-strapi-storage.sh
+ExecStart=/usr/local/libexec/aic-strapi/with-aic-db-env.sh /mnt/storage/aic/services/jimwood-cms/node_modules/.bin/strapi start
 Restart=on-failure
 RestartSec=5
 TimeoutStartSec=120
@@ -25,7 +26,9 @@ RuntimeDirectoryMode=0700
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
-ProtectSystem=full
+ProtectSystem=strict
+InaccessiblePaths=-/run/docker.sock -/var/run/docker.sock
+ReadOnlyPaths=/mnt/storage/aic
 ReadWritePaths=/mnt/storage/aic/services/jimwood-cms/.tmp
 ReadWritePaths=/mnt/storage/aic/services/jimwood-cms/public
 ReadWritePaths=/mnt/storage/pastorwood-media/strapi
