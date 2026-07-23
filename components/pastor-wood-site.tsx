@@ -292,7 +292,7 @@ function PastorWoodHome({
       )}
 
       <ContactSection />
-      {siteSettings?.subscriptionEnabled !== false ? <DevotionalSignup /> : null}
+      {siteSettings?.subscriptionEnabled === true ? <DevotionalSignup /> : null}
     </PastorWoodShell>
   );
 }
@@ -512,7 +512,7 @@ function DevotionalPage({ cmsPage, siteSettings }: { cmsPage?: PastorWoodCmsPage
     <>
       <PageHero eyebrow="Weekly Devotional" title={heroTitle} body={heroBody} />
       <section className="pw-section pw-content-unavailable" role="status"><h2>Content temporarily unavailable</h2><p>The public content service could not return devotionals. Please try again shortly.</p></section>
-      {siteSettings?.subscriptionEnabled !== false ? <DevotionalSignup sourcePath="/bible-study/" /> : null}
+      {siteSettings?.subscriptionEnabled === true ? <DevotionalSignup sourcePath="/bible-study/" /> : null}
     </>
   );
 }

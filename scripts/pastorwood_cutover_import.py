@@ -31,9 +31,19 @@ from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Sequence
 
+import psycopg
+
+try:
+    from scripts.aic_database_env import CANONICAL_AIC_ENV, database_dsn, load_canonical_aic_env
+except ModuleNotFoundError:  # Direct execution from /mnt/storage/aic/scripts.
+    from aic_database_env import CANONICAL_AIC_ENV, database_dsn, load_canonical_aic_env
+
 
 LEGACY_ORIGIN = "https://www.pastorwood.org"
 DEFAULT_MIGRATION_ROOT = Path("/mnt/storage/pastorwood-migration-20260722")
+DEFAULT_WORDPRESS_SNAPSHOT = DEFAULT_MIGRATION_ROOT / "wordpress-live-snapshot-20260722T145115Z.json"
+DEFAULT_REST_MEDIA_BACKUP_MANIFEST = DEFAULT_MIGRATION_ROOT / "wordpress-rest-media-backup-20260722T151500Z.json"
+DEFAULT_EXTERNAL_IMAGE_BACKUP_MANIFEST = DEFAULT_MIGRATION_ROOT / "external-image-backup-20260722T152000Z.json"
 DEFAULT_RESTRICTED_MEDIA_ROOT = Path("/mnt/storage/pastorwood-media/legacy/wp-content/uploads")
 DEFAULT_PUBLIC_MEDIA_ROOT = Path("/mnt/storage/pastorwood-media/public")
 PRIVATE_MEDIA_SEGMENTS = {
@@ -105,6 +115,8 @@ RESERVED_REDIRECT_PREFIXES = (
     "/_next",
 )
 APPLY_CONFIRMATION = "APPLY_PASTORWOOD_PUBLIC_CUTOVER"
+PUBLISH_REVIEWED_CONFIRMATION = "PUBLISH_REVIEWED_PASTORWOOD_CUTOVER"
+WORDPRESS_REFRESH_CONFIRMATION = "REFRESH_FROM_LIVE_WORDPRESS_DATABASE"
 KNOWN_SHORTCODE_PATTERN = re.compile(
     r"\[/?(?:"
     r"et_pb_[A-Za-z0-9_:-]+|vc_[A-Za-z0-9_:-]+|give(?:_[A-Za-z0-9_:-]+)?|"
@@ -220,15 +232,26 @@ class MediaRecord:
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--env-file", type=Path, default=Path(".env"), help="AIC/Strapi environment file")
-    parser.add_argument("--pwood-container", default=os.environ.get("PWOOD_DB_CONTAINER", "farm-postgres"))
+    parser.add_argument("--env-file", type=Path, default=CANONICAL_AIC_ENV, help="Canonical AIC/Strapi environment file")
+    parser.add_argument(
+        "--wordpress-source",
+        choices=("verified-snapshot", "direct-database-refresh"),
+        default="verified-snapshot",
+        help="Use the checksum-pinned snapshot by default; direct database access is an explicit future refresh mode",
+    )
+    parser.add_argument(
+        "--confirm-wordpress-refresh",
+        default="",
+        help=f"Required only with --wordpress-source direct-database-refresh: {WORDPRESS_REFRESH_CONFIRMATION}",
+    )
+    parser.add_argument("--pwood-db-host", default=os.environ.get("PWOOD_DB_HOST", "127.0.0.1"))
+    parser.add_argument("--pwood-db-port", default=os.environ.get("PWOOD_DB_PORT", "5433"))
     parser.add_argument("--pwood-db-name", default=os.environ.get("PWOOD_DB_NAME", "pwood"))
     parser.add_argument("--pwood-db-user", default=os.environ.get("PWOOD_DB_USER", "farmfam"))
-    parser.add_argument("--aic-postgres-image", default=os.environ.get("AIC_POSTGRES_CLIENT_IMAGE", "postgres:16"))
-    parser.add_argument("--wordpress-rest-snapshot", type=Path, required=False, help="Required two-pass immutable live WordPress REST snapshot")
+    parser.add_argument("--wordpress-rest-snapshot", type=Path, default=DEFAULT_WORDPRESS_SNAPSHOT, help="Required two-pass immutable WordPress snapshot")
     parser.add_argument("--wordpress-rest-checksum", type=Path, help="Snapshot SHA-256 file (defaults to <snapshot>.sha256)")
-    parser.add_argument("--rest-media-backup-manifest", type=Path, help="SHA-256 manifest for every REST-only media backup")
-    parser.add_argument("--external-image-backup-manifest", type=Path, help="SHA-256 manifest for every allowlisted external legacy image")
+    parser.add_argument("--rest-media-backup-manifest", type=Path, default=DEFAULT_REST_MEDIA_BACKUP_MANIFEST, help="SHA-256 manifest for the verified snapshot media increment")
+    parser.add_argument("--external-image-backup-manifest", type=Path, default=DEFAULT_EXTERNAL_IMAGE_BACKUP_MANIFEST, help="SHA-256 manifest for every allowlisted external legacy image")
     parser.add_argument("--legacy-urls", type=Path, default=DEFAULT_MIGRATION_ROOT / "legacy-public-urls.txt")
     parser.add_argument("--attachment-manifest", type=Path, default=DEFAULT_MIGRATION_ROOT / "wordpress-attachment-urls.txt")
     parser.add_argument("--restricted-media-root", type=Path, default=DEFAULT_RESTRICTED_MEDIA_ROOT)
@@ -237,9 +260,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--redirect-output", type=Path)
     parser.add_argument("--media-output", type=Path)
     parser.add_argument("--checkpoint", type=Path, default=Path(".migration-state/pastorwood-cutover-checkpoint.json"))
+    parser.add_argument("--mutation-manifest", type=Path, default=Path(".migration-state/pastorwood-cutover-mutations.json"))
+    parser.add_argument("--publication-manifest", type=Path, default=Path(".migration-state/pastorwood-cutover-publications.json"))
     parser.add_argument("--failure-report", type=Path, default=Path(".migration-state/pastorwood-cutover-failures.json"))
     parser.add_argument("--apply", action="store_true", help="Write to Strapi and the distinct public media root")
     parser.add_argument("--confirm", default="", help=f"Required with --apply: {APPLY_CONFIRMATION}")
+    parser.add_argument("--publish-reviewed", action="store_true", help="Separate phase 2: publish only reviewed eligible drafts and activate redirects last")
+    parser.add_argument(
+        "--confirm-publish-reviewed",
+        default="",
+        help=f"Required with --publish-reviewed: {PUBLISH_REVIEWED_CONFIRMATION}",
+    )
     parser.add_argument("--verify-media", action="store_true", help="Stat every explicitly allowlisted source path")
     parser.add_argument("--verify-episode-audio", action="store_true", help="Read MinIO object names and reconcile all AIC track IDs")
     parser.add_argument("--mc-bin", default=os.environ.get("AIC_AUDIO_MC_BIN", "/usr/local/bin/mc"))
@@ -249,87 +280,52 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def load_env_file(path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
-    if not path.exists():
-        return values
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip()
-        if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
-            value = value[1:-1]
-        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
-            values[key] = value
-    return values
-
-
-def run_json_command(command: list[str], sql: str, env: dict[str, str] | None = None) -> list[dict[str, Any]]:
-    result = subprocess.run(
-        command,
-        input=sql,
-        text=True,
-        capture_output=True,
-        check=False,
-        env=env,
-    )
-    if result.returncode != 0:
-        detail = re.sub(r"(?i)(password\s*[=:]\s*)\S+", r"\1[redacted]", result.stderr.strip())
-        raise RuntimeError(detail or f"source query exited {result.returncode}")
-    payload = result.stdout.strip()
-    value = json.loads(payload or "[]")
-    if not isinstance(value, list):
-        raise RuntimeError("source query did not return a JSON array")
-    return [item for item in value if isinstance(item, dict)]
-
-
 def validate_identifier(value: str, label: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", value):
         raise ValueError(f"Unsafe {label} value")
     return value
 
 
-def validate_image_reference(value: str) -> str:
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_./:@-]*", value):
-        raise ValueError("Unsafe PostgreSQL client image value")
-    return value
+def json_rows(value: Any) -> list[dict[str, Any]]:
+    parsed = json.loads(value) if isinstance(value, str) else value
+    if not isinstance(parsed, list):
+        raise RuntimeError("source query did not return a JSON array")
+    return [item for item in parsed if isinstance(item, dict)]
 
 
-def fetch_wordpress(args: argparse.Namespace) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    container = validate_identifier(args.pwood_container, "container")
+def fetch_wordpress_direct_refresh(args: argparse.Namespace) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    if args.wordpress_source != "direct-database-refresh" or args.confirm_wordpress_refresh != WORDPRESS_REFRESH_CONFIRMATION:
+        raise RuntimeError(
+            "Live WordPress database access is disabled by default; use the explicit direct refresh mode and confirmation."
+        )
+    host = str(args.pwood_db_host).strip()
+    port = str(args.pwood_db_port).strip()
     database = validate_identifier(args.pwood_db_name, "database")
     user = validate_identifier(args.pwood_db_user, "database user")
-    command = [
-        "docker", "exec", "-i", container,
-        "psql", "--no-psqlrc", "-v", "ON_ERROR_STOP=1", "-U", user,
-        "-d", database, "-Atq",
-    ]
-    return run_json_command(command, WP_CONTENT_SQL), run_json_command(command, WP_ATTACHMENTS_SQL)
+    password = os.environ.get("PWOOD_DB_PASSWORD", "")
+    if not host or not port.isdigit() or not password:
+        raise RuntimeError("Direct WordPress source settings require PWOOD_DB_HOST, PWOOD_DB_PORT, and PWOOD_DB_PASSWORD.")
+    with psycopg.connect(
+        host=host,
+        port=int(port),
+        dbname=database,
+        user=user,
+        password=password,
+        connect_timeout=5,
+        application_name="pastorwood-cutover-wordpress-read",
+    ) as connection:
+        connection.execute("set transaction isolation level repeatable read read only")
+        content = json_rows(connection.execute(WP_CONTENT_SQL).fetchone()[0])
+        attachments = json_rows(connection.execute(WP_ATTACHMENTS_SQL).fetchone()[0])
+        return content, attachments
 
 
-def fetch_aic(env_values: dict[str, str], postgres_image: str = "postgres:16") -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    required = ["DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD"]
-    missing = [key for key in required if not env_values.get(key)]
-    if missing:
-        raise RuntimeError(f"AIC source environment is missing: {', '.join(missing)}")
-    child_env = os.environ.copy()
-    child_env["PGPASSWORD"] = env_values["DB_PASSWORD"]
-    image = validate_image_reference(postgres_image)
-    command = [
-        "docker", "run", "--rm", "-i", "--pull=never", "--network", "host",
-        "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-        "--tmpfs", "/tmp:rw,noexec,nosuid,size=16m", "-e", "PGPASSWORD", image,
-        "psql", "--no-psqlrc", "--no-password", "-v", "ON_ERROR_STOP=1",
-        "-h", env_values["DB_HOST"], "-p", env_values["DB_PORT"],
-        "-U", env_values["DB_USER"], "-d", env_values["DB_NAME"], "-Atq",
-    ]
-    return (
-        run_json_command(command, AIC_EPISODES_SQL, child_env),
-        run_json_command(command, AIC_POSTS_SQL, child_env),
-    )
+def fetch_aic() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    with psycopg.connect(database_dsn(application_name="pastorwood-cutover-aic-read")) as connection:
+        connection.execute("set transaction isolation level repeatable read read only")
+        episodes = json_rows(connection.execute(AIC_EPISODES_SQL).fetchone()[0])
+        posts = json_rows(connection.execute(AIC_POSTS_SQL).fetchone()[0])
+        return episodes, posts
 
 
 def fetch_episode_audio_inventory(mc_bin: str, target: str) -> dict[str, int]:
@@ -576,17 +572,17 @@ def merge_wordpress_sources(
 def verify_rest_media_backup_manifest(
     manifest_path: Path | None,
     snapshot_sha256: str,
-    expected_media_ids: Sequence[str],
+    expected_media_ids: Sequence[str] | None,
     restricted_media_root: Path,
 ) -> dict[str, Any]:
-    expected_ids = {text(item) for item in expected_media_ids}
+    expected_ids = {text(item) for item in expected_media_ids} if expected_media_ids is not None else None
     if manifest_path is None:
         return {
             "enabled": False,
             "manifestPath": "",
             "verifiedFiles": 0,
             "verifiedBytes": 0,
-            "missingMediaIds": sorted(expected_ids, key=int),
+            "missingMediaIds": sorted(expected_ids or set(), key=int),
         }
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -605,7 +601,7 @@ def verify_rest_media_backup_manifest(
     manifest_ids = [text(record.get("id")) for record in records]
     if any(not item_id.isdigit() for item_id in manifest_ids) or len(manifest_ids) != len(set(manifest_ids)):
         raise RuntimeError("REST media backup manifest IDs are invalid or duplicated")
-    if set(manifest_ids) != expected_ids:
+    if expected_ids is not None and set(manifest_ids) != expected_ids:
         raise RuntimeError("REST media backup manifest does not cover exactly every REST-only media ID")
     verified_bytes = 0
     for record in records:
@@ -626,6 +622,7 @@ def verify_rest_media_backup_manifest(
         "verifiedFiles": len(records),
         "verifiedBytes": verified_bytes,
         "missingMediaIds": [],
+        "verifiedMediaIds": sorted(manifest_ids, key=int),
     }
 
 
@@ -1594,12 +1591,23 @@ def reconcile_episode_media(episodes: list[dict[str, Any]], media_records: Seque
     missing: list[dict[str, str]] = []
     for episode in episodes:
         audio_url = text(episode.get("externalAudioUrl"))
+        if not audio_url:
+            missing.append({
+                "trackId": text(episode.get("trackId")),
+                "relativePath": "",
+                "reason": "no-verified-public-audio",
+            })
+            episode["archiveReason"] = "CUTOVER_METADATA_ONLY: no verified public audio; publication is blocked until validated."
+            episode["sourceFingerprint"] = ""
+            episode["sourceFingerprint"] = stable_fingerprint(episode)
+            continue
         if not audio_url.startswith("/media/legacy/"):
             continue
         relative = audio_url.removeprefix("/media/legacy/")
         if relative not in verified:
             missing.append({"trackId": text(episode.get("trackId")), "relativePath": relative, "reason": "not-in-verified-public-manifest"})
             episode["externalAudioUrl"] = ""
+            episode["archiveReason"] = "CUTOVER_METADATA_ONLY: no verified public audio; publication is blocked until validated."
         episode["sourceFingerprint"] = ""
         episode["sourceFingerprint"] = stable_fingerprint(episode)
     return missing
@@ -2096,7 +2104,7 @@ def redirect_target_for(
         if len(parts) == 1:
             return "/radio/", "fixed-page"
         if len(parts) >= 2 and parts[1] in {"book", "preacher", "series", "topics", "service-type"}:
-            return None, "radio-taxonomy-archive"
+            return "/radio/", "radio-taxonomy-archive-fallback"
         target = sermon_slug_targets.get(final_slug)
         if target:
             return target, "published-episode"
@@ -2213,10 +2221,28 @@ def write_json(path: Path, value: Any) -> None:
 
 
 class StrapiClient:
+    CANONICAL_BASE_URL = "http://127.0.0.1:1337"
+    ENTITY_TYPES = {
+        "pages": "page",
+        "posts": "post",
+        "episodes": "episode",
+        "people": "person",
+        "endorsements": "endorsement",
+        "media-assets": "media-asset",
+        "redirects": "redirect",
+    }
+    CUTOVER_ACTOR = {
+        "id": "pastorwood-cutover",
+        "email": "cutover@pastorwood.org",
+        "name": "PastorWood verified cutover",
+    }
+
     def __init__(self, base_url: str, token: str):
         if not base_url or not token:
-            raise RuntimeError("Applying requires STRAPI_URL and a scoped Strapi management token")
+            raise RuntimeError("Applying requires the canonical Strapi URL and scoped management token")
         self.base_url = base_url.rstrip("/")
+        if self.base_url != self.CANONICAL_BASE_URL:
+            raise RuntimeError(f"Cutover mutations require canonical Strapi at {self.CANONICAL_BASE_URL}")
         self.token = token
 
     def request(self, path: str, method: str = "GET", payload: dict[str, Any] | None = None) -> Any:
@@ -2246,7 +2272,10 @@ class StrapiClient:
         identity_value: str,
         data: dict[str, Any],
         publishable: bool = True,
-    ) -> str:
+    ) -> dict[str, Any]:
+        entity_type = self.ENTITY_TYPES.get(api_path)
+        if not entity_type:
+            raise RuntimeError(f"Unsupported editorial collection: {api_path}")
         query = urllib.parse.urlencode({
             f"filters[{identity_field}][$eq]": identity_value,
             "pagination[pageSize]": "1",
@@ -2254,14 +2283,128 @@ class StrapiClient:
         })
         response = self.request(f"/api/{api_path}?{query}") or {}
         matches = response.get("data") if isinstance(response, dict) else []
-        existing = matches[0] if isinstance(matches, list) and matches else None
+        if not isinstance(matches, list):
+            raise RuntimeError(f"Strapi {api_path} lookup returned an invalid data collection")
+        if len(matches) > 1:
+            raise RuntimeError(f"Strapi {api_path} identity is not unique: {identity_field}={identity_value}")
+        existing = matches[0] if matches else None
         document_id = text(existing.get("documentId")) if isinstance(existing, dict) else ""
-        status_query = "?status=published" if publishable else ""
+        before = self._entity_data(existing)
         if document_id:
-            self.request(f"/api/{api_path}/{urllib.parse.quote(document_id)}{status_query}", "PUT", {"data": data})
-            return "updated"
-        self.request(f"/api/{api_path}{status_query}", "POST", {"data": data})
-        return "created"
+            expected_updated_at = text(before.get("updatedAt"))
+            if not expected_updated_at:
+                raise RuntimeError(f"Existing {entity_type} has no concurrency timestamp")
+            self.request(
+                f"/api/editorial/{entity_type}/{urllib.parse.quote(document_id)}/baseline",
+                "POST",
+                {
+                    "actor": self.CUTOVER_ACTOR,
+                    "note": "Adopted an existing pre-cutover draft as an immutable editorial baseline.",
+                },
+            )
+            result = self.request(
+                f"/api/editorial/{entity_type}/{urllib.parse.quote(document_id)}",
+                "PUT",
+                {
+                    "actor": self.CUTOVER_ACTOR,
+                    "data": data,
+                    "expectedUpdatedAt": expected_updated_at,
+                    "note": "Updated from the checksum-pinned PastorWood cutover plan; retained as a draft for validation.",
+                },
+            )
+            outcome = "updated"
+        else:
+            result = self.request(
+                f"/api/editorial/{entity_type}",
+                "POST",
+                {
+                    "actor": self.CUTOVER_ACTOR,
+                    "data": data,
+                    "note": "Created from the checksum-pinned PastorWood cutover plan; retained as a draft for validation.",
+                },
+            )
+            outcome = "created"
+        result_entity = result.get("data") if isinstance(result, dict) else None
+        after = self._entity_data(result_entity)
+        result_document_id = text(after.get("documentId")) or document_id
+        if not result_document_id:
+            raise RuntimeError(f"Editorial {outcome} for {entity_type} returned no document id")
+        return {
+            "outcome": outcome,
+            "documentId": result_document_id,
+            "publicationState": "draft" if publishable else "not-publishable",
+            "beforeUpdatedAt": text(before.get("updatedAt")),
+            "afterUpdatedAt": text(after.get("updatedAt")),
+            "beforeFingerprint": stable_fingerprint(before) if before else "",
+            "afterFingerprint": stable_fingerprint(after),
+        }
+
+    @staticmethod
+    def _entity_data(value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            return {}
+        attributes = value.get("attributes")
+        if isinstance(attributes, dict):
+            return {**attributes, **{key: item for key, item in value.items() if key != "attributes"}}
+        return dict(value)
+
+    def list_collection(self, api_path: str, *, status: str | None) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
+        page = 1
+        while True:
+            query_values = {
+                "pagination[page]": str(page),
+                "pagination[pageSize]": "100",
+            }
+            if status:
+                query_values["status"] = status
+            response = self.request(f"/api/{api_path}?{urllib.parse.urlencode(query_values)}") or {}
+            data = response.get("data") if isinstance(response, dict) else None
+            if not isinstance(data, list):
+                raise RuntimeError(f"Strapi {api_path} inventory returned invalid data")
+            records.extend(self._entity_data(item) for item in data)
+            pagination = response.get("meta", {}).get("pagination", {}) if isinstance(response, dict) else {}
+            page_count = pagination.get("pageCount") if isinstance(pagination, dict) else None
+            if isinstance(page_count, int):
+                if page >= page_count:
+                    break
+            elif len(data) < 100:
+                break
+            else:
+                raise RuntimeError(f"Strapi {api_path} inventory omitted bounded pagination metadata")
+            page += 1
+        return records
+
+    def publish_reviewed(self, entity_type: str, document_id: str, expected_updated_at: str) -> dict[str, Any]:
+        result = self.request(
+            f"/api/editorial/{entity_type}/{urllib.parse.quote(document_id)}/publish",
+            "POST",
+            {
+                "actor": self.CUTOVER_ACTOR,
+                "expectedUpdatedAt": expected_updated_at,
+                "note": "Published only after the separately confirmed PastorWood cutover draft/count/media review.",
+            },
+        )
+        after = self._entity_data(result.get("data") if isinstance(result, dict) else None)
+        if text(after.get("documentId")) != document_id:
+            raise RuntimeError(f"Editorial publication returned the wrong document id for {entity_type}")
+        return after
+
+    def activate_reviewed_redirect(self, document_id: str, expected_updated_at: str) -> dict[str, Any]:
+        result = self.request(
+            f"/api/editorial/redirect/{urllib.parse.quote(document_id)}",
+            "PUT",
+            {
+                "actor": self.CUTOVER_ACTOR,
+                "data": {"active": True},
+                "expectedUpdatedAt": expected_updated_at,
+                "note": "Activated only after all eligible reviewed cutover drafts were published successfully.",
+            },
+        )
+        after = self._entity_data(result.get("data") if isinstance(result, dict) else None)
+        if text(after.get("documentId")) != document_id or after.get("active") is not True:
+            raise RuntimeError("Editorial redirect activation returned invalid state")
+        return after
 
 
 def sha256_file(path: Path) -> str:
@@ -2286,14 +2429,32 @@ def copy_public_media(record: MediaRecord, restricted_root: Path, public_root: P
         raise RuntimeError(f"allowlisted source file is missing or is a symlink: {relative}")
     destination = public_root / Path(*PurePosixPath(relative).parts)
     destination.parent.mkdir(parents=True, exist_ok=True)
+    resolved_public_root = public_root.resolve()
+    resolved_destination = destination.resolve(strict=False)
+    if resolved_destination.parent != resolved_public_root and resolved_public_root not in resolved_destination.parents:
+        raise RuntimeError(f"media destination escaped the public root: {relative}")
     source_checksum = sha256_file(source)
-    if not destination.is_file() or sha256_file(destination) != source_checksum:
-        temporary = destination.with_name(f".{destination.name}.tmp")
+    if destination.exists() or destination.is_symlink():
+        if not destination.is_file() or destination.is_symlink():
+            raise RuntimeError(f"unexplained media destination collision: {relative}")
+        if sha256_file(destination) != source_checksum:
+            raise RuntimeError(f"unexplained media destination checksum collision: {relative}")
+        return source_checksum, destination.stat().st_size
+
+    temporary = destination.with_name(f".{destination.name}.{os.getpid()}.cutover-tmp")
+    if temporary.exists() or temporary.is_symlink():
+        raise RuntimeError(f"unexplained temporary media destination collision: {relative}")
+    try:
         shutil.copy2(source, temporary)
         if sha256_file(temporary) != source_checksum:
-            temporary.unlink(missing_ok=True)
             raise RuntimeError(f"checksum verification failed while copying {relative}")
-        temporary.replace(destination)
+        try:
+            os.link(temporary, destination)
+        except FileExistsError:
+            if not destination.is_file() or destination.is_symlink() or sha256_file(destination) != source_checksum:
+                raise RuntimeError(f"unexplained concurrent media destination collision: {relative}")
+    finally:
+        temporary.unlink(missing_ok=True)
     destination_checksum = sha256_file(destination)
     if destination_checksum != source_checksum:
         raise RuntimeError(f"destination checksum mismatch for {relative}")
@@ -2314,6 +2475,54 @@ def load_checkpoint(path: Path, plan_fingerprint: str, no_resume: bool = False) 
     return set(completed)
 
 
+def load_mutation_manifest(path: Path, plan_fingerprint: str, no_resume: bool = False) -> dict[str, dict[str, Any]]:
+    if no_resume or not path.exists():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError(f"Cutover mutation manifest is invalid: {error}") from error
+    if not isinstance(value, dict) or value.get("version") != 1 or value.get("planFingerprint") != plan_fingerprint:
+        raise RuntimeError("Cutover mutation manifest belongs to a different or invalid source plan")
+    mutations = value.get("mutations")
+    if not isinstance(mutations, list) or any(not isinstance(item, dict) for item in mutations):
+        raise RuntimeError("Cutover mutation manifest records are invalid")
+    records: dict[str, dict[str, Any]] = {}
+    for mutation in mutations:
+        key = text(mutation.get("key"))
+        if not key or key in records or text(mutation.get("outcome")) not in {"created", "updated"}:
+            raise RuntimeError("Cutover mutation manifest contains an invalid or duplicate identity")
+        records[key] = dict(mutation)
+    return records
+
+
+def write_mutation_manifest(path: Path, plan_fingerprint: str, records: dict[str, dict[str, Any]]) -> None:
+    write_json(path, {
+        "version": 1,
+        "planFingerprint": plan_fingerprint,
+        "generatedAt": datetime.now(timezone.utc).isoformat(),
+        "mutations": [records[key] for key in sorted(records)],
+    })
+
+
+def canonical_strapi_client(env_values: dict[str, str]) -> StrapiClient:
+    token_values = {
+        text(env_values.get(key))
+        for key in ("STRAPI_API_TOKEN_TEMP_WRITE", "STRAPI_MANAGEMENT_TOKEN", "STRAPI_API_TOKEN")
+        if text(env_values.get(key))
+    }
+    if len(token_values) != 1:
+        raise RuntimeError("Canonical AIC environment must supply one unambiguous Strapi management token")
+    url_values = {
+        text(env_values.get(key)).rstrip("/")
+        for key in ("STRAPI_MANAGEMENT_URL", "STRAPI_URL")
+        if text(env_values.get(key))
+    }
+    if url_values != {StrapiClient.CANONICAL_BASE_URL}:
+        raise RuntimeError(f"Canonical AIC environment must pin Strapi to {StrapiClient.CANONICAL_BASE_URL}")
+    return StrapiClient(next(iter(url_values)), next(iter(token_values)))
+
+
 def apply_plan(
     args: argparse.Namespace,
     env_values: dict[str, str],
@@ -2330,27 +2539,42 @@ def apply_plan(
 ) -> dict[str, Any]:
     if args.confirm != APPLY_CONFIRMATION:
         raise RuntimeError(f"--apply requires --confirm {APPLY_CONFIRMATION}")
-    token = (
-        env_values.get("STRAPI_API_TOKEN_TEMP_WRITE")
-        or env_values.get("STRAPI_MANAGEMENT_TOKEN")
-        or env_values.get("STRAPI_API_TOKEN")
-        or os.environ.get("STRAPI_API_TOKEN_TEMP_WRITE", "")
-        or os.environ.get("STRAPI_MANAGEMENT_TOKEN", "")
-    )
-    base_url = env_values.get("STRAPI_MANAGEMENT_URL") or env_values.get("STRAPI_URL") or os.environ.get("STRAPI_URL", "")
-    client = StrapiClient(base_url, token)
+    client = canonical_strapi_client(env_values)
     completed = load_checkpoint(args.checkpoint, plan_fingerprint, args.no_resume)
+    mutation_records = load_mutation_manifest(args.mutation_manifest, plan_fingerprint, args.no_resume)
+    if completed - mutation_records.keys():
+        raise RuntimeError("Cutover checkpoint contains completed mutations missing from the exact mutation manifest")
+    write_mutation_manifest(args.mutation_manifest, plan_fingerprint, mutation_records)
     results: Counter[str] = Counter()
     failures: list[dict[str, str]] = []
 
     def process(kind: str, identity: str, callback: Any) -> None:
         key = f"{kind}:{identity}"
         if key in completed:
+            if key not in mutation_records:
+                raise RuntimeError(f"Resumed cutover mutation lacks manifest evidence: {key}")
             results[f"{kind}.resumed"] += 1
             return
         try:
-            outcome = callback()
+            result = callback()
+            if not isinstance(result, dict) or text(result.get("outcome")) not in {"created", "updated"}:
+                raise RuntimeError("Cutover mutation returned an invalid outcome")
+            outcome = text(result["outcome"])
             results[f"{kind}.{outcome}"] += 1
+            mutation_records[key] = {
+                "key": key,
+                "kind": kind,
+                "identity": identity,
+                "outcome": outcome,
+                "documentId": text(result.get("documentId")),
+                "publicationState": text(result.get("publicationState")),
+                "beforeUpdatedAt": text(result.get("beforeUpdatedAt")),
+                "afterUpdatedAt": text(result.get("afterUpdatedAt")),
+                "beforeFingerprint": text(result.get("beforeFingerprint")),
+                "afterFingerprint": text(result.get("afterFingerprint")),
+                "recordedAt": datetime.now(timezone.utc).isoformat(),
+            }
+            write_mutation_manifest(args.mutation_manifest, plan_fingerprint, mutation_records)
             completed.add(key)
             write_json(args.checkpoint, {"version": 2, "planFingerprint": plan_fingerprint, "completed": sorted(completed)})
         except Exception as error:  # continue to create a complete bounded failure report
@@ -2391,36 +2615,435 @@ def apply_plan(
             return client.upsert("media-assets", "legacyAttachmentId", record.attachment_id, data)
         process("media", record.attachment_id, apply_media)
     for redirect in redirects:
-        process("redirect", text(redirect.get("fromPath")), lambda redirect=redirect: client.upsert("redirects", "fromPath", text(redirect["fromPath"]), redirect, False))
+        process(
+            "redirect",
+            text(redirect.get("fromPath")),
+            lambda redirect=redirect: client.upsert(
+                "redirects",
+                "fromPath",
+                text(redirect["fromPath"]),
+                {**redirect, "active": False},
+                False,
+            ),
+        )
 
-    write_json(args.failure_report, {"generatedAt": datetime.now(timezone.utc).isoformat(), "failures": failures})
+    write_json(args.failure_report, {
+        "generatedAt": datetime.now(timezone.utc).isoformat(),
+        "planFingerprint": plan_fingerprint,
+        "failures": failures,
+    })
     if failures:
         raise RuntimeError(f"Cutover apply completed with {len(failures)} failures; see {args.failure_report}")
-    return dict(sorted(results.items()))
+    final_results: dict[str, Any] = dict(sorted(results.items()))
+    final_results["mutationManifest"] = str(args.mutation_manifest)
+    final_results["mutationManifestRecords"] = len(mutation_records)
+    return final_results
+
+
+def expected_cutover_entries(plan: dict[str, Any], payloads: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    entries: dict[str, dict[str, Any]] = {}
+
+    def add(
+        kind: str,
+        identity: str,
+        api_path: str,
+        identity_field: str,
+        entity_type: str,
+        *,
+        action: str,
+        exclusion_reason: str = "",
+    ) -> None:
+        key = f"{kind}:{identity}"
+        if not identity or key in entries:
+            raise RuntimeError(f"Cutover plan contains an invalid or duplicate mutation identity: {key}")
+        entries[key] = {
+            "key": key,
+            "kind": kind,
+            "identity": identity,
+            "apiPath": api_path,
+            "identityField": identity_field,
+            "entityType": entity_type,
+            "action": action,
+            "exclusionReason": exclusion_reason,
+        }
+
+    for record in payloads["pages"]:
+        add("page", text(record.get("pageKey")), "pages", "pageKey", "page", action="publish")
+    for record in payloads["posts"]:
+        add("post", text(record.get("legacyId")), "posts", "legacyId", "post", action="publish")
+
+    missing_episode_ids = {
+        text(record.get("trackId"))
+        for record in plan.get("missingEpisodeMedia", [])
+        if isinstance(record, dict) and text(record.get("trackId"))
+    }
+    for record in payloads["episodes"]:
+        identity = text(record.get("trackId"))
+        metadata_only = identity in missing_episode_ids or text(record.get("archiveReason")).startswith("CUTOVER_METADATA_ONLY:")
+        add(
+            "episode",
+            identity,
+            "episodes",
+            "trackId",
+            "episode",
+            action="exclude" if metadata_only else "publish",
+            exclusion_reason="missing-or-unverified-public-audio" if metadata_only else "",
+        )
+    for record in payloads["people"]:
+        add("person", text(record.get("legacyId")), "people", "legacyId", "person", action="publish")
+    for record in payloads["endorsements"]:
+        add("endorsement", text(record.get("legacyId")), "endorsements", "legacyId", "endorsement", action="publish")
+
+    metadata_only_media_ids = payloads["metadataOnlyMediaIds"]
+    media_public_paths = payloads["mediaPublicPaths"]
+    for record in payloads["media"]:
+        identity = record.attachment_id
+        has_verified_replacement = text(media_public_paths.get(identity)).startswith("/media/episodes/")
+        eligible = (
+            record.visibility == "public"
+            and identity not in metadata_only_media_ids
+            and (record.exists or has_verified_replacement)
+        )
+        if eligible:
+            reason = ""
+        elif record.visibility != "public":
+            reason = "private-or-internal-media"
+        else:
+            reason = "missing-or-unverified-public-media"
+        add(
+            "media",
+            identity,
+            "media-assets",
+            "legacyAttachmentId",
+            "media-asset",
+            action="publish" if eligible else "exclude",
+            exclusion_reason=reason,
+        )
+    for record in payloads["redirects"]:
+        add("redirect", text(record.get("fromPath")), "redirects", "fromPath", "redirect", action="activate")
+    return entries
+
+
+def load_publication_manifest(
+    path: Path,
+    plan_fingerprint: str,
+    mutation_manifest_sha256: str,
+) -> dict[str, dict[str, Any]]:
+    if not path.exists():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError(f"Cutover publication manifest is invalid: {error}") from error
+    if (
+        not isinstance(value, dict)
+        or value.get("version") != 1
+        or value.get("planFingerprint") != plan_fingerprint
+        or value.get("mutationManifestSha256") != mutation_manifest_sha256
+    ):
+        raise RuntimeError("Cutover publication manifest does not match the reviewed plan and mutation manifest")
+    actions = value.get("actions")
+    if not isinstance(actions, list) or any(not isinstance(item, dict) for item in actions):
+        raise RuntimeError("Cutover publication evidence is invalid")
+    records: dict[str, dict[str, Any]] = {}
+    for action in actions:
+        key = text(action.get("key"))
+        if not key or key in records or text(action.get("action")) not in {"published", "activated"}:
+            raise RuntimeError("Cutover publication evidence contains an invalid or duplicate action")
+        records[key] = dict(action)
+    return records
+
+
+def write_publication_manifest(
+    path: Path,
+    plan_fingerprint: str,
+    mutation_manifest_sha256: str,
+    actions: dict[str, dict[str, Any]],
+    exclusions: list[dict[str, str]],
+) -> None:
+    write_json(path, {
+        "version": 1,
+        "planFingerprint": plan_fingerprint,
+        "mutationManifestSha256": mutation_manifest_sha256,
+        "generatedAt": datetime.now(timezone.utc).isoformat(),
+        "actions": [actions[key] for key in sorted(actions)],
+        "exclusions": exclusions,
+    })
+
+
+def publish_reviewed_plan(
+    args: argparse.Namespace,
+    plan: dict[str, Any],
+    payloads: dict[str, Any],
+) -> dict[str, Any]:
+    if args.confirm_publish_reviewed != PUBLISH_REVIEWED_CONFIRMATION:
+        raise RuntimeError(
+            f"--publish-reviewed requires --confirm-publish-reviewed {PUBLISH_REVIEWED_CONFIRMATION}"
+        )
+    if args.no_resume:
+        raise RuntimeError("Publication evidence cannot be discarded; --no-resume is not valid with --publish-reviewed")
+
+    plan_fingerprint = text(payloads.get("planFingerprint"))
+    expected_entries = expected_cutover_entries(plan, payloads)
+    mutation_records = load_mutation_manifest(args.mutation_manifest, plan_fingerprint)
+    if set(mutation_records) != set(expected_entries):
+        missing = sorted(set(expected_entries) - set(mutation_records))[:20]
+        unexpected = sorted(set(mutation_records) - set(expected_entries))[:20]
+        raise RuntimeError(
+            f"Reviewed publication requires a complete exact draft mutation manifest; missing={missing}, unexpected={unexpected}"
+        )
+    completed_checkpoint = load_checkpoint(args.checkpoint, plan_fingerprint)
+    if completed_checkpoint != set(expected_entries):
+        raise RuntimeError("Reviewed publication refuses a partial draft checkpoint")
+    try:
+        failure_evidence = json.loads(args.failure_report.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError(f"Reviewed publication requires the exact draft failure report: {error}") from error
+    if (
+        not isinstance(failure_evidence, dict)
+        or failure_evidence.get("planFingerprint") != plan_fingerprint
+        or failure_evidence.get("failures") != []
+    ):
+        raise RuntimeError("Reviewed publication refuses missing, stale, or nonempty draft failure evidence")
+
+    for key, expected in expected_entries.items():
+        mutation = mutation_records[key]
+        expected_state = "not-publishable" if expected["kind"] == "redirect" else "draft"
+        if (
+            text(mutation.get("kind")) != expected["kind"]
+            or text(mutation.get("identity")) != expected["identity"]
+            or text(mutation.get("publicationState")) != expected_state
+            or not text(mutation.get("documentId"))
+            or not text(mutation.get("afterUpdatedAt"))
+            or not re.fullmatch(r"[a-f0-9]{64}", text(mutation.get("afterFingerprint")))
+        ):
+            raise RuntimeError(f"Draft mutation evidence drifted for {key}")
+
+    mutation_manifest_sha256 = sha256_file(args.mutation_manifest)
+    publication_actions = load_publication_manifest(
+        args.publication_manifest,
+        plan_fingerprint,
+        mutation_manifest_sha256,
+    )
+    if set(publication_actions) - set(expected_entries):
+        raise RuntimeError("Publication evidence contains an action outside the reviewed cutover plan")
+    exclusions = [
+        {
+            "key": key,
+            "kind": text(entry["kind"]),
+            "identity": text(entry["identity"]),
+            "reason": text(entry["exclusionReason"]),
+        }
+        for key, entry in sorted(expected_entries.items())
+        if entry["action"] == "exclude"
+    ]
+    write_publication_manifest(
+        args.publication_manifest,
+        plan_fingerprint,
+        mutation_manifest_sha256,
+        publication_actions,
+        exclusions,
+    )
+
+    client = canonical_strapi_client(payloads["env"])
+    by_collection: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
+    for entry in expected_entries.values():
+        by_collection[text(entry["apiPath"])].append(entry)
+
+    current_by_key: dict[str, dict[str, Any]] = {}
+    published_by_key: dict[str, dict[str, Any]] = {}
+    for api_path, collection_entries in sorted(by_collection.items()):
+        is_redirect = api_path == "redirects"
+        draft_records = client.list_collection(api_path, status=None if is_redirect else "draft")
+        identity_field = text(collection_entries[0]["identityField"])
+        indexed: dict[str, dict[str, Any]] = {}
+        for record in draft_records:
+            identity = text(record.get(identity_field))
+            if identity in indexed:
+                raise RuntimeError(f"Current Strapi {api_path} identities are duplicated: {identity}")
+            if identity:
+                indexed[identity] = record
+        for entry in collection_entries:
+            current = indexed.get(text(entry["identity"]))
+            if not current:
+                raise RuntimeError(f"Reviewed draft is missing from Strapi: {entry['key']}")
+            mutation = mutation_records[text(entry["key"])]
+            if text(current.get("documentId")) != text(mutation.get("documentId")):
+                raise RuntimeError(f"Reviewed draft document identity drifted: {entry['key']}")
+            current_by_key[text(entry["key"])] = current
+
+        if not is_redirect:
+            published_records = client.list_collection(api_path, status="published")
+            published_index = {
+                text(record.get(identity_field)): record
+                for record in published_records
+                if text(record.get(identity_field))
+            }
+            for entry in collection_entries:
+                if text(entry["key"]) in publication_actions:
+                    published = published_index.get(text(entry["identity"]))
+                    if not published or text(published.get("documentId")) != text(mutation_records[text(entry["key"])].get("documentId")):
+                        raise RuntimeError(f"Recorded publication is not present in Strapi: {entry['key']}")
+                    published_by_key[text(entry["key"])] = published
+
+    for key, entry in sorted(expected_entries.items()):
+        current = current_by_key[key]
+        mutation = mutation_records[key]
+        recorded = publication_actions.get(key)
+        if recorded:
+            expected_action = "activated" if entry["action"] == "activate" else "published"
+            if text(recorded.get("action")) != expected_action:
+                raise RuntimeError(f"Publication action evidence drifted: {key}")
+            if entry["action"] == "activate" and current.get("active") is not True:
+                raise RuntimeError(f"Recorded redirect activation is no longer active: {key}")
+            continue
+        if text(current.get("updatedAt")) != text(mutation.get("afterUpdatedAt")):
+            raise RuntimeError(f"Reviewed draft changed after import; refusing publication: {key}")
+        if entry["action"] == "activate" and current.get("active") is not False:
+            raise RuntimeError(f"Redirect became active before reviewed activation: {key}")
+        if entry["kind"] == "episode":
+            metadata_only = text(current.get("archiveReason")).startswith("CUTOVER_METADATA_ONLY:")
+            if entry["action"] == "publish" and (metadata_only or not text(current.get("externalAudioUrl"))):
+                raise RuntimeError(f"Reviewed episode has missing or unverified audio: {key}")
+            if entry["action"] == "exclude" and not metadata_only:
+                raise RuntimeError(f"Metadata-only episode safety marker drifted: {key}")
+        if entry["kind"] == "media":
+            if entry["action"] == "publish":
+                public_path = text(current.get("publicPath"))
+                verified_file = (
+                    public_path.startswith("/media/legacy/")
+                    and re.fullmatch(r"[a-f0-9]{64}", text(current.get("checksumSha256")))
+                    and int(current.get("fileSizeBytes") or 0) > 0
+                )
+                verified_replacement = public_path.startswith("/media/episodes/")
+                if current.get("visibility") != "public" or not (verified_file or verified_replacement):
+                    raise RuntimeError(f"Reviewed media is inactive, private, or unverified: {key}")
+            elif current.get("visibility") == "public":
+                raise RuntimeError(f"Excluded media unexpectedly became public: {key}")
+
+    publish_entries = [
+        entry
+        for _key, entry in sorted(expected_entries.items())
+        if entry["action"] == "publish" and text(entry["key"]) not in publication_actions
+    ]
+    for entry in publish_entries:
+        key = text(entry["key"])
+        current = current_by_key[key]
+        after = client.publish_reviewed(
+            text(entry["entityType"]),
+            text(current.get("documentId")),
+            text(current.get("updatedAt")),
+        )
+        publication_actions[key] = {
+            "key": key,
+            "kind": text(entry["kind"]),
+            "identity": text(entry["identity"]),
+            "action": "published",
+            "documentId": text(after.get("documentId")),
+            "beforeUpdatedAt": text(current.get("updatedAt")),
+            "afterUpdatedAt": text(after.get("updatedAt")),
+            "recordedAt": datetime.now(timezone.utc).isoformat(),
+        }
+        write_publication_manifest(
+            args.publication_manifest,
+            plan_fingerprint,
+            mutation_manifest_sha256,
+            publication_actions,
+            exclusions,
+        )
+
+    expected_publish_keys = {key for key, entry in expected_entries.items() if entry["action"] == "publish"}
+    if not expected_publish_keys.issubset(publication_actions):
+        raise RuntimeError("Redirect activation refuses a partial reviewed publication phase")
+
+    activate_entries = [
+        entry
+        for _key, entry in sorted(expected_entries.items())
+        if entry["action"] == "activate" and text(entry["key"]) not in publication_actions
+    ]
+    for entry in activate_entries:
+        key = text(entry["key"])
+        current = current_by_key[key]
+        after = client.activate_reviewed_redirect(
+            text(current.get("documentId")),
+            text(current.get("updatedAt")),
+        )
+        publication_actions[key] = {
+            "key": key,
+            "kind": "redirect",
+            "identity": text(entry["identity"]),
+            "action": "activated",
+            "documentId": text(after.get("documentId")),
+            "beforeUpdatedAt": text(current.get("updatedAt")),
+            "afterUpdatedAt": text(after.get("updatedAt")),
+            "recordedAt": datetime.now(timezone.utc).isoformat(),
+        }
+        write_publication_manifest(
+            args.publication_manifest,
+            plan_fingerprint,
+            mutation_manifest_sha256,
+            publication_actions,
+            exclusions,
+        )
+
+    return {
+        "publicationManifest": str(args.publication_manifest),
+        "published": sum(1 for record in publication_actions.values() if record.get("action") == "published"),
+        "redirectsActivated": sum(1 for record in publication_actions.values() if record.get("action") == "activated"),
+        "excludedDrafts": len(exclusions),
+    }
 
 
 def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]]:
-    env_values = {**load_env_file(args.env_file), **{key: value for key, value in os.environ.items() if value}}
-    if args.wordpress_rest_snapshot is None:
-        raise RuntimeError("--wordpress-rest-snapshot is required for a freshness-safe cutover plan")
-    database_wp_content, database_attachments = fetch_wordpress(args)
+    env_values = load_canonical_aic_env(args.env_file)
     rest_wp_content, rest_attachments, rest_snapshot_evidence = load_wordpress_rest_snapshot(
         args.wordpress_rest_snapshot,
         args.wordpress_rest_checksum,
     )
-    database_attachment_ids = {text(row.get("id")) for row in database_attachments}
-    inaccessible_media_ids = {text(row.get("id")) for row in rest_snapshot_evidence.get("inaccessibleMedia", [])}
-    if not inaccessible_media_ids.issubset(database_attachment_ids):
-        raise RuntimeError("A REST-inaccessible media ID is missing from the trusted database baseline")
-    rest_snapshot_evidence["inaccessibleMediaPreservedFromDatabase"] = sorted(inaccessible_media_ids, key=int)
-    wp_content, attachments, wordpress_merge_report = merge_wordpress_sources(
-        database_wp_content,
-        database_attachments,
-        rest_wp_content,
-        rest_attachments,
-    )
-    rest_snapshot_evidence.update(wordpress_merge_report)
-    aic_episodes, aic_posts = fetch_aic(env_values, args.aic_postgres_image)
+    if args.wordpress_source == "direct-database-refresh":
+        database_wp_content, database_attachments = fetch_wordpress_direct_refresh(args)
+        database_attachment_ids = {text(row.get("id")) for row in database_attachments}
+        inaccessible_media_ids = {text(row.get("id")) for row in rest_snapshot_evidence.get("inaccessibleMedia", [])}
+        if not inaccessible_media_ids.issubset(database_attachment_ids):
+            raise RuntimeError("A REST-inaccessible media ID is missing from the trusted database baseline")
+        rest_snapshot_evidence["inaccessibleMediaPreservedFromDatabase"] = sorted(inaccessible_media_ids, key=int)
+        wp_content, attachments, wordpress_merge_report = merge_wordpress_sources(
+            database_wp_content,
+            database_attachments,
+            rest_wp_content,
+            rest_attachments,
+        )
+        rest_snapshot_evidence.update(wordpress_merge_report)
+        rest_snapshot_evidence["sourceMode"] = "direct-database-refresh-plus-verified-snapshot"
+        rest_media_increment_ids: Sequence[str] | None = rest_snapshot_evidence.get("restOnlyMediaIds", [])
+        episode_identity_baseline = database_wp_content
+    else:
+        if args.confirm_wordpress_refresh:
+            raise RuntimeError("--confirm-wordpress-refresh is only valid with direct-database-refresh mode")
+        wp_content = rest_wp_content
+        attachments = rest_attachments
+        inaccessible_media_ids = sorted(
+            (text(row.get("id")) for row in rest_snapshot_evidence.get("inaccessibleMedia", [])),
+            key=int,
+        )
+        rest_snapshot_evidence.update({
+            "sourceMode": "verified-snapshot-only",
+            "snapshotContent": len(rest_wp_content),
+            "snapshotReturnedMedia": len(rest_attachments),
+            "snapshotDeclaredMedia": rest_snapshot_evidence.get("totals", {}).get("media"),
+            "inaccessibleMediaDisposition": [
+                {
+                    "id": media_id,
+                    "disposition": "excluded-rest-forbidden-no-public-record",
+                }
+                for media_id in inaccessible_media_ids
+            ],
+            "mergedContent": len(rest_wp_content),
+            "mergedMedia": rest_snapshot_evidence.get("totals", {}).get("media"),
+        })
+        rest_media_increment_ids = None
+        episode_identity_baseline = rest_wp_content
+    aic_episodes, aic_posts = fetch_aic()
     episode_audio_inventory = fetch_episode_audio_inventory(args.mc_bin, args.mc_audio_target) if args.verify_episode_audio else {}
     episode_audio_object_ids = set(episode_audio_inventory)
     legacy_public_urls = read_manifest_urls(args.legacy_urls)
@@ -2453,7 +3076,7 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]
         args.restricted_media_root,
         args.verify_media,
         episode_audio_deduplication,
-        database_wp_content,
+        episode_identity_baseline,
     )
     excluded_endorsements: list[dict[str, str]] = []
     structured_content_coverage: dict[str, Any] = {}
@@ -2543,7 +3166,7 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]
     rest_media_backup_verification = verify_rest_media_backup_manifest(
         args.rest_media_backup_manifest,
         text(rest_snapshot_evidence.get("sha256")),
-        rest_snapshot_evidence.get("restOnlyMediaIds", []),
+        rest_media_increment_ids,
         args.restricted_media_root,
     )
     redirects, redirect_failures, unmatched_redirects = build_redirects(
@@ -2602,7 +3225,7 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]
     plan = {
         "version": 1,
         "generatedAt": datetime.now(timezone.utc).isoformat(),
-        "mode": "apply" if args.apply else "dry-run",
+        "mode": "apply" if args.apply else "publish-reviewed" if args.publish_reviewed else "dry-run",
         "planFingerprint": plan_fingerprint,
         "precedence": {
             "posts": "AIC pastorwood_posts supersede WordPress posts by legacy id, then source URL",
@@ -2731,8 +3354,26 @@ def validate_apply_preflight(plan: dict[str, Any]) -> None:
     snapshot = plan.get("wordpressRestSnapshot", {})
     if snapshot.get("consistencyPasses") != 2 or not re.fullmatch(r"[a-f0-9]{64}", text(snapshot.get("sha256"))):
         raise RuntimeError("Apply preflight failed: immutable WordPress REST snapshot evidence is invalid")
+    if snapshot.get("sourceMode") == "verified-snapshot-only":
+        totals = snapshot.get("totals", {})
+        returned_totals = snapshot.get("returnedTotals", {})
+        inaccessible = snapshot.get("inaccessibleMedia", [])
+        dispositions = snapshot.get("inaccessibleMediaDisposition", [])
+        if (
+            not isinstance(totals, dict)
+            or not isinstance(returned_totals, dict)
+            or totals.get("media") != returned_totals.get("media", 0) + len(inaccessible)
+            or len(dispositions) != len(inaccessible)
+            or any(text(row.get("disposition")) != "excluded-rest-forbidden-no-public-record" for row in dispositions)
+        ):
+            raise RuntimeError("Apply preflight failed: snapshot-inaccessible media is not explicitly dispositioned")
     backup = plan.get("wordpressRestMediaBackup", {})
-    if not backup.get("enabled") or backup.get("missingMediaIds") or backup.get("verifiedFiles") != len(snapshot.get("restOnlyMediaIds", [])):
+    expected_backup_files = (
+        len(backup.get("verifiedMediaIds", []))
+        if snapshot.get("sourceMode") == "verified-snapshot-only"
+        else len(snapshot.get("restOnlyMediaIds", []))
+    )
+    if not backup.get("enabled") or backup.get("missingMediaIds") or backup.get("verifiedFiles") != expected_backup_files:
         raise RuntimeError("Apply preflight failed: REST-only media backup is incomplete")
     external_backup = plan.get("externalImageBackup", {})
     if (
@@ -2796,8 +3437,12 @@ def validate_apply_preflight(plan: dict[str, Any]) -> None:
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     try:
+        if args.apply and args.publish_reviewed:
+            raise ValueError("--apply and --publish-reviewed are separate phases and cannot run together")
         if args.apply and not (args.verify_media and args.verify_episode_audio and args.copy_media):
             raise ValueError("--apply requires --verify-media --verify-episode-audio --copy-media")
+        if args.publish_reviewed and not (args.verify_media and args.verify_episode_audio):
+            raise ValueError("--publish-reviewed requires --verify-media --verify-episode-audio")
         plan, payloads = build_plan(args)
         if args.plan_output:
             write_json(args.plan_output, plan)
@@ -2821,6 +3466,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 payloads["mediaPublicPaths"],
                 payloads["metadataOnlyMediaIds"],
             )
+            if args.plan_output:
+                write_json(args.plan_output, plan)
+        elif args.publish_reviewed:
+            validate_apply_preflight(plan)
+            plan["publicationResults"] = publish_reviewed_plan(args, plan, payloads)
             if args.plan_output:
                 write_json(args.plan_output, plan)
         print(json.dumps(plan, ensure_ascii=False, indent=2, sort_keys=True))

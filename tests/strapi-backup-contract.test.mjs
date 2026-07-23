@@ -10,26 +10,24 @@ import test from "node:test";
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const backupScript = join(repoRoot, "ops", "strapi", "backup-strapi.sh");
 
-test("Strapi backup dry run uses the pinned local Docker client without side effects", () => {
+test("Strapi backup dry run uses pinned native PostgreSQL 16 clients without side effects", () => {
   const sandbox = mkdtempSync(join(tmpdir(), "aic-strapi-backup-contract-"));
-  const dockerLog = join(sandbox, "docker.log");
-  const mockDocker = join(sandbox, "docker");
+  const clientLog = join(sandbox, "clients.log");
   const backupRoot = `/mnt/storage/backups/aic-strapi-contract-${randomUUID()}`;
   const password = "contract-test-password-must-not-appear";
 
   try {
-    writeFileSync(
-      mockDocker,
-      `#!/usr/bin/env bash
+    for (const client of ["pg_dump", "pg_restore"]) {
+      writeFileSync(
+        join(sandbox, client),
+        `#!/usr/bin/env bash
 set -euo pipefail
-printf '%s\\n' "$*" >> "\${MOCK_DOCKER_LOG:?}"
-case "$*" in
-  *"pg_dump --version"*) echo "pg_dump (PostgreSQL) 16" ;;
-  *"pg_restore --version"*) echo "pg_restore (PostgreSQL) 16" ;;
-esac
+printf '%s %s\\n' "$(basename "$0")" "$*" >> "\${MOCK_CLIENT_LOG:?}"
+echo "${client} (PostgreSQL) 16.14"
 `,
-      { mode: 0o700 },
-    );
+        { mode: 0o700 },
+      );
+    }
 
     assert.notEqual(statSync(backupScript).mode & 0o111, 0, "backup script must be executable");
 
@@ -43,8 +41,9 @@ esac
         DATABASE_USERNAME: "aic_contract_user",
         DATABASE_PASSWORD: password,
         DATABASE_SCHEMA: "aic_strapi",
-        MOCK_DOCKER_LOG: dockerLog,
-        STRAPI_BACKUP_DOCKER_BIN: mockDocker,
+        MOCK_CLIENT_LOG: clientLog,
+        STRAPI_POSTGRES_CLIENT_ROOT: sandbox,
+        STRAPI_NATIVE_CLIENT_TEST_MODE: "1",
         STRAPI_BACKUP_DRY_RUN: "1",
         STRAPI_BACKUP_ENV_FILE: join(sandbox, "missing.env"),
         STRAPI_BACKUP_ROOT: backupRoot,
@@ -56,13 +55,9 @@ esac
     assert.match(result.stdout, /pg_restore \(PostgreSQL\) 16/);
     assert.match(result.stdout, /no backup files were created/);
 
-    const calls = readFileSync(dockerLog, "utf8");
-    assert.match(calls, /image inspect postgres:16/);
-    assert.match(calls, /--pull=never/);
-    assert.match(calls, /--read-only/);
-    assert.match(calls, /--cap-drop ALL/);
-    assert.match(calls, /--network none postgres:16 pg_dump --version/);
-    assert.match(calls, /--network none postgres:16 pg_restore --version/);
+    const calls = readFileSync(clientLog, "utf8");
+    assert.match(calls, /pg_dump --version/);
+    assert.match(calls, /pg_restore --version/);
     assert.doesNotMatch(calls, new RegExp(password));
   } finally {
     rmSync(sandbox, { recursive: true, force: true });
@@ -72,19 +67,19 @@ esac
 test("Strapi backup dump contract keeps credentials out of argv", () => {
   const source = readFileSync(backupScript, "utf8");
 
-  assert.match(source, /--network host/);
-  assert.match(source, /--env PGPASSWORD/);
-  assert.match(source, /--mount "type=bind,src=\$\{partial_dir\},dst=\/backup"/);
+  assert.match(source, /canonical_client_root="\/usr\/lib\/postgresql\/16\/bin"/);
+  assert.match(source, /PGCONNECT_TIMEOUT=5 PGPASSWORD="\$\{DATABASE_PASSWORD\}" "\$\{pg_dump_bin\}"/);
+  assert.match(source, /--host "\$\{DATABASE_HOST\}"/);
+  assert.match(source, /--dbname "\$\{DATABASE_NAME\}"/);
   assert.match(source, /--schema "\$\{DATABASE_SCHEMA\}"/);
-  assert.match(source, /pg_restore --list \/backup\/database\.dump/);
-  assert.match(source, /pg_restore --exit-on-error --file=\/dev\/null \/backup\/database\.dump/);
+  assert.match(source, /"\$\{pg_restore_bin\}" --list "\$\{partial_dir\}\/database\.dump"/);
+  assert.match(source, /"\$\{pg_restore_bin\}" --exit-on-error --file=\/dev\/null/);
   assert.match(source, /database_schema=%s/);
   assert.match(source, /database_port=%s/);
   assert.match(source, /192\.168\.1\.106/);
   assert.match(source, /sha256sum database\.dump database\.contents media\.contents manifest\.env/);
   assert.match(source, /Required Strapi media root is missing/);
   assert.doesNotMatch(source, /Media root was absent at backup time/);
-  assert.doesNotMatch(source, /--env PGPASSWORD=/);
-  assert.doesNotMatch(source, /PGPASSWORD="\$\{DATABASE_PASSWORD\}"\s+pg_dump/);
+  assert.doesNotMatch(source, /docker|--network|--mount/);
   assert.doesNotMatch(source, /CREATE DATABASE|DROP DATABASE|pg_restore\s+--dbname/);
 });

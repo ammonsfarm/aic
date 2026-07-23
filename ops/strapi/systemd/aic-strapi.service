@@ -10,6 +10,7 @@ User=ammonsfarm
 Group=ammonsfarm
 WorkingDirectory=/mnt/storage/aic/services/jimwood-cms
 Environment=NODE_ENV=production
+UnsetEnvironment=STRAPI_AIC_ENV_FILE STRAPI_DATABASE_ENV_TEST_MODE STRAPI_POSTGRES_CLIENT_ROOT STRAPI_NATIVE_CLIENT_TEST_MODE
 Environment=HOST=127.0.0.1
 Environment=PORT=1337
 Environment=STRAPI_CMS_ROOT=/mnt/storage/aic/services/jimwood-cms
@@ -27,7 +28,6 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
-InaccessiblePaths=-/run/docker.sock -/var/run/docker.sock
 ReadOnlyPaths=/mnt/storage/aic
 ReadWritePaths=/mnt/storage/aic/services/jimwood-cms/.tmp
 ReadWritePaths=/mnt/storage/aic/services/jimwood-cms/public

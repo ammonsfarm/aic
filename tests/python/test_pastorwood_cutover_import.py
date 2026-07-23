@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "pastorwood_cutover_import.py"
@@ -16,6 +17,36 @@ SPEC.loader.exec_module(MODULE)
 
 
 class CutoverIdentityTests(unittest.TestCase):
+    def test_verified_snapshot_is_the_default_and_live_wordpress_is_explicit(self):
+        args = MODULE.parse_args([])
+        self.assertEqual(args.wordpress_source, "verified-snapshot")
+        self.assertEqual(args.wordpress_rest_snapshot, MODULE.DEFAULT_WORDPRESS_SNAPSHOT)
+        with self.assertRaisesRegex(RuntimeError, "disabled by default"):
+            MODULE.fetch_wordpress_direct_refresh(SimpleNamespace(
+                wordpress_source="verified-snapshot",
+                confirm_wordpress_refresh="",
+            ))
+
+    def test_cutover_upsert_uses_editorial_draft_workflow_without_direct_publish(self):
+        client = MODULE.StrapiClient("http://127.0.0.1:1337", "token")
+        calls = []
+
+        def request(path, method="GET", payload=None):
+            calls.append((path, method, payload))
+            if path.startswith("/api/posts?"):
+                return {"data": [{"documentId": "doc-1", "legacyId": "7", "updatedAt": "2026-07-22T10:00:00Z"}]}
+            if path.endswith("/baseline"):
+                return {"data": {"documentId": "doc-1"}, "adopted": True}
+            return {"data": {"documentId": "doc-1", "legacyId": "7", "updatedAt": "2026-07-22T10:01:00Z"}}
+
+        client.request = request
+        result = client.upsert("posts", "legacyId", "7", {"legacyId": "7", "title": "Reviewed"})
+
+        self.assertEqual(result["outcome"], "updated")
+        self.assertTrue(any(path == "/api/editorial/post/doc-1/baseline" for path, _method, _payload in calls))
+        self.assertTrue(any(path == "/api/editorial/post/doc-1" and method == "PUT" for path, method, _payload in calls))
+        self.assertFalse(any("status=published" in path for path, _method, _payload in calls))
+
     def test_apply_requires_complete_media_rehearsal_flags(self):
         self.assertEqual(MODULE.main(["--apply"]), 1)
 
@@ -406,15 +437,37 @@ class CutoverBoundaryTests(unittest.TestCase):
         self.assertEqual(paths[source_url], f"/media/legacy/{relative_path}")
         self.assertEqual(records[0].visibility, "public")
 
-    def test_radio_taxonomy_archive_never_maps_to_an_episode_detail(self):
+    def test_radio_taxonomy_archive_maps_to_the_safe_canonical_radio_archive(self):
         target, reason = MODULE.redirect_target_for(
             "/radio/topics/covenant-community-church-galatians-2/",
             {},
             {"covenant-community-church-galatians-2": "/radio/episode/"},
             set(),
         )
-        self.assertIsNone(target)
-        self.assertEqual(reason, "radio-taxonomy-archive")
+        self.assertEqual(target, "/radio/")
+        self.assertEqual(reason, "radio-taxonomy-archive-fallback")
+
+    def test_every_legacy_radio_taxonomy_family_maps_to_the_archive(self):
+        for taxonomy in ("book", "preacher", "series", "topics", "service-type"):
+            with self.subTest(taxonomy=taxonomy):
+                target, reason = MODULE.redirect_target_for(f"/radio/{taxonomy}/legacy-value/", {}, {}, set())
+                self.assertEqual((target, reason), ("/radio/", "radio-taxonomy-archive-fallback"))
+
+    def test_public_media_copy_refuses_an_existing_different_destination(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            restricted = root / "restricted"
+            public = root / "public"
+            (restricted / "2024").mkdir(parents=True)
+            (public / "2024").mkdir(parents=True)
+            (restricted / "2024" / "episode.mp3").write_bytes(b"source")
+            (public / "2024" / "episode.mp3").write_bytes(b"different")
+            record = MODULE.MediaRecord(
+                "1", "Episode", "2024/episode.mp3", "https://www.pastorwood.org/wp-content/uploads/2024/episode.mp3",
+                "audio/mpeg", "public", ("wpfc_sermon:1",), True, 6,
+            )
+            with self.assertRaisesRegex(RuntimeError, "checksum collision"):
+                MODULE.copy_public_media(record, restricted, public)
 
     def test_media_path_rejects_traversal_and_private_operational_trees(self):
         bad_paths = [

@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
 import sys
 from collections import Counter
 from datetime import datetime
@@ -16,10 +15,16 @@ from typing import Any
 import psycopg
 from psycopg.rows import dict_row
 
-from sync_pastorwood_posts import chunk_text, content_hash, dsn, load_env, strip_rendered_html, wp_timestamp
+from sync_pastorwood_posts import chunk_text, content_hash, strip_rendered_html, wp_timestamp
+
+try:
+    from scripts.aic_database_env import CANONICAL_AIC_ENV, database_dsn, load_canonical_aic_env
+except ModuleNotFoundError:  # Direct execution from /mnt/storage/aic/scripts.
+    from aic_database_env import CANONICAL_AIC_ENV, database_dsn, load_canonical_aic_env
 
 
 DEFAULT_SOURCE_BASE_URL = "https://www.pastorwood.org"
+LIVE_REFRESH_CONFIRMATION = "REFRESH_AIC_WRITINGS_FROM_LIVE_WORDPRESS"
 SOURCE_TYPE_BY_CATEGORY = {
     "weekly-devotional": "pastorwood_devotional",
     "resources": "pastorwood_resource",
@@ -28,20 +33,22 @@ SOURCE_TYPE_BY_CATEGORY = {
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--env-file", type=Path, default=Path(".env"))
+    parser.add_argument("--env-file", type=Path, default=CANONICAL_AIC_ENV)
     parser.add_argument("--source-base-url", default=DEFAULT_SOURCE_BASE_URL)
-    parser.add_argument("--source-mode", choices=["docker", "direct"], default="docker")
-    parser.add_argument("--docker-container", default=os.environ.get("PWOOD_DB_CONTAINER", "farm-postgres"))
     parser.add_argument("--pwood-db-name", default=os.environ.get("PWOOD_DB_NAME", "pwood"))
     parser.add_argument("--pwood-db-user", default=os.environ.get("PWOOD_DB_USER", "farmfam"))
     parser.add_argument("--pwood-db-host", default=os.environ.get("PWOOD_DB_HOST", "127.0.0.1"))
     parser.add_argument("--pwood-db-port", default=os.environ.get("PWOOD_DB_PORT", "5433"))
-    parser.add_argument("--pwood-db-password", default=os.environ.get("PWOOD_DB_PASSWORD", ""))
     parser.add_argument("--status", action="append", default=["publish"])
     parser.add_argument("--category-slug", action="append", choices=sorted(SOURCE_TYPE_BY_CATEGORY), default=[])
     parser.add_argument("--chunk-chars", type=int, default=2400)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument(
+      "--confirm-live-wordpress-refresh",
+      default="",
+      help=f"Required for this legacy direct-read importer: {LIVE_REFRESH_CONFIRMATION}",
+    )
     return parser.parse_args()
 
 
@@ -93,47 +100,35 @@ def source_sql(category_slugs: list[str], statuses: list[str]) -> str:
     """
 
 
-def fetch_source_rows_via_docker(args: argparse.Namespace, category_slugs: list[str], statuses: list[str]) -> list[dict[str, Any]]:
-    command = [
-      "docker",
-      "exec",
-      "-i",
-      args.docker_container,
-      "psql",
-      "-U",
-      args.pwood_db_user,
-      "-d",
-      args.pwood_db_name,
-      "-At",
-      "-c",
-      source_sql(category_slugs, statuses),
-    ]
-    result = subprocess.run(command, check=False, capture_output=True, text=True)
-    if result.returncode != 0:
-      raise RuntimeError(result.stderr.strip() or f"docker psql exited {result.returncode}")
-    return json.loads(result.stdout.strip() or "[]")
-
-
 def fetch_source_rows_direct(args: argparse.Namespace, category_slugs: list[str], statuses: list[str]) -> list[dict[str, Any]]:
-    source_dsn = (
-      f"host={args.pwood_db_host} "
-      f"port={args.pwood_db_port} "
-      f"dbname={args.pwood_db_name} "
-      f"user={args.pwood_db_user} "
-      f"password={args.pwood_db_password}"
-    )
-    with psycopg.connect(source_dsn) as conn:
+    password = os.environ.get("PWOOD_DB_PASSWORD", "")
+    if not password:
+      raise RuntimeError("PWOOD_DB_PASSWORD is required for the direct read-only WordPress source.")
+    with psycopg.connect(
+      host=args.pwood_db_host,
+      port=int(args.pwood_db_port),
+      dbname=args.pwood_db_name,
+      user=args.pwood_db_user,
+      password=password,
+      connect_timeout=5,
+      application_name="pastorwood-legacy-post-read",
+    ) as conn:
+      conn.execute("set transaction isolation level repeatable read read only")
       with conn.cursor() as cur:
         cur.execute(source_sql(category_slugs, statuses))
-        return json.loads(cur.fetchone()[0] or "[]")
+        value = cur.fetchone()[0] or []
+        return json.loads(value) if isinstance(value, str) else value
 
 
 def fetch_source_rows(args: argparse.Namespace) -> list[dict[str, Any]]:
+    if args.confirm_live_wordpress_refresh != LIVE_REFRESH_CONFIRMATION:
+      raise RuntimeError(
+        "This legacy importer is disabled by default. Use the checksum-pinned cutover snapshot, "
+        "or explicitly confirm a future authorized live WordPress refresh."
+      )
     category_slugs = args.category_slug or list(SOURCE_TYPE_BY_CATEGORY)
     statuses = [status.strip() for status in args.status if status.strip()]
-    if args.source_mode == "direct":
-      return fetch_source_rows_direct(args, category_slugs, statuses)
-    return fetch_source_rows_via_docker(args, category_slugs, statuses)
+    return fetch_source_rows_direct(args, category_slugs, statuses)
 
 
 def url_for_post(source_base_url: str, post_date: str, slug: str) -> str:
@@ -161,7 +156,7 @@ def begin_run(conn: psycopg.Connection, args: argparse.Namespace, row_count: int
           json.dumps(
             {
               "dry_run": args.dry_run,
-              "source_mode": args.source_mode,
+              "source_mode": "direct-read-only",
               "rows_selected": row_count,
               "source_counts": dict(counts_by_type),
             },
@@ -384,7 +379,7 @@ def main() -> int:
     if args.chunk_chars < 800:
       raise SystemExit("--chunk-chars must be >= 800")
 
-    load_env(args.env_file)
+    load_canonical_aic_env(args.env_file)
     rows = fetch_source_rows(args)
     counts_by_type = Counter(str(row.get("source_type") or "") for row in rows)
     counts: dict[str, Any] = {
@@ -399,7 +394,7 @@ def main() -> int:
       print(json.dumps(counts, indent=2, sort_keys=True))
       return 0
 
-    with psycopg.connect(dsn()) as conn:
+    with psycopg.connect(database_dsn(application_name="pastorwood-legacy-post-import")) as conn:
       run_id = begin_run(conn, args, len(rows), counts_by_type)
       counts["run_id"] = run_id
       try:
@@ -413,7 +408,7 @@ def main() -> int:
         conn.commit()
       except Exception as error:
         conn.rollback()
-        with psycopg.connect(dsn()) as failure_conn:
+        with psycopg.connect(database_dsn(application_name="pastorwood-legacy-post-import-failure")) as failure_conn:
           finish_run(failure_conn, run_id, counts, "failed", str(error))
           failure_conn.commit()
         raise

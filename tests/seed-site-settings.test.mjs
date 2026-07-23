@@ -4,18 +4,34 @@ import { once } from "node:events";
 import http from "node:http";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import test from "node:test";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
 function runSeed(baseUrl) {
   return new Promise((resolveRun, rejectRun) => {
+    const sandbox = mkdtempSync(`${tmpdir()}/aic-site-settings-seed-`);
+    const envFile = resolve(sandbox, ".env");
+    writeFileSync(envFile, [
+      `STRAPI_URL=${baseUrl}`,
+      "STRAPI_API_TOKEN_TEMP_WRITE=test-write-token",
+      "MAILCHIMP_API_KEY=test-us21",
+      "MAILCHIMP_SERVER_PREFIX=us21",
+      "MAILCHIMP_AUDIENCE_ID=audience",
+      "MAILCHIMP_WEBHOOK_SECRET=webhook",
+      "SUBSCRIPTION_RATE_LIMIT_SECRET=rate",
+      "SUBSCRIPTION_UNSUBSCRIBE_SECRET=unsubscribe",
+      "",
+    ].join("\n"));
     const child = spawn(process.execPath, ["scripts/seed-strapi-site-settings.mjs"], {
       cwd: root,
       env: {
         ...process.env,
-        STRAPI_URL: baseUrl,
-        STRAPI_API_TOKEN_TEMP_WRITE: "test-write-token",
+        NODE_ENV: "test",
+        SEED_SITE_SETTINGS_TEST_MODE: "1",
+        AIC_ENV_FILE: envFile,
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -24,7 +40,10 @@ function runSeed(baseUrl) {
     child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
     child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
     child.on("error", rejectRun);
-    child.on("close", (code) => resolveRun({ code, stdout, stderr }));
+    child.on("close", (code) => {
+      rmSync(sandbox, { recursive: true, force: true });
+      resolveRun({ code, stdout, stderr });
+    });
   });
 }
 

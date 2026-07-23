@@ -13,6 +13,11 @@ from pathlib import Path
 
 import psycopg
 
+try:
+    from scripts.aic_database_env import database_dsn, load_canonical_aic_env
+except ModuleNotFoundError:  # Direct execution from /mnt/storage/aic/scripts.
+    from aic_database_env import database_dsn, load_canonical_aic_env
+
 
 DEFAULT_MAX_ATTEMPTS = 5
 DEFAULT_RETRY_BASE_SECONDS = 120
@@ -20,24 +25,11 @@ DEFAULT_CLAIM_LEASE_SECONDS = 900
 
 
 def load_env(path: Path) -> None:
-    if not path.exists():
-        return
-    for raw_line in path.read_text().splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+    load_canonical_aic_env(path)
 
 
 def dsn() -> str:
-    return (
-        f"host={os.environ['DB_HOST']} "
-        f"port={os.environ.get('DB_PORT', '5432')} "
-        f"dbname={os.environ.get('DB_NAME', 'aic')} "
-        f"user={os.environ['DB_USER']} "
-        f"password={os.environ['DB_PASSWORD']}"
-    )
+    return database_dsn(application_name="aic-transcript-edit-worker")
 
 
 def parse_args() -> argparse.Namespace:

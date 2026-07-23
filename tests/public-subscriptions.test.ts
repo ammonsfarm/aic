@@ -52,6 +52,8 @@ describe("public subscription boundary", () => {
     mocks.requireContentManagerApiUser.mockReset().mockResolvedValue({ email: "editor@example.com" });
     process.env.SUBSCRIPTION_RATE_LIMIT_SECRET = "test-only-rate-secret";
     process.env.SUBSCRIPTION_UNSUBSCRIBE_SECRET = "test-only-unsubscribe-secret";
+    process.env.MAILCHIMP_API_KEY = "test-only-api-key-us21";
+    process.env.MAILCHIMP_SERVER_PREFIX = "us21";
     process.env.MAILCHIMP_AUDIENCE_ID = "9ad7bbba36";
     process.env.MAILCHIMP_WEBHOOK_SECRET = "test-only-mailchimp-webhook-secret";
   });

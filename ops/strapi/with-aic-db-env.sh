@@ -13,6 +13,10 @@ case "${test_mode}" in
     exit 1
     ;;
 esac
+if [[ "${test_mode}" == "1" && "${NODE_ENV:-}" == "production" ]]; then
+  echo "Test database environment overrides are forbidden in production." >&2
+  exit 1
+fi
 
 if [[ "${test_mode}" == "0" && "${aic_env}" != "${canonical_aic_env}" ]]; then
   echo "Production Strapi must use ${canonical_aic_env}." >&2
@@ -76,5 +80,6 @@ export DATABASE_POOL_MIN=1
 export DATABASE_POOL_MAX=10
 export DATABASE_CONNECTION_TIMEOUT=60000
 export PGPASSWORD="${DB_PASSWORD}"
+export PGCONNECT_TIMEOUT=5
 
 exec "$@"

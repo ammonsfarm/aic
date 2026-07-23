@@ -3,8 +3,9 @@ set -euo pipefail
 umask 077
 
 backup_root="${STRAPI_BACKUP_ROOT:-/mnt/storage/backups/aic-strapi}"
-docker_bin="${STRAPI_BACKUP_DOCKER_BIN:-/usr/bin/docker}"
-postgres_client_image="${STRAPI_BACKUP_POSTGRES_IMAGE:-postgres:16}"
+canonical_client_root="/usr/lib/postgresql/16/bin"
+client_root="${STRAPI_POSTGRES_CLIENT_ROOT:-${canonical_client_root}}"
+client_test_mode="${STRAPI_NATIVE_CLIENT_TEST_MODE:-0}"
 
 case "${backup_root}" in
   /mnt/storage/backups/*) ;;
@@ -52,12 +53,21 @@ fi
   sha256sum --check SHA256SUMS
 )
 
-if [[ ! -x "${docker_bin}" ]]; then
-  echo "Docker is required at ${docker_bin}." >&2
+if [[ "${client_test_mode}" != "0" && "${client_test_mode}" != "1" ]]; then
+  echo "STRAPI_NATIVE_CLIENT_TEST_MODE must be 0 or 1." >&2
   exit 1
 fi
-if ! "${docker_bin}" image inspect "${postgres_client_image}" >/dev/null 2>&1; then
-  echo "Required local PostgreSQL client image is missing: ${postgres_client_image}" >&2
+if [[ "${client_test_mode}" == "1" && "${NODE_ENV:-}" == "production" ]]; then
+  echo "Native client test overrides are forbidden in production." >&2
+  exit 1
+fi
+if [[ "${client_test_mode}" == "0" && "${client_root}" != "${canonical_client_root}" ]]; then
+  echo "Production verification requires PostgreSQL 16 clients at ${canonical_client_root}." >&2
+  exit 1
+fi
+pg_restore_bin="${client_root}/pg_restore"
+if [[ ! -x "${pg_restore_bin}" ]] || ! "${pg_restore_bin}" --version | grep -Eq '^pg_restore \(PostgreSQL\) 16\.'; then
+  echo "Native PostgreSQL 16 pg_restore is required at ${pg_restore_bin}." >&2
   exit 1
 fi
 
@@ -67,28 +77,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
-docker_safety=(
-  --rm
-  --pull=never
-  --read-only
-  --cap-drop ALL
-  --security-opt no-new-privileges
-  --user "$(id -u):$(id -g)"
-)
+"${pg_restore_bin}" --list "${backup_dir}/database.dump" > "${temporary_dir}/database.contents"
 
-"${docker_bin}" run \
-  "${docker_safety[@]}" \
-  --network none \
-  --mount "type=bind,src=${backup_dir},dst=/backup,readonly" \
-  "${postgres_client_image}" \
-  pg_restore --list /backup/database.dump > "${temporary_dir}/database.contents"
-
-"${docker_bin}" run \
-  "${docker_safety[@]}" \
-  --network none \
-  --mount "type=bind,src=${backup_dir},dst=/backup,readonly" \
-  "${postgres_client_image}" \
-  pg_restore --exit-on-error --file=/dev/null /backup/database.dump
+"${pg_restore_bin}" --exit-on-error --file=/dev/null "${backup_dir}/database.dump"
 
 cmp --silent "${backup_dir}/database.contents" "${temporary_dir}/database.contents"
 grep -Fq 'SCHEMA - aic_strapi' "${temporary_dir}/database.contents"

@@ -1,7 +1,32 @@
 import fs from "node:fs";
 
+const canonicalEnvPath = "/mnt/storage/aic/.env";
+const testMode = process.env.SEED_SITE_SETTINGS_TEST_MODE === "1" && process.env.NODE_ENV !== "production";
+const envPath = testMode ? (process.env.AIC_ENV_FILE || "") : canonicalEnvPath;
+if (!envPath || (!testMode && envPath !== canonicalEnvPath)) {
+  throw new Error(`Site-settings seeding requires the canonical AIC environment at ${canonicalEnvPath}.`);
+}
+
+const authoritativeKeys = [
+  "STRAPI_URL",
+  "STRAPI_MANAGEMENT_URL",
+  "STRAPI_PUBLIC_URL",
+  "STRAPI_API_TOKEN",
+  "STRAPI_READ_TOKEN",
+  "STRAPI_MANAGEMENT_TOKEN",
+  "STRAPI_API_TOKEN_TEMP_WRITE",
+  "MAILCHIMP_API_KEY",
+  "MAILCHIMP_SERVER_PREFIX",
+  "MAILCHIMP_AUDIENCE_ID",
+  "MAILCHIMP_WEBHOOK_SECRET",
+  "SUBSCRIPTION_RATE_LIMIT_SECRET",
+  "SUBSCRIPTION_UNSUBSCRIBE_SECRET",
+];
+
 function loadEnv(filePath) {
-  if (!fs.existsSync(filePath)) return;
+  if (!fs.existsSync(filePath)) throw new Error(`AIC environment is missing: ${filePath}`);
+
+  for (const key of authoritativeKeys) delete process.env[key];
 
   for (const line of fs.readFileSync(filePath, "utf8").split(/\r?\n/)) {
     const trimmed = line.trim();
@@ -10,19 +35,44 @@ function loadEnv(filePath) {
     if (index === -1) continue;
     const key = trimmed.slice(0, index).trim();
     const value = trimmed.slice(index + 1).trim().replace(/^["']|["']$/g, "");
-    if (!process.env[key]) process.env[key] = value;
+    if (authoritativeKeys.includes(key)) process.env[key] = value;
   }
 }
 
-loadEnv(".env.local");
-loadEnv(".env");
+loadEnv(envPath);
 
-const baseUrl = (process.env.STRAPI_URL || "http://localhost:1337").replace(/\/+$/, "");
-const token = process.env.STRAPI_API_TOKEN_TEMP_WRITE || process.env.STRAPI_API_TOKEN || "";
+const urlValues = new Set(
+  [process.env.STRAPI_MANAGEMENT_URL, process.env.STRAPI_URL]
+    .map((value) => value?.trim().replace(/\/+$/, ""))
+    .filter(Boolean),
+);
+const tokenValues = new Set(
+  [process.env.STRAPI_API_TOKEN_TEMP_WRITE, process.env.STRAPI_MANAGEMENT_TOKEN, process.env.STRAPI_API_TOKEN]
+    .map((value) => value?.trim())
+    .filter(Boolean),
+);
+if (urlValues.size !== 1 || tokenValues.size !== 1) {
+  throw new Error("Canonical AIC environment must contain one unambiguous Strapi mutation URL and token.");
+}
+const [baseUrl] = urlValues;
+const [token] = tokenValues;
+if (!testMode && baseUrl !== "http://127.0.0.1:1337") {
+  throw new Error("Production site-settings mutations require Strapi at http://127.0.0.1:1337.");
+}
 
 if (!token) {
-  throw new Error("Missing STRAPI_API_TOKEN_TEMP_WRITE or STRAPI_API_TOKEN.");
+  throw new Error("Missing canonical Strapi management token.");
 }
+
+const providerKeys = [
+  "MAILCHIMP_API_KEY",
+  "MAILCHIMP_SERVER_PREFIX",
+  "MAILCHIMP_AUDIENCE_ID",
+  "MAILCHIMP_WEBHOOK_SECRET",
+  "SUBSCRIPTION_RATE_LIMIT_SECRET",
+  "SUBSCRIPTION_UNSUBSCRIBE_SECRET",
+];
+const subscriptionProviderReady = providerKeys.every((key) => Boolean(process.env[key]?.trim()));
 
 const headers = {
   Authorization: `Bearer ${token}`,
@@ -68,11 +118,33 @@ if (existing?.data?.documentId) {
       }),
     },
   );
+  let disabledUnconfiguredSubscription = false;
+  if (!subscriptionProviderReady && existing.data.subscriptionEnabled === true) {
+    if (!existing.data.updatedAt) {
+      throw new Error("Existing site settings have no concurrency timestamp; refusing an unaudited subscription change.");
+    }
+    await strapiJson(
+      `${baseUrl}/api/editorial/site-setting/${encodeURIComponent(existing.data.documentId)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          actor: deploymentActor,
+          data: { subscriptionEnabled: false },
+          expectedUpdatedAt: existing.data.updatedAt,
+          note: "Disabled public subscriptions because the complete provider and signing configuration is not present.",
+        }),
+      },
+    );
+    disabledUnconfiguredSubscription = true;
+  }
   console.log(JSON.stringify({
     initialized: false,
     adoptedBaseline: baseline?.adopted === true,
-    reason: baseline?.adopted === true ? "site-settings-baseline-adopted" : "site-settings-already-audited",
+    reason: disabledUnconfiguredSubscription
+      ? "unconfigured-subscriptions-disabled"
+      : baseline?.adopted === true ? "site-settings-baseline-adopted" : "site-settings-already-audited",
     documentId: existing.data.documentId,
+    subscriptionProviderReady,
   }, null, 2));
   process.exit(0);
 }
@@ -142,7 +214,7 @@ const payload = {
     donateButtonUrl: "/donate/",
     donorDashboardUrl: "https://www.pastorwood.org/donor-dashboard/",
     headerLogo: null,
-    subscriptionEnabled: true,
+    subscriptionEnabled: subscriptionProviderReady,
   },
 };
 
@@ -171,5 +243,6 @@ console.log(JSON.stringify({
   donateButtonLabel: data.donateButtonLabel,
   donorDashboardUrl: data.donorDashboardUrl,
   subscriptionEnabled: data.subscriptionEnabled,
+  subscriptionProviderReady,
   initialized: true,
 }, null, 2));

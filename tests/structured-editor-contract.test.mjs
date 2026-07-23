@@ -266,7 +266,7 @@ test("global site settings use attributed revisions, rollback, and an idempotent
 
   const listings = await source("components/pastor-wood-structured-listings.tsx");
   assert.match(listings, /showDevotionalSignup: mode === "devotional"/);
-  assert.match(listings, /showDevotionalSignup && settings\?\.subscriptionEnabled !== false/);
+  assert.match(listings, /showDevotionalSignup && settings\?\.subscriptionEnabled === true/);
 });
 
 test("media upload is bounded and private visibility is part of the editor contract", async () => {

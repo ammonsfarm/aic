@@ -4,6 +4,7 @@ import { cmsMediaPublicUrl } from "@/lib/cms-media-url";
 import { STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag } from "@/lib/strapi";
 import { fetchStrapiJsonOrNull } from "@/lib/strapi-request";
 import { safeCmsHref } from "@/lib/cms-html";
+import { subscriptionProviderConfigReady } from "@/lib/subscription-provider-config";
 
 export const STRAPI_SITE_SETTINGS_CACHE_TAG = "strapi:site-settings";
 
@@ -144,7 +145,7 @@ function normalizeSettings(entity: StrapiEntity<StrapiSiteSettings>): StrapiSite
       alternativeText: getString(headerLogoSource.alternativeText),
       name: getString(headerLogoSource.name),
     } : null,
-    subscriptionEnabled: getBoolean(source.subscriptionEnabled, true),
+    subscriptionEnabled: getBoolean(source.subscriptionEnabled, false) && subscriptionProviderConfigReady(),
   };
 }
 

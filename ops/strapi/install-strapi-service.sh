@@ -57,13 +57,12 @@ done
 curl --fail --silent --show-error http://127.0.0.1:1337/_health >/dev/null
 test -s /run/aic-strapi/aic-api-token
 "${ops_root}/sync-aic-strapi-env.sh"
-systemctl start aic-strapi-backup.timer
 systemctl is-active --quiet aic-strapi.service
-systemctl is-active --quiet aic-strapi-backup.timer
+systemctl is-enabled --quiet aic-strapi-backup.timer
 
 if ss -ltnH 'sport = :1337' | awk '{print $4}' | grep -Ev '^(127\.0\.0\.1|\[::1\]):1337$' | grep -q .; then
   echo "Strapi port 1337 is listening beyond loopback." >&2
   exit 1
 fi
 
-echo "Installed and verified the private Strapi service and backup timer."
+echo "Installed and verified the private Strapi service; the backup timer is enabled but not started."

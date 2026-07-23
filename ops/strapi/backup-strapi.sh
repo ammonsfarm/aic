@@ -5,9 +5,10 @@ umask 077
 backup_root="${STRAPI_BACKUP_ROOT:-/mnt/storage/backups/aic-strapi}"
 media_root="${STRAPI_MEDIA_ROOT:-/mnt/storage/pastorwood-media/strapi/uploads}"
 retention_days="${STRAPI_BACKUP_RETENTION_DAYS:-30}"
-docker_bin="${STRAPI_BACKUP_DOCKER_BIN:-/usr/bin/docker}"
-postgres_client_image="${STRAPI_BACKUP_POSTGRES_IMAGE:-postgres:16}"
 dry_run="${STRAPI_BACKUP_DRY_RUN:-0}"
+canonical_client_root="/usr/lib/postgresql/16/bin"
+client_root="${STRAPI_POSTGRES_CLIENT_ROOT:-${canonical_client_root}}"
+client_test_mode="${STRAPI_NATIVE_CLIENT_TEST_MODE:-0}"
 
 case "${backup_root}" in
   /mnt/storage/backups/*) ;;
@@ -40,33 +41,37 @@ case "${dry_run}" in
     exit 1
     ;;
 esac
-
-if [[ ! -x "${docker_bin}" ]]; then
-  echo "Docker is required at ${docker_bin}" >&2
+if [[ "${client_test_mode}" != "0" && "${client_test_mode}" != "1" ]]; then
+  echo "STRAPI_NATIVE_CLIENT_TEST_MODE must be 0 or 1." >&2
   exit 1
 fi
-
-if ! "${docker_bin}" image inspect "${postgres_client_image}" >/dev/null 2>&1; then
-  echo "Required local PostgreSQL client image is missing: ${postgres_client_image}" >&2
-  echo "Install it explicitly before enabling backups; the backup job never pulls images." >&2
+if [[ "${client_test_mode}" == "1" && "${NODE_ENV:-}" == "production" ]]; then
+  echo "Native client test overrides are forbidden in production." >&2
   exit 1
 fi
-
-docker_safety=(
-  --rm
-  --pull=never
-  --read-only
-  --cap-drop ALL
-  --security-opt no-new-privileges
-  --user "$(id -u):$(id -g)"
-)
+if [[ "${client_test_mode}" == "0" && "${client_root}" != "${canonical_client_root}" ]]; then
+  echo "Production backups require PostgreSQL 16 clients at ${canonical_client_root}." >&2
+  exit 1
+fi
+if [[ ! "${retention_days}" =~ ^[0-9]+$ ]] || (( retention_days < 1 || retention_days > 3650 )); then
+  echo "STRAPI_BACKUP_RETENTION_DAYS must be between 1 and 3650." >&2
+  exit 1
+fi
+pg_dump_bin="${client_root}/pg_dump"
+pg_restore_bin="${client_root}/pg_restore"
+if [[ ! -x "${pg_dump_bin}" ]] || ! "${pg_dump_bin}" --version | grep -Eq '^pg_dump \(PostgreSQL\) 16\.'; then
+  echo "Native PostgreSQL 16 pg_dump is required at ${pg_dump_bin}." >&2
+  exit 1
+fi
+if [[ ! -x "${pg_restore_bin}" ]] || ! "${pg_restore_bin}" --version | grep -Eq '^pg_restore \(PostgreSQL\) 16\.'; then
+  echo "Native PostgreSQL 16 pg_restore is required at ${pg_restore_bin}." >&2
+  exit 1
+fi
 
 if [[ "${dry_run}" == "1" ]]; then
-  "${docker_bin}" run "${docker_safety[@]}" --network none \
-    "${postgres_client_image}" pg_dump --version
-  "${docker_bin}" run "${docker_safety[@]}" --network none \
-    "${postgres_client_image}" pg_restore --version
-  echo "Strapi backup dry run passed with ${postgres_client_image}; no backup files were created."
+  "${pg_dump_bin}" --version
+  "${pg_restore_bin}" --version
+  echo "Strapi backup dry run passed with native PostgreSQL 16 clients; no backup files were created."
   exit 0
 fi
 
@@ -82,13 +87,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-PGPASSWORD="${DATABASE_PASSWORD}" "${docker_bin}" run \
-  "${docker_safety[@]}" \
-  --network host \
-  --env PGPASSWORD \
-  --mount "type=bind,src=${partial_dir},dst=/backup" \
-  "${postgres_client_image}" \
-  pg_dump \
+PGCONNECT_TIMEOUT=5 PGPASSWORD="${DATABASE_PASSWORD}" "${pg_dump_bin}" \
   --host "${DATABASE_HOST}" \
   --port "${DATABASE_PORT}" \
   --username "${DATABASE_USERNAME}" \
@@ -97,14 +96,10 @@ PGPASSWORD="${DATABASE_PASSWORD}" "${docker_bin}" run \
   --format custom \
   --no-owner \
   --no-privileges \
-  --file /backup/database.dump
+  --lock-wait-timeout=30s \
+  --file "${partial_dir}/database.dump"
 
-"${docker_bin}" run \
-  "${docker_safety[@]}" \
-  --network none \
-  --mount "type=bind,src=${partial_dir},dst=/backup,readonly" \
-  "${postgres_client_image}" \
-  pg_restore --list /backup/database.dump > "${partial_dir}/database.contents"
+"${pg_restore_bin}" --list "${partial_dir}/database.dump" > "${partial_dir}/database.contents"
 
 if [[ ! -s "${partial_dir}/database.contents" ]] ||
    ! grep -Fq "SCHEMA - ${DATABASE_SCHEMA}" "${partial_dir}/database.contents"; then
@@ -114,12 +109,7 @@ fi
 
 # Replaying the archive to /dev/null decompresses every archived object and data
 # block without connecting to or restoring any database.
-"${docker_bin}" run \
-  "${docker_safety[@]}" \
-  --network none \
-  --mount "type=bind,src=${partial_dir},dst=/backup,readonly" \
-  "${postgres_client_image}" \
-  pg_restore --exit-on-error --file=/dev/null /backup/database.dump
+"${pg_restore_bin}" --exit-on-error --file=/dev/null "${partial_dir}/database.dump"
 
 if [[ ! -d "${media_root}" ]]; then
   echo "Required Strapi media root is missing: ${media_root}" >&2
@@ -135,6 +125,7 @@ tar --list --gzip --file "${partial_dir}/media.tar.gz" > "${partial_dir}/media.c
   printf 'database_port=%s\n' "${DATABASE_PORT}"
   printf 'database_schema=%s\n' "${DATABASE_SCHEMA}"
   printf 'media_root=%s\n' "${media_root}"
+  printf 'postgres_client_major=16\n'
 } > "${partial_dir}/manifest.env"
 
 (

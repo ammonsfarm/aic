@@ -31,6 +31,11 @@ import urllib.request
 import psycopg
 from psycopg.rows import dict_row
 
+try:
+    from scripts.aic_database_env import database_dsn, load_canonical_aic_env
+except ModuleNotFoundError:  # Direct execution from /mnt/storage/aic/scripts.
+    from aic_database_env import database_dsn, load_canonical_aic_env
+
 
 DEFAULT_ENV_FILE = Path("/mnt/storage/aic/.env")
 DEFAULT_PODCAST_ENV_FILE = Path("/mnt/storage/aic_podcast/.env")
@@ -78,6 +83,10 @@ def iso(value: dt.datetime | None = None) -> str:
 
 
 def load_env(path: Path) -> None:
+    load_canonical_aic_env(path)
+
+
+def load_supplemental_env(path: Path) -> None:
     if not path.exists():
         return
     for raw_line in path.read_text().splitlines():
@@ -89,13 +98,7 @@ def load_env(path: Path) -> None:
 
 
 def dsn() -> str:
-    return (
-        f"host={os.environ['DB_HOST']} "
-        f"port={os.environ.get('DB_PORT', '5432')} "
-        f"dbname={os.environ.get('DB_NAME', 'aic')} "
-        f"user={os.environ['DB_USER']} "
-        f"password={os.environ['DB_PASSWORD']}"
-    )
+    return database_dsn(application_name="aic-episode-publish-worker")
 
 
 def bounded_text(value: Any, limit: int) -> str:
@@ -955,7 +958,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     load_env(args.env_file)
-    load_env(args.podcast_env_file)
+    load_supplemental_env(args.podcast_env_file)
     base_url = os.environ.get("STRAPI_MANAGEMENT_URL") or os.environ.get("STRAPI_URL", "")
     token = os.environ.get("STRAPI_API_TOKEN", "")
     client = StrapiClient(base_url, token)

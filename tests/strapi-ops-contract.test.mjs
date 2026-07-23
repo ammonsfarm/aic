@@ -82,7 +82,7 @@ test("runtime database mapping uses only the canonical AIC target and aic_strapi
           ...process.env,
           DB_HOST: "127.0.0.1",
           DATABASE_URL: "postgres://wrong-target.invalid/wrong",
-          NODE_ENV: "production",
+          NODE_ENV: "test",
           HOST: "127.0.0.1",
           APP_KEYS: "right-app-keys",
           STRAPI_AIC_ENV_FILE: aicEnv,
@@ -102,7 +102,7 @@ test("runtime database mapping uses only the canonical AIC target and aic_strapi
       schema: "aic_strapi",
       urlPresent: false,
       unrelatedAicSecretPresent: false,
-      nodeEnv: "production",
+      nodeEnv: "test",
       serviceHost: "127.0.0.1",
       appKeysPreserved: true,
     });
@@ -186,11 +186,14 @@ test("root-executed operations are installed immutably outside the writable chec
 
 test("migration runner cannot inherit or accept a different database target", () => {
   const migrations = source("apply_postgres_migrations.py");
-  assert.match(migrations, /EXPECTED_DB_HOST = "192\.168\.1\.106"/);
-  assert.match(migrations, /EXPECTED_DB_PORT = "5432"/);
-  assert.match(migrations, /os\.environ\.pop\(key, None\)/);
-  assert.match(migrations, /if key in DATABASE_ENV_KEYS:/);
-  assert.match(migrations, /validate_database_target\(\)/);
+  const loader = source("scripts/aic_database_env.py");
+  assert.match(migrations, /CANONICAL_AIC_ENV/);
+  assert.match(migrations, /load_canonical_aic_env\(path, allow_test_path=allow_test_path\)/);
+  assert.match(migrations, /database_dsn\(application_name="aic-postgres-migrations"\)/);
+  assert.match(loader, /EXPECTED_DB_HOST = "192\.168\.1\.106"/);
+  assert.match(loader, /EXPECTED_DB_PORT = "5432"/);
+  assert.match(loader, /os\.environ\.pop\(key, None\)/);
+  assert.match(loader, /missing = \[key for key in DATABASE_ENV_KEYS/);
   const dsnIndex = migrations.indexOf("connection_dsn = dsn()");
   const connectIndex = migrations.indexOf("psycopg.connect(connection_dsn");
   assert.ok(dsnIndex >= 0 && connectIndex > dsnIndex);
@@ -221,13 +224,15 @@ test("all systemd writable paths exist before service namespace setup", () => {
   assert.match(service, /ProtectSystem=strict/);
   assert.match(service, /ReadOnlyPaths=\/mnt\/storage\/aic/);
   assert.match(service, /Requires=aic-strapi-schema\.service/);
-  assert.match(service, /InaccessiblePaths=-\/run\/docker\.sock -\/var\/run\/docker\.sock/);
+  assert.doesNotMatch(service, /docker/i);
   assert.match(service, /ExecStart=\/usr\/local\/libexec\/aic-strapi\/with-aic-db-env\.sh/);
   assert.match(service, /ReadWritePaths=\/mnt\/storage\/aic\/services\/jimwood-cms\/\.tmp/);
   assert.match(service, /ReadWritePaths=\/mnt\/storage\/pastorwood-media\/strapi/);
   assert.match(schemaUnit, /User=ammonsfarm/);
-  assert.match(schemaUnit, /Requires=docker\.service/);
-  assert.match(schemaUnit, /After=network-online\.target docker\.service/);
+  assert.doesNotMatch(schemaUnit, /docker/i);
+  assert.match(schemaUnit, /After=network-online\.target/);
+  assert.match(schemaUnit, /Environment=NODE_ENV=production/);
+  assert.match(schemaUnit, /UnsetEnvironment=.*STRAPI_NATIVE_CLIENT_TEST_MODE/);
   assert.match(schemaUnit, /RemainAfterExit=yes/);
   assert.match(schemaUnit, /ExecStart=\/usr\/local\/libexec\/aic-strapi\/with-aic-db-env\.sh \/usr\/local\/libexec\/aic-strapi\/ensure-strapi-schema\.sh/);
   assert.match(schemaUnit, /ProtectSystem=strict/);
@@ -268,11 +273,12 @@ test("managed Strapi token is scoped, runtime-only, and replaces broad defaults"
 test("backup verification checks archives, listings, and checksums without a database restore", () => {
   const verify = source("ops/strapi/verify-strapi-backup.sh");
   assert.match(verify, /sha256sum --check SHA256SUMS/);
-  assert.match(verify, /pg_restore --list \/backup\/database\.dump/);
-  assert.match(verify, /pg_restore --exit-on-error --file=\/dev\/null \/backup\/database\.dump/);
+  assert.match(verify, /canonical_client_root="\/usr\/lib\/postgresql\/16\/bin"/);
+  assert.match(verify, /"\$\{pg_restore_bin\}" --list "\$\{backup_dir\}\/database\.dump"/);
+  assert.match(verify, /"\$\{pg_restore_bin\}" --exit-on-error --file=\/dev\/null/);
   assert.match(verify, /cmp --silent .*database\.contents/);
   assert.match(verify, /tar --list --gzip/);
-  assert.match(verify, /--network none/);
+  assert.doesNotMatch(verify, /docker|--network/);
   assert.match(verify, /database_schema=aic_strapi/);
   assert.match(verify, /database_host=192\.168\.1\.106/);
   assert.match(verify, /database_port=5432/);
@@ -281,11 +287,33 @@ test("backup verification checks archives, listings, and checksums without a dat
 
 test("deploy builds Strapi before installing it and optionally verifies without copying or restoring a database", () => {
   const deploy = source("scripts/deploy-farm-web.sh");
+  const preflightIndex = deploy.indexOf("set transaction read only; select 1;");
+  const fetchIndex = deploy.indexOf("git fetch --all");
   const buildIndex = deploy.indexOf("npm --prefix services/jimwood-cms run build");
   const installIndex = deploy.indexOf("sudo /usr/local/libexec/aic-strapi/install-strapi-service.sh");
+  const migrationIndex = deploy.indexOf("apply_postgres_migrations.py --env-file /mnt/storage/aic/.env");
+  const strapiHealthIndex = deploy.indexOf("curl -fsS http://127.0.0.1:1337/_health");
+  const schemaBackupIndex = deploy.indexOf("systemctl start aic-strapi-backup.service");
+  assert.ok(preflightIndex >= 0 && fetchIndex > preflightIndex);
   assert.ok(buildIndex >= 0 && installIndex > buildIndex);
-  assert.match(deploy, /\/usr\/local\/libexec\/aic-strapi\/with-aic-db-env\.sh npm --prefix services\/jimwood-cms run build/);
-  assert.match(deploy, /RUN_STRAPI_BACKUP_VERIFY="\$\{RUN_STRAPI_BACKUP_VERIFY:-0\}"/);
+  assert.ok(migrationIndex > buildIndex && strapiHealthIndex > installIndex && schemaBackupIndex > strapiHealthIndex);
+  assert.match(deploy, /NODE_ENV=production ops\/strapi\/with-aic-db-env\.sh npm --prefix services\/jimwood-cms run build/);
+  assert.match(deploy, /RUN_STRAPI_BACKUP_VERIFY="\$\{RUN_STRAPI_BACKUP_VERIFY:-1\}"/);
   assert.match(deploy, /sudo \/usr\/local\/libexec\/aic-strapi\/verify-strapi-backup\.sh/);
-  assert.doesNotMatch(deploy, /RUN_STRAPI_BACKUP_DRILL|restore-drill|createdb|pg_restore/);
+  assert.doesNotMatch(deploy, /RUN_STRAPI_BACKUP_DRILL|restore-drill|createdb|pg_restore[^\n]*--dbname/);
+  assert.doesNotMatch(deploy, /publish-reviewed|PUBLISH_REVIEWED_PASTORWOOD_CUTOVER/);
+  assert.doesNotMatch(deploy, /PRECHANGE_BACKUP|pre-change backup/i);
+});
+
+test("PastorWood cutover defaults to the pinned snapshot, imports drafts, and separates reviewed publication", () => {
+  const cutover = source("scripts/pastorwood_cutover_import.py");
+  assert.match(cutover, /DEFAULT_WORDPRESS_SNAPSHOT/);
+  assert.match(cutover, /default="verified-snapshot"/);
+  assert.match(cutover, /PUBLISH_REVIEWED_CONFIRMATION = "PUBLISH_REVIEWED_PASTORWOOD_CUTOVER"/);
+  assert.match(cutover, /\/api\/editorial\/\{entity_type\}/);
+  assert.match(cutover, /\{\*\*redirect, "active": False\}/);
+  assert.match(cutover, /mutationManifestSha256/);
+  assert.match(cutover, /Redirect activation refuses a partial reviewed publication phase/);
+  assert.doesNotMatch(cutover, /status_query = "\?status=published"/);
+  assert.doesNotMatch(cutover, /docker/i);
 });

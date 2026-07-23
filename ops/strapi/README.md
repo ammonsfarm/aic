@@ -21,7 +21,7 @@ restart anything by themselves.
   AIC PostgreSQL database; no local or copied Strapi database
 - Durable new uploads: `/mnt/storage/pastorwood-media/strapi/uploads`
 - Backups: `/mnt/storage/backups/aic-strapi`
-- PostgreSQL backup client: local Docker image `postgres:16` with `--pull=never`
+- PostgreSQL clients: native version 16 tools at `/usr/lib/postgresql/16/bin`
 
 The service stays private to the host. Content managers use the authenticated AIC
 `/content` tools. A Strapi super administrator can use an SSH port forward when
@@ -47,9 +47,8 @@ privileges. The schema initializer verifies that `aic_strapi` is owned by that
 user and removes `PUBLIC` schema access, but it does not and cannot reduce the
 login role's permissions on other AIC schemas.
 
-Schema preparation runs in a short-lived oneshot unit. The long-running Strapi
-unit cannot see `/run/docker.sock` or `/var/run/docker.sock`, even when the
-service account belongs to the host's Docker group.
+Schema preparation runs in a short-lived oneshot unit. All PostgreSQL access
+uses the canonical environment and native version-pinned clients.
 
 At service bootstrap, Strapi creates or reconciles one custom least-privilege
 token for the AIC server. Its key is written only to the mode-0600 runtime file
@@ -74,18 +73,18 @@ Production refuses to start with SQLite.
 4. From `/mnt/storage/aic`, run `npm --prefix services/jimwood-cms ci` and
    `NODE_ENV=production /usr/local/libexec/aic-strapi/with-aic-db-env.sh npm --prefix
    services/jimwood-cms run build` as `ammonsfarm`.
-5. Install and inspect the backup client image explicitly with
-   `docker pull postgres:16` and `docker image inspect postgres:16`. The backup
-   job never pulls an image on its own.
+5. Verify `/usr/lib/postgresql/16/bin/psql`, `pg_dump`, and `pg_restore` report
+   PostgreSQL 16. The operations scripts reject any alternate production path.
 6. Run the no-write client check with
    `STRAPI_BACKUP_DRY_RUN=1 /usr/local/libexec/aic-strapi/with-aic-db-env.sh
    /usr/local/libexec/aic-strapi/backup-strapi.sh`. It validates the canonical database variables
-   and pinned client image, but connects to no database and creates no backup
+   and pinned native clients, but connects to no database and creates no backup
    directory.
 7. Run `sudo /usr/local/libexec/aic-strapi/install-strapi-service.sh`. It installs the Strapi,
    schema-preparation, backup-service, and backup-timer units,
    prepares only the dedicated `aic_strapi` schema as `ammonsfarm`, starts the
-   private service and timer, verifies loopback-only binding and health, and
+   private service, leaves the enabled backup timer inactive until acceptance,
+   verifies loopback-only binding and health, and
    safely configures the AIC server token.
 8. Run `sudo systemctl start aic-strapi-backup.service` once and inspect its
    journal and output directory.
@@ -104,11 +103,10 @@ SHA-256 checksums. The backup command validates the database archive with
 the media archive with `tar --list`, checksums the archives and listings, and
 only then atomically names the backup directory.
 
-The farm host's `pg_dump` and `pg_restore` wrappers are not usable without a
-versioned client package, so the scripts deliberately run both tools from the
-already-installed `postgres:16` image. Backup creation uses host networking only
-for the schema-scoped dump. Verification uses `--network none`, mounts the
-completed backup read-only, and lists the archive without a database target.
+The scripts deliberately run the installed PostgreSQL 16 `pg_dump` and
+`pg_restore` binaries by absolute path. Backup creation connects only to the
+canonical target for the schema-scoped dump. Verification lists and fully
+decompresses the completed archive offline without a database target.
 Neither checked-in script creates a validation database or invokes a restore.
 The coordinated backup service temporarily stops Strapi, runs the database and
 media backup as `ammonsfarm`, and restarts Strapi even when backup creation

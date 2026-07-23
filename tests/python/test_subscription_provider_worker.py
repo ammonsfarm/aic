@@ -48,10 +48,13 @@ class Transaction:
 class SubscriptionProviderWorkerTests(unittest.TestCase):
     def setUp(self) -> None:
         os.environ["MAILCHIMP_API_KEY"] = "secret-value-us21"
-        os.environ.pop("MAILCHIMP_SERVER_PREFIX", None)
+        os.environ["MAILCHIMP_SERVER_PREFIX"] = "us21"
         os.environ["MAILCHIMP_AUDIENCE_ID"] = "9ad7bbba36"
+        os.environ["MAILCHIMP_WEBHOOK_SECRET"] = "webhook-secret"
+        os.environ["SUBSCRIPTION_RATE_LIMIT_SECRET"] = "rate-limit-secret"
+        os.environ["SUBSCRIPTION_UNSUBSCRIBE_SECRET"] = "unsubscribe-secret"
 
-    def test_config_derives_and_bounds_the_fixed_mailchimp_host(self) -> None:
+    def test_config_requires_and_bounds_the_explicit_mailchimp_host(self) -> None:
         config = MODULE.read_config()
         self.assertIsNotNone(config)
         self.assertEqual(config.server_prefix, "us21")

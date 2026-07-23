@@ -84,7 +84,7 @@ async function StructuredUnavailable({
         <p>The public content service could not return this listing. Please try again shortly.</p>
         {retryHref ? <Link href={retryHref}>Retry this page</Link> : null}
       </section>
-      {showDevotionalSignup && settings?.subscriptionEnabled !== false && Signup
+      {showDevotionalSignup && settings?.subscriptionEnabled === true && Signup
         ? <Signup sourcePath="/bible-study/" />
         : null}
     </Shell>
@@ -282,7 +282,7 @@ export async function PastorWoodStructuredPostsPage({
         )}
         {!pageOutsideResults ? <PublicPagination basePath={basePath} page={result.page} pageCount={result.pageCount} /> : null}
       </section>
-      {mode === "devotional" && settings?.subscriptionEnabled !== false && Signup
+      {mode === "devotional" && settings?.subscriptionEnabled === true && Signup
         ? <Signup sourcePath="/bible-study/" />
         : null}
     </Shell>

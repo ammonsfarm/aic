@@ -14,17 +14,12 @@ cp .env.example .env
 
 Replace all `replace_me_*` values before using the app for real editorial content. The generated `.env` file is ignored by git.
 
-## PostgreSQL
+## Local database
 
-The app is configured for PostgreSQL through `config/database.ts` and the `DATABASE_*` environment variables.
+Local development defaults to Strapi's SQLite database in `.tmp/data.db` and
+does not require a separate database service.
 
-For local development, start the included PostgreSQL container:
-
-```bash
-docker compose up -d postgres
-```
-
-Then start Strapi:
+Start Strapi directly:
 
 ```bash
 npm run develop
@@ -33,14 +28,13 @@ npm run develop
 The initial local defaults are:
 
 ```text
-DATABASE_CLIENT=postgres
-DATABASE_HOST=127.0.0.1
-DATABASE_PORT=5432
-DATABASE_NAME=jimwood_strapi
-DATABASE_USERNAME=strapi
+DATABASE_CLIENT=sqlite
+DATABASE_FILENAME=.tmp/data.db
 ```
 
-`DATABASE_PASSWORD` should stay in `.env` only.
+Developers who intentionally use a native local PostgreSQL installation can
+set the documented `DATABASE_*` values in their ignored `.env`; production
+settings must never be copied into local development.
 
 Production does not use this local database. The native service maps the
 existing AIC `DB_*` target from `/mnt/storage/aic/.env` and routes

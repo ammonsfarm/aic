@@ -19,32 +19,23 @@ from urllib import request as urlrequest
 import psycopg
 from psycopg.rows import dict_row
 
+try:
+    from scripts.aic_database_env import database_dsn, load_canonical_aic_env
+except ModuleNotFoundError:  # Direct execution from /mnt/storage/aic/scripts.
+    from aic_database_env import database_dsn, load_canonical_aic_env
+
 
 DEFAULT_ENV_FILE = Path("/mnt/storage/aic/.env")
-DEFAULT_AUDIENCE_ID = "9ad7bbba36"
 MAX_ATTEMPTS = 10
 STALE_RUNNING_SECONDS = 600
 
 
 def load_env(path: Path) -> None:
-    if not path.exists():
-        return
-    for raw_line in path.read_text().splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+    load_canonical_aic_env(path)
 
 
 def dsn() -> str:
-    return (
-        f"host={os.environ['DB_HOST']} "
-        f"port={os.environ.get('DB_PORT', '5432')} "
-        f"dbname={os.environ.get('DB_NAME', 'aic')} "
-        f"user={os.environ['DB_USER']} "
-        f"password={os.environ['DB_PASSWORD']}"
-    )
+    return database_dsn(application_name="aic-subscription-provider-worker")
 
 
 @dataclass(frozen=True)
@@ -60,12 +51,18 @@ class MailchimpConfig:
 
 def read_config() -> MailchimpConfig | None:
     api_key = os.environ.get("MAILCHIMP_API_KEY", "").strip()
-    if not api_key:
-        return None
     server_prefix = os.environ.get("MAILCHIMP_SERVER_PREFIX", "").strip().lower()
-    if not server_prefix and "-" in api_key:
-        server_prefix = api_key.rsplit("-", 1)[-1].lower()
-    audience_id = os.environ.get("MAILCHIMP_AUDIENCE_ID", DEFAULT_AUDIENCE_ID).strip()
+    audience_id = os.environ.get("MAILCHIMP_AUDIENCE_ID", "").strip()
+    required_settings = (
+        api_key,
+        server_prefix,
+        audience_id,
+        os.environ.get("MAILCHIMP_WEBHOOK_SECRET", "").strip(),
+        os.environ.get("SUBSCRIPTION_RATE_LIMIT_SECRET", "").strip(),
+        os.environ.get("SUBSCRIPTION_UNSUBSCRIBE_SECRET", "").strip(),
+    )
+    if not all(required_settings):
+        return None
     if not re.fullmatch(r"[a-z0-9-]{2,24}", server_prefix):
         raise ValueError("MAILCHIMP_SERVER_PREFIX is invalid.")
     if not re.fullmatch(r"[a-f0-9]{10,32}", audience_id, re.IGNORECASE):

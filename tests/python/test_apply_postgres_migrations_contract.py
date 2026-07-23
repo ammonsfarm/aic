@@ -58,14 +58,15 @@ class MigrationDatabaseContractTests(unittest.TestCase):
         }
 
         with patch.dict(os.environ, inherited, clear=True):
-            migrations.load_env(env_file)
+            migrations.load_env(env_file, allow_test_path=True)
 
             self.assertEqual(os.environ["DB_HOST"], "192.168.1.106")
             self.assertEqual(os.environ["DB_PORT"], "5432")
             self.assertEqual(os.environ["DB_NAME"], "aic")
             self.assertEqual(os.environ["DB_USER"], "aic_user")
             self.assertEqual(os.environ["DB_PASSWORD"], "canonical-password")
-            self.assertIn("host=192.168.1.106 port=5432 dbname=aic", migrations.dsn())
+            self.assertIn("host='192.168.1.106' port='5432' dbname='aic'", migrations.dsn())
+            self.assertIn("connect_timeout='5'", migrations.dsn())
 
     def test_noncanonical_host_or_port_is_rejected_before_a_dsn_is_returned(self) -> None:
         for host, port in (("127.0.0.1", "5432"), ("192.168.1.106", "5433")):
@@ -83,9 +84,8 @@ class MigrationDatabaseContractTests(unittest.TestCase):
                     )
                 )
                 with patch.dict(os.environ, {}, clear=True):
-                    migrations.load_env(env_file)
-                    with self.assertRaisesRegex(SystemExit, r"192\.168\.1\.106:5432"):
-                        migrations.dsn()
+                    with self.assertRaisesRegex(RuntimeError, r"192\.168\.1\.106:5432"):
+                        migrations.load_env(env_file, allow_test_path=True)
 
     def test_missing_env_file_value_cannot_fall_back_to_inherited_database_value(self) -> None:
         env_file = self.env_file(
@@ -101,11 +101,15 @@ class MigrationDatabaseContractTests(unittest.TestCase):
         )
 
         with patch.dict(os.environ, {"DB_NAME": "inherited_database"}, clear=True):
-            migrations.load_env(env_file)
+            with self.assertRaisesRegex(RuntimeError, r"DB_NAME"):
+                migrations.load_env(env_file, allow_test_path=True)
 
-            self.assertNotIn("DB_NAME", os.environ)
-            with self.assertRaisesRegex(SystemExit, r"DB_NAME"):
-                migrations.dsn()
+    def test_production_rejects_an_alternate_environment_path(self) -> None:
+        env_file = self.env_file(
+            "DB_HOST=192.168.1.106\nDB_PORT=5432\nDB_NAME=aic\nDB_USER=aic\nDB_PASSWORD=test\n"
+        )
+        with self.assertRaisesRegex(RuntimeError, r"/mnt/storage/aic/\.env"):
+            migrations.load_env(env_file)
 
 
 if __name__ == "__main__":

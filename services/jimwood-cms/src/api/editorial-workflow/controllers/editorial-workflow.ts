@@ -227,6 +227,10 @@ function cutoverSourceFingerprint(value: unknown) {
   return /^[0-9a-f]{64}$/.test(fingerprint) ? fingerprint : '';
 }
 
+function isCutoverMetadataOnlyEpisode(document: DocumentRecord) {
+  return boundedText(document.archiveReason, 2_000).startsWith('CUTOVER_METADATA_ONLY:');
+}
+
 function mediaPayload(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object') {
     return null;
@@ -465,9 +469,6 @@ const editorialWorkflowController = {
       }
 
       if (action === 'baseline') {
-        if (entityType !== 'site-setting') {
-          return ctx.badRequest('Baseline adoption is only available for site settings.');
-        }
         const existingRevisions = await documents(revisionUid).findMany({
           filters: { entityType, entityDocumentId: documentId },
           limit: 1,
@@ -523,6 +524,9 @@ const editorialWorkflowController = {
             { code: 'EDITORIAL_INVALID_TRACK_ID' },
           );
         }
+        if (entityType === 'episode' && isCutoverMetadataOnlyEpisode(current)) {
+          return ctx.badRequest('This imported episode has no verified public audio and cannot be published.');
+        }
         const scheduleUpdate: Record<string, unknown> = { scheduledFor: null };
         if (contentTypeAttributes(model.uid).publishDate && !current.publishDate) {
           scheduleUpdate.publishDate = scheduledFor;
@@ -561,6 +565,9 @@ const editorialWorkflowController = {
         }
         if (entityType === 'episode' && !operationalTrackId(current.trackId)) {
           return ctx.badRequest('Episode publication requires a valid permanent Track ID.');
+        }
+        if (entityType === 'episode' && isCutoverMetadataOnlyEpisode(current)) {
+          return ctx.badRequest('This imported episode has no verified public audio and cannot be published.');
         }
         if (current.scheduledFor) {
           current = await documents(model.uid).update({

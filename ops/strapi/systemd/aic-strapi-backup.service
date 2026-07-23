@@ -5,10 +5,14 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+Environment=NODE_ENV=production
+UnsetEnvironment=STRAPI_AIC_ENV_FILE STRAPI_DATABASE_ENV_TEST_MODE STRAPI_POSTGRES_CLIENT_ROOT STRAPI_NATIVE_CLIENT_TEST_MODE
 ExecStart=/usr/local/libexec/aic-strapi/run-consistent-backup.sh
+TimeoutStartSec=30m
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
 ReadWritePaths=/mnt/storage/aic/.env
 ReadWritePaths=/mnt/storage/backups/aic-strapi
+ReadOnlyPaths=/mnt/storage/pastorwood-media/strapi
