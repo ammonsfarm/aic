@@ -61,7 +61,7 @@ describe("public Strapi site settings", () => {
     });
     const [url] = fetchMock.mock.calls[0] as [URL];
     expect(url.searchParams.get("status")).toBe("published");
-    expect(url.searchParams.get("populate[headerLogo]")).toBe("*");
+    expect(url.searchParams.getAll("populate[0]")).toContain("headerLogo");
   });
 
   it("exposes the raw published subscription switch separately from provider readiness", async () => {

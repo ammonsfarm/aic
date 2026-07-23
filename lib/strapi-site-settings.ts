@@ -213,7 +213,7 @@ export async function getStrapiSiteSettings(): Promise<StrapiSiteSettings | null
   url.searchParams.set("populate[topNavigation][populate]", "page");
   url.searchParams.set("populate[footerNavigation][populate]", "page");
   url.searchParams.set("populate[utilityNavigation][populate]", "page");
-  url.searchParams.set("populate[headerLogo]", "*");
+  url.searchParams.append("populate[0]", "headerLogo");
 
   const result = await fetchStrapiJsonResult<StrapiSingleResponse<StrapiSiteSettings>>(
     url,

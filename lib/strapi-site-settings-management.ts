@@ -323,7 +323,7 @@ export async function getManagedSiteSettings() {
     url.searchParams.set("populate[topNavigation][populate]", "page");
     url.searchParams.set("populate[footerNavigation][populate]", "page");
     url.searchParams.set("populate[utilityNavigation][populate]", "page");
-    url.searchParams.set("populate[headerLogo]", "*");
+    url.searchParams.append("populate[0]", "headerLogo");
     return url;
   };
 
@@ -362,7 +362,7 @@ export async function getPublishedManagedSiteSettings() {
   const baseUrl = requireConfig();
   const url = new URL("/api/site-setting", baseUrl);
   url.searchParams.set("status", "published");
-  url.searchParams.set("populate[headerLogo]", "*");
+  url.searchParams.append("populate[0]", "headerLogo");
   try {
     const payload = await strapiJson<StrapiSingleResponse<ManagedSiteSettings>>(url);
     return payload.data ? normalizeSettings(payload.data) : null;

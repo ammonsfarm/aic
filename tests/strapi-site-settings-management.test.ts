@@ -56,8 +56,10 @@ describe("site-settings editorial management", () => {
     const [publishedUrl] = fetchMock.mock.calls[1] as [URL];
     expect(draftUrl.pathname).toBe("/api/site-setting");
     expect(draftUrl.searchParams.get("status")).toBe("draft");
+    expect(draftUrl.searchParams.getAll("populate[0]")).toContain("headerLogo");
     expect(publishedUrl.pathname).toBe("/api/site-setting");
     expect(publishedUrl.searchParams.get("status")).toBe("published");
+    expect(publishedUrl.searchParams.getAll("populate[0]")).toContain("headerLogo");
   });
 
   it("initializes the singleton through the attributed create workflow", async () => {
@@ -94,6 +96,7 @@ describe("site-settings editorial management", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url] = fetchMock.mock.calls[0] as [URL];
     expect(url.searchParams.get("status")).toBe("published");
+    expect(url.searchParams.getAll("populate[0]")).toContain("headerLogo");
   });
 
   it("rolls back through the workflow and exhaustively reads revision pages", async () => {
