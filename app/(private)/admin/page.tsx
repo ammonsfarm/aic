@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { AdminConsole } from "@/components/admin-console";
-import { DataFreshnessNotice } from "@/components/data-freshness";
+import { DataFreshnessNotice, SuccessfulCheckFreshnessNotice } from "@/components/data-freshness";
 import { RoutePanel } from "@/components/route-panel";
 import { getOperationalDashboard } from "@/lib/admin-operations";
 import { getSupportedAgentModels } from "@/lib/agent-models";
@@ -81,7 +81,7 @@ export default async function AdminPage() {
           <Link className="button button--ghost" href="/pipeline">Open pipeline controls</Link>
         </div>
         <div className="split-board split-board--wide">
-          <DataFreshnessNotice label="Daily ingest" freshness={operations.freshness.ingest} />
+          <SuccessfulCheckFreshnessNotice label="Daily ingest" freshness={operations.freshness.ingest} />
           <DataFreshnessNotice label="Podtrac" freshness={operations.freshness.podtrac} />
           <div className={operations.podtracAuth.state === "auth-error" ? "status-item status-item--warn" : "status-item"} role={operations.podtracAuth.state === "auth-error" ? "alert" : "status"}>
             <strong>Podtrac authentication: {operations.podtracAuth.state}</strong>

@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => {
 vi.mock("@/lib/db", () => ({ queryRows: mocks.queryRows, getPool: mocks.getPool }));
 
 import {
+  getOperationalDashboard,
   listMatchedPodtracEpisodes,
   listUnmatchedPodtracEpisodes,
   queuePipelineRetry,
@@ -22,6 +23,40 @@ describe("admin operation database workflows", () => {
     mocks.queryRows.mockReset();
     mocks.release.mockReset();
     mocks.connect.mockClear();
+  });
+
+  it("distinguishes a successful ingest check from Podtrac source-data currency", async () => {
+    mocks.queryRows.mockImplementation(async (sql: string) => {
+      if (sql.includes("as podtrac_current_through")) {
+        return [{
+          podtrac_current_through: "2026-07-20",
+          ingest_last_successful_check_date: "2026-07-22",
+        }];
+      }
+      if (sql.includes("from ingest_runs") && sql.includes("order by coalesce")) {
+        return [{
+          run_id: "ingest-1",
+          status: "completed",
+          stage: "complete",
+          started_at: "2026-07-22T08:00:00Z",
+          completed_at: "2026-07-22T08:15:00Z",
+          error: "",
+        }];
+      }
+      return [];
+    });
+
+    const dashboard = await getOperationalDashboard();
+    expect(dashboard.freshness.ingest.lastSuccessfulCheckDate).toBe("2026-07-22");
+    expect(dashboard.freshness.ingest).not.toHaveProperty("dataCurrentThrough");
+    expect(dashboard.freshness.podtrac.dataCurrentThrough).toBe("2026-07-20");
+    expect(dashboard.runs.find((run) => run.source === "daily-ingest")).not.toHaveProperty("dataCurrentThrough");
+
+    const [extentSql] = mocks.queryRows.mock.calls.find(([sql]) => String(sql).includes("as podtrac_current_through"))!;
+    expect(String(extentSql)).toContain("max(activity_date)");
+    expect(String(extentSql)).toContain("max(completed_at)");
+    expect(String(extentSql)).toContain("where status = 'completed'");
+    expect(String(extentSql)).toContain("as ingest_last_successful_check_date");
   });
 
   it("queues an allowlisted retry and audit row in one transaction", async () => {

@@ -1,5 +1,5 @@
 import { RoutePanel } from "@/components/route-panel";
-import { DataFreshnessNotice } from "@/components/data-freshness";
+import { DataFreshnessNotice, SuccessfulCheckFreshnessNotice } from "@/components/data-freshness";
 import { PipelineOperations } from "@/components/pipeline-operations";
 import { getOperationalDashboard, listMatchedPodtracEpisodes, listUnmatchedPodtracEpisodes } from "@/lib/admin-operations";
 import { requireInternalReadConsoleUser } from "@/lib/console-access";
@@ -61,7 +61,7 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
       aside={<p className="note">Authoritative ingest, Podtrac and transcript worker state. Retry controls enqueue fixed background jobs for administrators.</p>}
     >
       <section className="split-board split-board--wide">
-        <DataFreshnessNotice label="Daily ingest" freshness={operations.freshness.ingest} />
+        <SuccessfulCheckFreshnessNotice label="Daily ingest" freshness={operations.freshness.ingest} />
         <DataFreshnessNotice label="Podtrac reporting" freshness={operations.freshness.podtrac} />
         <div className={operations.podtracAuth.state === "auth-error" ? "status-item status-item--warn" : "status-item"} role={operations.podtracAuth.state === "auth-error" ? "alert" : "status"}>
           <strong>Podtrac authentication: {operations.podtracAuth.state}</strong>
@@ -118,7 +118,9 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
                 {run.status} · {run.stage}
                 <br />
                 <span className="note">
-                  {formatDate(run.completedAt ?? run.startedAt)} · data through {run.dataCurrentThrough ?? "unknown"} · {run.error || "OK"}
+                  {formatDate(run.completedAt ?? run.startedAt)}
+                  {run.source === "podtrac-import" ? ` · data through ${run.dataCurrentThrough ?? "unknown"}` : ""}
+                  {` · ${run.error || "OK"}`}
                 </span>
               </span>
             ))}

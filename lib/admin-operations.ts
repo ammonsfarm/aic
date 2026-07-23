@@ -1,6 +1,10 @@
 import "server-only";
 
 import { getPool, queryRows } from "@/lib/db";
+import {
+  calculateSuccessfulCheckFreshness,
+  type SuccessfulCheckFreshness,
+} from "@/lib/operational-freshness";
 import { calculateFreshness, type DataFreshness } from "@/lib/podcast-reporting";
 
 export const retryablePipelineStages = ["daily-ingest", "podtrac-import", "transcript-edits"] as const;
@@ -110,19 +114,21 @@ type MatchedPodtracRow = {
 
 type ExtentRow = {
   podtrac_current_through: string | null;
-  ingest_current_through: string | null;
+  ingest_last_successful_check_date: string | null;
 };
 
-export type OperationalRun = {
+type OperationalRunBase = {
   id: string;
-  source: "daily-ingest" | "podtrac-import";
   status: string;
   stage: string;
   startedAt: string;
   completedAt: string | null;
   error: string;
-  dataCurrentThrough: string | null;
 };
+
+export type OperationalRun =
+  | (OperationalRunBase & { source: "daily-ingest" })
+  | (OperationalRunBase & { source: "podtrac-import"; dataCurrentThrough: string | null });
 
 export type OperationalStageEvent = {
   id: string;
@@ -137,7 +143,7 @@ export type OperationalStageEvent = {
 export type OperationalDashboard = {
   generatedAt: string;
   freshness: {
-    ingest: DataFreshness;
+    ingest: SuccessfulCheckFreshness;
     podtrac: DataFreshness;
   };
   podtracAuth: {
@@ -372,11 +378,11 @@ export async function getOperationalDashboard({ limit = 20 }: { limit?: number }
       queryRows<ExtentRow>(
         `select
            (select max(activity_date)::text from podtrac_daily_activity) as podtrac_current_through,
-           (select max(completed_at)::timestamptz::date::text from ingest_runs where status = 'completed') as ingest_current_through`,
+           (select max(completed_at)::timestamptz::date::text from ingest_runs where status = 'completed') as ingest_last_successful_check_date`,
       ),
     ]);
 
-  const extent = extentRows[0] ?? { podtrac_current_through: null, ingest_current_through: null };
+  const extent = extentRows[0] ?? { podtrac_current_through: null, ingest_last_successful_check_date: null };
   const auth = podtracAuthenticationStatus(podtracRows[0]);
   const latestTranscriptUpdate = transcriptStatusRows
     .map((row) => row.latest)
@@ -387,7 +393,10 @@ export async function getOperationalDashboard({ limit = 20 }: { limit?: number }
   return {
     generatedAt: new Date().toISOString(),
     freshness: {
-      ingest: calculateFreshness({ dataCurrentThrough: extent.ingest_current_through, slaDays: 1 }),
+      ingest: calculateSuccessfulCheckFreshness({
+        lastSuccessfulCheckDate: extent.ingest_last_successful_check_date,
+        slaDays: 1,
+      }),
       podtrac: calculateFreshness({ dataCurrentThrough: extent.podtrac_current_through, slaDays: 2 }),
     },
     podtracAuth: auth,
@@ -400,7 +409,6 @@ export async function getOperationalDashboard({ limit = 20 }: { limit?: number }
         startedAt: row.started_at,
         completedAt: row.completed_at,
         error: row.error,
-        dataCurrentThrough: row.completed_at?.slice(0, 10) ?? null,
       })),
       ...podtracRows.map((row) => ({
         id: row.import_run_id ?? row.id,
