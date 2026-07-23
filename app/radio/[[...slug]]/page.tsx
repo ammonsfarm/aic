@@ -5,7 +5,7 @@ import { publicArchiveCanonicalPath, publicArchivePage } from "@/lib/public-pagi
 import { parsePublicRadioArchiveState, publicRadioArchivePath } from "@/lib/public-radio-search";
 import { publicCmsPageMetadata, publicMetadata } from "@/lib/public-seo";
 import { getStrapiPageByPageKey } from "@/lib/strapi";
-import { getPublishedEpisodeBySlug } from "@/lib/strapi-structured-public";
+import { getPublishedEpisodeBySlugResult, type PublishedEpisode } from "@/lib/strapi-structured-public";
 
 type PageProps = {
   params: Promise<{ slug?: string[] }>;
@@ -22,7 +22,7 @@ async function getRadioPage() {
   }
 }
 
-function episodeSeo(episode: NonNullable<Awaited<ReturnType<typeof getPublishedEpisodeBySlug>>>) {
+function episodeSeo(episode: PublishedEpisode) {
   return episode.seo && typeof episode.seo === "object" ? episode.seo as Record<string, unknown> : {};
 }
 
@@ -43,8 +43,16 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
     return archive.hasFilters ? { ...metadata, robots: { index: false, follow: true } } : metadata;
   }
 
-  const episode = await getPublishedEpisodeBySlug(requestedSlug);
-  if (!episode) return { robots: { index: false } };
+  const result = await getPublishedEpisodeBySlugResult(requestedSlug);
+  if (result.status === "unavailable") {
+    return {
+      title: "Radio episode temporarily unavailable",
+      description: "This Abiding in Christ broadcast is temporarily unavailable while the public content service reconnects.",
+      robots: { index: false, follow: true, noarchive: true },
+    };
+  }
+  if (result.status === "not-found") return { robots: { index: false } };
+  const episode = result.item;
   const seo = episodeSeo(episode);
   const seoTitle = typeof seo.title === "string" ? seo.title.trim() : "";
   const seoDescription = typeof seo.description === "string" ? seo.description.trim() : "";

@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-const { notFound, getPublishedEpisodeBySlug, listPublishedEpisodesPage } = vi.hoisted(() => ({
+const { notFound, getPublishedEpisodeBySlugResult, listPublishedEpisodesPage } = vi.hoisted(() => ({
   notFound: vi.fn(() => {
     throw new Error("NEXT_NOT_FOUND");
   }),
-  getPublishedEpisodeBySlug: vi.fn(),
+  getPublishedEpisodeBySlugResult: vi.fn(),
   listPublishedEpisodesPage: vi.fn(),
 }));
 
@@ -13,12 +13,13 @@ vi.mock("next/navigation", () => ({ notFound }));
 vi.mock("@/components/pastor-wood-site", () => ({
   PastorWoodShell: ({ children }: { children: React.ReactNode }) => children,
   PageHero: ({ title }: { title: string }) => title,
+  DevotionalSignup: vi.fn(),
 }));
 vi.mock("@/lib/strapi-site-settings", () => ({ getStrapiSiteSettings: vi.fn() }));
 vi.mock("@/lib/strapi-structured-public", () => ({
-  getPublishedEpisodeBySlug,
-  listPublishedBoardMembers: vi.fn(),
-  listPublishedEndorsements: vi.fn(),
+  getPublishedEpisodeBySlugResult,
+  listPublishedBoardMembersResult: vi.fn(),
+  listPublishedEndorsementsResult: vi.fn(),
   listPublishedEpisodesPage,
   listPublishedPostsPage: vi.fn(),
 }));
@@ -28,14 +29,26 @@ import { PastorWoodStructuredRadioPage } from "@/components/pastor-wood-structur
 describe("public radio detail route", () => {
   beforeEach(() => {
     notFound.mockClear();
-    getPublishedEpisodeBySlug.mockResolvedValue(null);
+    getPublishedEpisodeBySlugResult.mockResolvedValue({ status: "not-found" });
     listPublishedEpisodesPage.mockReset();
   });
 
   it("returns Next's real 404 for an unknown published episode slug", async () => {
     await expect(PastorWoodStructuredRadioPage({ slug: ["missing-episode"] })).rejects.toThrow("NEXT_NOT_FOUND");
-    expect(getPublishedEpisodeBySlug).toHaveBeenCalledWith("missing-episode");
+    expect(getPublishedEpisodeBySlugResult).toHaveBeenCalledWith("missing-episode");
     expect(notFound).toHaveBeenCalledOnce();
+  });
+
+  it("renders a retryable outage instead of a false 404 when episode lookup is unavailable", async () => {
+    getPublishedEpisodeBySlugResult.mockResolvedValue({ status: "unavailable" });
+
+    const markup = renderToStaticMarkup(await PastorWoodStructuredRadioPage({ slug: ["temporarily-down"] }));
+
+    expect(markup).toContain('role="alert"');
+    expect(markup).toContain("Content temporarily unavailable");
+    expect(markup).toContain("Retry this page");
+    expect(markup).toContain('href="/radio/temporarily-down"');
+    expect(notFound).not.toHaveBeenCalled();
   });
 
   it("renders an accessible search form and a distinct archive outage state", async () => {

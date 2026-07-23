@@ -3,9 +3,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getPublishedEpisodeByTrackId,
   getPublishedEpisodeBySlug,
+  getPublishedEpisodeBySlugResult,
+  getPublishedPostBySlugResult,
   listAllPublishedEpisodes,
   listLatestPublishedPostsResult,
   listPublishedBoardMembers,
+  listPublishedBoardMembersResult,
+  listPublishedEndorsementsResult,
   listPublishedEpisodesPage,
 } from "@/lib/strapi-structured-public";
 
@@ -14,6 +18,7 @@ const originalUrl = process.env.STRAPI_URL;
 afterEach(() => {
   process.env.STRAPI_URL = originalUrl;
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 function episode(index: number) {
@@ -167,6 +172,45 @@ describe("published Strapi archive pagination", () => {
       available: false,
       items: [],
     });
+  });
+
+  it("distinguishes missing detail items from unavailable and malformed item lookups", async () => {
+    process.env.STRAPI_URL = "http://127.0.0.1:1337";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      data: [],
+      meta: { pagination: { page: 1, pageSize: 1, pageCount: 0, total: 0 } },
+    }), { status: 200 })));
+
+    await expect(getPublishedEpisodeBySlugResult("missing")).resolves.toEqual({ status: "not-found" });
+    await expect(getPublishedPostBySlugResult("missing")).resolves.toEqual({ status: "not-found" });
+
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("unavailable", { status: 503 })));
+    await expect(getPublishedEpisodeBySlugResult("temporarily-down")).resolves.toEqual({ status: "unavailable" });
+    await expect(getPublishedPostBySlugResult("temporarily-down")).resolves.toEqual({ status: "unavailable" });
+
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      data: [{ title: "Missing permanent identity" }],
+      meta: { pagination: { page: 1, pageSize: 1, pageCount: 1, total: 1 } },
+    }), { status: 200 })));
+    await expect(getPublishedEpisodeBySlugResult("malformed")).resolves.toEqual({ status: "unavailable" });
+    await expect(getPublishedPostBySlugResult("malformed")).resolves.toEqual({ status: "unavailable" });
+  });
+
+  it("preserves valid-empty and unavailable collection states for board members and endorsements", async () => {
+    process.env.STRAPI_URL = "http://127.0.0.1:1337";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      data: [],
+      meta: { pagination: { page: 1, pageSize: 100, pageCount: 0, total: 0 } },
+    }), { status: 200 })));
+
+    await expect(listPublishedBoardMembersResult()).resolves.toMatchObject({ available: true, items: [], total: 0 });
+    await expect(listPublishedEndorsementsResult()).resolves.toMatchObject({ available: true, items: [], total: 0 });
+
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "bad gateway payload" }), { status: 200 })));
+    await expect(listPublishedBoardMembersResult()).resolves.toMatchObject({ available: false, items: [] });
+    await expect(listPublishedEndorsementsResult()).resolves.toMatchObject({ available: false, items: [] });
   });
 
   it("bounds the feed source to one latest published-post page", async () => {

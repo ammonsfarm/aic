@@ -17,9 +17,9 @@ vi.mock("@/lib/strapi-site-settings", () => ({
 }));
 
 vi.mock("@/lib/strapi-structured-public", () => ({
-  getPublishedEpisodeBySlug: vi.fn(),
-  listPublishedBoardMembers: vi.fn(),
-  listPublishedEndorsements: vi.fn(),
+  getPublishedEpisodeBySlugResult: vi.fn(),
+  listPublishedBoardMembersResult: vi.fn(),
+  listPublishedEndorsementsResult: vi.fn(),
   listPublishedEpisodesPage: vi.fn(),
   listPublishedPostsPage: mocks.listPublishedPostsPage,
 }));
@@ -43,11 +43,11 @@ function elementsOfType(node: React.ReactNode, type: string): React.ReactElement
 beforeEach(() => {
   mocks.getStrapiSiteSettings.mockReset();
   mocks.listPublishedPostsPage.mockReset();
-  mocks.listPublishedPostsPage.mockResolvedValue({ items: [], page: 1, pageCount: 1, total: 0 });
+  mocks.listPublishedPostsPage.mockResolvedValue({ items: [], page: 1, pageSize: 24, pageCount: 0, total: 0, available: true });
 });
 
 describe("weekly devotional signup visibility", () => {
-  it("keeps the signup on the empty or unavailable devotional listing when enabled", async () => {
+  it("keeps the signup on the valid-empty devotional listing when enabled", async () => {
     mocks.getStrapiSiteSettings.mockResolvedValue({ subscriptionEnabled: true });
 
     const result = await PastorWoodStructuredPostsPage({ mode: "devotional" });
@@ -59,6 +59,9 @@ describe("weekly devotional signup visibility", () => {
 
   it("respects the global subscription flag on the unavailable listing", async () => {
     mocks.getStrapiSiteSettings.mockResolvedValue({ subscriptionEnabled: false });
+    mocks.listPublishedPostsPage.mockResolvedValue({
+      items: [], page: 1, pageSize: 24, pageCount: 0, total: 0, available: false,
+    });
 
     const result = await PastorWoodStructuredPostsPage({ mode: "devotional" });
 
@@ -77,8 +80,10 @@ describe("weekly devotional signup visibility", () => {
         summary: "A devotional.",
       }],
       page: 1,
+      pageSize: 24,
       pageCount: 1,
       total: 1,
+      available: true,
     });
 
     const result = await PastorWoodStructuredPostsPage({ mode: "devotional" });

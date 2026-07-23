@@ -4,7 +4,7 @@ import Link from "next/link";
 import { DevotionalSignupForm } from "@/components/devotional-signup-form";
 import { getPublicDonationUrl } from "@/lib/public-donation";
 import { SUBSCRIPTION_ATTEMPT_RETENTION_DAYS } from "@/lib/public-subscription-contract";
-import { listPublishedEndorsements, type PublishedEndorsement } from "@/lib/strapi-structured-public";
+import { listPublishedEndorsementsResult, type PublishedEndorsement } from "@/lib/strapi-structured-public";
 import { getStrapiSiteSettings, type StrapiSiteSettings } from "@/lib/strapi-site-settings";
 import { safeCmsHref, sanitizeCmsHtml } from "@/lib/cms-html";
 
@@ -192,10 +192,12 @@ function EndorsementFigure({ item }: { item: { name: string; title: string; quot
 function PastorWoodHome({
   siteSettings,
   endorsements = [],
+  endorsementsAvailable = true,
   cmsPage,
 }: {
   siteSettings?: StrapiSiteSettings | null;
   endorsements?: PublishedEndorsement[];
+  endorsementsAvailable?: boolean;
   cmsPage?: PastorWoodCmsPage | null;
 }) {
   return (
@@ -267,7 +269,14 @@ function PastorWoodHome({
                   <EndorsementFigure key={item.documentId} item={{ name: item.attribution, title: [item.title, item.organization].filter(Boolean).join(", "), quote: item.quote, image: item.photoUrl }} />
                 ))}
               </div>
-            ) : <p className="pw-content-unavailable" role="status">Endorsements are temporarily unavailable while the content service reconnects.</p>}
+            ) : endorsementsAvailable ? (
+              <p className="pw-content-unavailable" role="status">No featured endorsements are published yet.</p>
+            ) : (
+              <div className="pw-content-unavailable" role="alert">
+                <strong>Endorsements are temporarily unavailable.</strong>
+                <p>The public content service could not return them. Please try again shortly.</p>
+              </div>
+            )}
             <Link className="pw-text-link" href={routes.endorsements}>More Endorsements</Link>
           </section>
         </>
@@ -280,11 +289,18 @@ function PastorWoodHome({
 }
 
 export async function PastorWoodSite({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null } = {}) {
-  const [siteSettings, endorsements] = await Promise.all([
+  const [siteSettings, endorsementsResult] = await Promise.all([
     getStrapiSiteSettings(),
-    listPublishedEndorsements(),
+    listPublishedEndorsementsResult(),
   ]);
-  return <PastorWoodHome siteSettings={siteSettings} endorsements={endorsements.filter((item) => item.featured)} cmsPage={cmsPage} />;
+  return (
+    <PastorWoodHome
+      siteSettings={siteSettings}
+      endorsements={endorsementsResult.items.filter((item) => item.featured)}
+      endorsementsAvailable={endorsementsResult.available}
+      cmsPage={cmsPage}
+    />
+  );
 }
 
 export function PastorWoodSitePreview({ siteSettings }: { siteSettings: StrapiSiteSettings }) {

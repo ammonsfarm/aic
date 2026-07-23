@@ -11,9 +11,9 @@ import {
   type PublicRadioArchiveState,
 } from "@/lib/public-radio-search";
 import {
-  listPublishedBoardMembers,
-  listPublishedEndorsements,
-  getPublishedEpisodeBySlug,
+  listPublishedBoardMembersResult,
+  listPublishedEndorsementsResult,
+  getPublishedEpisodeBySlugResult,
   listPublishedEpisodesPage,
   listPublishedPostsPage,
   type PublishedEpisode,
@@ -60,12 +60,14 @@ async function StructuredUnavailable({
   title,
   body,
   showDevotionalSignup = false,
+  retryHref,
 }: {
   cmsPage?: PastorWoodCmsPage | null;
   eyebrow: string;
   title: string;
   body: string;
   showDevotionalSignup?: boolean;
+  retryHref?: string;
 }) {
   const Shell = hooks.PastorWoodShell;
   const Hero = hooks.PageHero;
@@ -75,9 +77,10 @@ async function StructuredUnavailable({
   return (
     <Shell siteSettings={settings}>
       <Hero eyebrow={eyebrow} title={cmsPage?.heroTitle || title} body={cmsPage?.heroBody || body} />
-      <section className="pw-section pw-content-unavailable" role="status">
+      <section className="pw-section pw-content-unavailable" role="alert">
         <h2>Content temporarily unavailable</h2>
         <p>The public content service could not return this listing. Please try again shortly.</p>
+        {retryHref ? <Link href={retryHref}>Retry this page</Link> : null}
       </section>
       {showDevotionalSignup && settings?.subscriptionEnabled !== false && Signup
         ? <Signup sourcePath="/bible-study/" />
@@ -115,11 +118,13 @@ export async function PastorWoodStructuredBoardPage({
 }: {
   cmsPage?: PastorWoodCmsPage | null;
 }) {
-  const members = await listPublishedBoardMembers();
+  const result = await listPublishedBoardMembersResult();
+  const members = result.items;
   const Shell = hooks.PastorWoodShell;
   const Hero = hooks.PageHero;
-  if (!Shell || !Hero || !members.length) {
-    return StructuredUnavailable({ cmsPage, eyebrow: "Board", title: "Abiding in Christ Board Members", body: "People serving Abiding in Christ." });
+  if (!Shell || !Hero) return null;
+  if (!result.available) {
+    return StructuredUnavailable({ cmsPage, eyebrow: "Board", title: "Abiding in Christ Board Members", body: "People serving Abiding in Christ.", retryHref: "/board-members/" });
   }
 
   return (
@@ -130,18 +135,25 @@ export async function PastorWoodStructuredBoardPage({
         body={cmsPage?.heroBody || "We are grateful for the people serving Abiding in Christ."}
       />
       <section className="pw-section">
-        <div className="pw-board-grid">
-          {members.map((member) => (
-            <article className="pw-board-member" key={member.documentId}>
-              {member.photoUrl ? <img src={member.photoUrl} alt={member.name} /> : null}
-              <div>
-                <h2>{member.name}</h2>
-                <p className="pw-board-role">{member.title || member.organization}</p>
-                {member.biography ? <p>{plainText(member.biography)}</p> : null}
-              </div>
-            </article>
-          ))}
-        </div>
+        {members.length ? (
+          <div className="pw-board-grid">
+            {members.map((member) => (
+              <article className="pw-board-member" key={member.documentId}>
+                {member.photoUrl ? <img src={member.photoUrl} alt={member.name} /> : null}
+                <div>
+                  <h2>{member.name}</h2>
+                  <p className="pw-board-role">{member.title || member.organization}</p>
+                  {member.biography ? <p>{plainText(member.biography)}</p> : null}
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="pw-content-unavailable" role="status">
+            <h2>No board members are published yet</h2>
+            <p>Please check back for updates from Abiding in Christ.</p>
+          </div>
+        )}
       </section>
     </Shell>
   );
@@ -152,11 +164,13 @@ export async function PastorWoodStructuredEndorsementsPage({
 }: {
   cmsPage?: PastorWoodCmsPage | null;
 }) {
-  const endorsements = await listPublishedEndorsements();
+  const result = await listPublishedEndorsementsResult();
+  const endorsements = result.items;
   const Shell = hooks.PastorWoodShell;
   const Hero = hooks.PageHero;
-  if (!Shell || !Hero || !endorsements.length) {
-    return StructuredUnavailable({ cmsPage, eyebrow: "Endorsements", title: "Endorsements for Pastor Wood", body: "Public endorsements from ministry leaders and friends of the work." });
+  if (!Shell || !Hero) return null;
+  if (!result.available) {
+    return StructuredUnavailable({ cmsPage, eyebrow: "Endorsements", title: "Endorsements for Pastor Wood", body: "Public endorsements from ministry leaders and friends of the work.", retryHref: "/endorsements/" });
   }
 
   return (
@@ -167,20 +181,27 @@ export async function PastorWoodStructuredEndorsementsPage({
         body={cmsPage?.heroBody || "Public endorsements from ministry leaders and friends of the work."}
       />
       <section className="pw-section">
-        <div className="pw-endorsement-grid">
-          {endorsements.map((endorsement) => (
-            <figure className="pw-endorsement" key={endorsement.documentId}>
-              <blockquote>“{endorsement.quote}”</blockquote>
-              <figcaption>
-                {endorsement.photoUrl ? <img src={endorsement.photoUrl} alt="" /> : null}
-                <span>
-                  <strong>{endorsement.attribution}</strong>
-                  {[endorsement.title, endorsement.organization].filter(Boolean).join(", ")}
-                </span>
-              </figcaption>
-            </figure>
-          ))}
-        </div>
+        {endorsements.length ? (
+          <div className="pw-endorsement-grid">
+            {endorsements.map((endorsement) => (
+              <figure className="pw-endorsement" key={endorsement.documentId}>
+                <blockquote>“{endorsement.quote}”</blockquote>
+                <figcaption>
+                  {endorsement.photoUrl ? <img src={endorsement.photoUrl} alt="" /> : null}
+                  <span>
+                    <strong>{endorsement.attribution}</strong>
+                    {[endorsement.title, endorsement.organization].filter(Boolean).join(", ")}
+                  </span>
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+        ) : (
+          <div className="pw-content-unavailable" role="status">
+            <h2>No endorsements are published yet</h2>
+            <p>Please check back for future endorsements.</p>
+          </div>
+        )}
       </section>
     </Shell>
   );
@@ -200,18 +221,22 @@ export async function PastorWoodStructuredPostsPage({
   const posts = result.items;
   const Shell = hooks.PastorWoodShell;
   const Hero = hooks.PageHero;
-  if (!Shell || !Hero || !posts.length) {
+  if (!Shell || !Hero) return null;
+  if (!result.available) {
     return StructuredUnavailable({
       cmsPage,
       eyebrow: mode === "devotional" ? "Weekly Devotional" : "Written Resources",
       title: mode === "devotional" ? "Weekly Devotional" : "Written Resources from Pastor Jim Wood",
       body: mode === "devotional" ? "Recent devotional posts from Pastor Wood." : "Resources intended to encourage faithful Christian living.",
       showDevotionalSignup: mode === "devotional",
+      retryHref: mode === "devotional" ? "/bible-study/" : "/written-resources/",
     });
   }
 
   const settings = await shellSettings();
   const Signup = hooks.DevotionalSignup;
+  const basePath = mode === "devotional" ? "/bible-study/" : "/written-resources/";
+  const pageOutsideResults = result.total > 0 && result.pageCount > 0 && result.page > result.pageCount;
   return (
     <Shell siteSettings={settings}>
       <Hero
@@ -228,19 +253,32 @@ export async function PastorWoodStructuredPostsPage({
         }
       />
       <section className="pw-section">
-        <div className="pw-post-list">
-          {posts.map((post) => (
-            <article className="pw-post-card" key={post.documentId}>
-              <p className="pw-kicker">
-                {[post.contentType.replace(/-/g, " "), post.publishDate?.slice(0, 10)].filter(Boolean).join(" · ")}
-              </p>
-              <h2><Link href={`/writings/${post.slug}`}>{post.title}</Link></h2>
-              {post.summary ? <p>{post.summary}</p> : null}
-              <Link href={`/writings/${post.slug}`}>Read writing</Link>
-            </article>
-          ))}
-        </div>
-        <PublicPagination basePath={mode === "devotional" ? "/bible-study/" : "/written-resources/"} page={result.page} pageCount={result.pageCount} />
+        {posts.length ? (
+          <div className="pw-post-list">
+            {posts.map((post) => (
+              <article className="pw-post-card" key={post.documentId}>
+                <p className="pw-kicker">
+                  {[post.contentType.replace(/-/g, " "), post.publishDate?.slice(0, 10)].filter(Boolean).join(" · ")}
+                </p>
+                <h2><Link href={`/writings/${post.slug}`}>{post.title}</Link></h2>
+                {post.summary ? <p>{post.summary}</p> : null}
+                <Link href={`/writings/${post.slug}`}>Read writing</Link>
+              </article>
+            ))}
+          </div>
+        ) : pageOutsideResults ? (
+          <div className="pw-content-unavailable" role="status">
+            <h2>This archive page has no {mode === "devotional" ? "devotionals" : "writings"}</h2>
+            <p>Return to the first page of the published resources.</p>
+            <Link href={basePath}>View the first page</Link>
+          </div>
+        ) : (
+          <div className="pw-content-unavailable" role="status">
+            <h2>{mode === "devotional" ? "No devotionals are published yet" : "No writings are published yet"}</h2>
+            <p>Please check back for new resources from Pastor Jim Wood.</p>
+          </div>
+        )}
+        {!pageOutsideResults ? <PublicPagination basePath={basePath} page={result.page} pageCount={result.pageCount} /> : null}
       </section>
       {mode === "devotional" && settings?.subscriptionEnabled !== false && Signup
         ? <Signup sourcePath="/bible-study/" />
@@ -273,20 +311,30 @@ export async function PastorWoodStructuredRadioPage({
   cmsPage?: PastorWoodCmsPage | null;
 }) {
   const requestedSlug = slug.join("/");
-  const episode = requestedSlug ? await getPublishedEpisodeBySlug(requestedSlug) : null;
+  const episodeResult = requestedSlug ? await getPublishedEpisodeBySlugResult(requestedSlug) : null;
+  const episode = episodeResult?.status === "found" ? episodeResult.item : null;
   const result = requestedSlug ? null : await listPublishedEpisodesPage(archive.page, 24, {
     query: archive.query,
     year: archive.year,
   });
   const episodes = result?.items || (episode ? [episode] : []);
 
-  if (requestedSlug && !episode) {
+  if (episodeResult?.status === "not-found") {
     notFound();
   }
 
   const Shell = hooks.PastorWoodShell;
   const Hero = hooks.PageHero;
   if (!Shell || !Hero) return null;
+
+  if (episodeResult?.status === "unavailable") {
+    return StructuredUnavailable({
+      eyebrow: "Radio Archive",
+      title: "This radio episode is temporarily unavailable",
+      body: "The public content service could not return this broadcast.",
+      retryHref: `/radio/${requestedSlug}/`,
+    });
+  }
 
   if (episode) {
     return (

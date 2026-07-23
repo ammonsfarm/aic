@@ -20,6 +20,11 @@ export type PublishedPage<T> = {
   available: boolean;
 };
 
+export type PublishedLookupResult<T> =
+  | { status: "found"; item: T }
+  | { status: "not-found" }
+  | { status: "unavailable" };
+
 type PublicEntryPage = PublishedPage<PublicEntry>;
 
 const STRAPI_MAX_PAGE_SIZE = 100;
@@ -198,15 +203,32 @@ async function publishedCollectionPage(
       console.error(`Published Strapi ${key} lookup returned malformed collection data.`);
       return empty;
     }
-    const items = payload.data
-      .map(normalizeEntry)
-      .filter((entry): entry is PublicEntry => Boolean(entry));
+    const pageNumber = Number(pagination.page);
+    const pageSize = Number(pagination.pageSize);
+    const pageCount = Number(pagination.pageCount);
+    const total = Number(pagination.total);
+    if (
+      !Number.isSafeInteger(pageNumber) || pageNumber < 1 ||
+      !Number.isSafeInteger(pageSize) || pageSize < 1 ||
+      !Number.isSafeInteger(pageCount) || pageCount < 0 ||
+      !Number.isSafeInteger(total) || total < 0 ||
+      (total > 0 && pageCount === 0)
+    ) {
+      console.error(`Published Strapi ${key} lookup returned malformed pagination data.`);
+      return empty;
+    }
+    const normalizedItems = payload.data.map(normalizeEntry);
+    if (normalizedItems.some((entry) => !entry)) {
+      console.error(`Published Strapi ${key} lookup returned a malformed collection item.`);
+      return empty;
+    }
+    const items = normalizedItems as PublicEntry[];
     return {
       items,
-      page: number(pagination?.page) || requestedPage,
-      pageSize: number(pagination?.pageSize) || requestedPageSize,
-      pageCount: number(pagination?.pageCount) || (items.length ? requestedPage : 0),
-      total: number(pagination?.total) || items.length,
+      page: pageNumber,
+      pageSize,
+      pageCount,
+      total,
       available: true,
     };
   } catch (error) {
@@ -274,8 +296,20 @@ export async function listPublishedPostsPage(contentType: string | undefined, pa
 }
 
 export async function getPublishedPostBySlug(slug: string) {
+  const result = await getPublishedPostBySlugResult(slug);
+  return result.status === "found" ? result.item : null;
+}
+
+export async function getPublishedPostBySlugResult(slug: string): Promise<PublishedLookupResult<PublishedPost>> {
   const result = await publishedCollectionPage("posts", { filters: { slug }, pageSize: 1 });
-  return result.items[0] ? publishedPost(result.items[0]) : null;
+  if (!result.available) return { status: "unavailable" };
+  if (!result.items[0]) return { status: "not-found" };
+  const post = publishedPost(result.items[0]);
+  if (!post.title || !post.slug) {
+    console.error("Published Strapi post detail lookup returned a malformed item.");
+    return { status: "unavailable" };
+  }
+  return { status: "found", item: post };
 }
 
 export async function listAllPublishedPosts(): Promise<PublishedPost[]> {
@@ -315,8 +349,20 @@ export async function listPublishedEpisodesPage(
 }
 
 export async function getPublishedEpisodeBySlug(slug: string) {
+  const result = await getPublishedEpisodeBySlugResult(slug);
+  return result.status === "found" ? result.item : null;
+}
+
+export async function getPublishedEpisodeBySlugResult(slug: string): Promise<PublishedLookupResult<PublishedEpisode>> {
   const result = await publishedCollectionPage("episodes", { filters: { slug }, pageSize: 1 });
-  return result.items[0] ? publishedEpisode(result.items[0]) : null;
+  if (!result.available) return { status: "unavailable" };
+  if (!result.items[0]) return { status: "not-found" };
+  const episode = publishedEpisode(result.items[0]);
+  if (!episode.title || !episode.slug || !episode.trackId) {
+    console.error("Published Strapi episode detail lookup returned a malformed item.");
+    return { status: "unavailable" };
+  }
+  return { status: "found", item: episode };
 }
 
 export async function getPublishedEpisodeByTrackId(trackId: string) {
@@ -329,37 +375,51 @@ export async function listAllPublishedEpisodes(): Promise<PublishedEpisode[]> {
 }
 
 export async function listPublishedBoardMembers(): Promise<PublishedPerson[]> {
-  const entries = await publishedCollection("people", {
+  return (await listPublishedBoardMembersResult()).items;
+}
+
+export async function listPublishedBoardMembersResult(): Promise<PublishedPage<PublishedPerson>> {
+  const result = await publishedCollectionPage("people", {
     filters: { active: true, showOnBoard: true },
     sort: "sortOrder:asc",
   });
-  return entries.map((entry) => ({
-    ...entry,
-    name: text(entry.name),
-    slug: text(entry.slug),
-    title: text(entry.title),
-    organization: text(entry.organization),
-    biography: text(entry.biography),
-    photoUrl: absoluteMediaUrl(entry.photo) || safeCmsImageSrc(text(entry.legacyPhotoUrl)),
-    sortOrder: number(entry.sortOrder),
-  }));
+  return {
+    ...result,
+    items: result.items.map((entry) => ({
+      ...entry,
+      name: text(entry.name),
+      slug: text(entry.slug),
+      title: text(entry.title),
+      organization: text(entry.organization),
+      biography: text(entry.biography),
+      photoUrl: absoluteMediaUrl(entry.photo) || safeCmsImageSrc(text(entry.legacyPhotoUrl)),
+      sortOrder: number(entry.sortOrder),
+    })),
+  };
 }
 
 export async function listPublishedEndorsements(): Promise<PublishedEndorsement[]> {
-  const entries = await publishedCollection("endorsements", {
+  return (await listPublishedEndorsementsResult()).items;
+}
+
+export async function listPublishedEndorsementsResult(): Promise<PublishedPage<PublishedEndorsement>> {
+  const result = await publishedCollectionPage("endorsements", {
     filters: { active: true },
     sort: "sortOrder:asc",
   });
-  return entries.map((entry) => ({
-    ...entry,
-    quote: text(entry.quote),
-    attribution: text(entry.attribution),
-    title: text(entry.title),
-    organization: text(entry.organization),
-    photoUrl: absoluteMediaUrl(entry.photo),
-    sortOrder: number(entry.sortOrder),
-    featured: Boolean(entry.featured),
-  }));
+  return {
+    ...result,
+    items: result.items.map((entry) => ({
+      ...entry,
+      quote: text(entry.quote),
+      attribution: text(entry.attribution),
+      title: text(entry.title),
+      organization: text(entry.organization),
+      photoUrl: absoluteMediaUrl(entry.photo),
+      sortOrder: number(entry.sortOrder),
+      featured: Boolean(entry.featured),
+    })),
+  };
 }
 
 export async function listPublicMediaAssets(): Promise<PublishedMediaAsset[]> {

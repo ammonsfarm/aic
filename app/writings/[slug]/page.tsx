@@ -5,7 +5,7 @@ import { notFound } from "next/navigation";
 import { PageHero, PastorWoodShell } from "@/components/pastor-wood-site";
 import { sanitizeCmsHtml } from "@/lib/cms-html";
 import { publicMetadata } from "@/lib/public-seo";
-import { getPublishedPostBySlug } from "@/lib/strapi-structured-public";
+import { getPublishedPostBySlugResult } from "@/lib/strapi-structured-public";
 
 export const revalidate = 300;
 
@@ -18,8 +18,16 @@ function formatDate(value: string | null) {
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
-  const post = await getPublishedPostBySlug(decodeURIComponent(slug));
-  if (!post) return { robots: { index: false } };
+  const result = await getPublishedPostBySlugResult(decodeURIComponent(slug));
+  if (result.status === "unavailable") {
+    return {
+      title: "Writing temporarily unavailable",
+      description: "This Pastor Wood writing is temporarily unavailable while the public content service reconnects.",
+      robots: { index: false, follow: true, noarchive: true },
+    };
+  }
+  if (result.status === "not-found") return { robots: { index: false } };
+  const post = result.item;
   return publicMetadata({
     title: post.title,
     description: post.summary || "A writing from Pastor Jim Wood.",
@@ -30,8 +38,30 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 
 export default async function WritingDetailPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const post = await getPublishedPostBySlug(decodeURIComponent(slug));
-  if (!post) notFound();
+  const result = await getPublishedPostBySlugResult(decodeURIComponent(slug));
+  if (result.status === "not-found") notFound();
+
+  if (result.status === "unavailable") {
+    return (
+      <PastorWoodShell>
+        <PageHero
+          eyebrow="Written Resources"
+          title="This writing is temporarily unavailable"
+          body="The public content service could not return this writing."
+        />
+        <section className="pw-section pw-content-unavailable" role="alert">
+          <h2>Please try again shortly</h2>
+          <p>This is a temporary content-service problem, not a missing page.</p>
+          <div className="pw-inline-links">
+            <Link href={`/writings/${encodeURIComponent(slug)}/`}>Retry this writing</Link>
+            <Link href="/written-resources/">Browse other writings</Link>
+          </div>
+        </section>
+      </PastorWoodShell>
+    );
+  }
+
+  const post = result.item;
 
   return (
     <PastorWoodShell>
