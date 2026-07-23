@@ -1,5 +1,5 @@
 [Unit]
-Description=Apply public contact and subscription retention daily
+Description=Apply public contact and subscription retention hourly
 
 [Timer]
 OnBootSec=10m
