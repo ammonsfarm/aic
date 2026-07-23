@@ -1,0 +1,18 @@
+[Unit]
+Description=Apply documented AIC public-data retention
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ammonsfarm
+Group=ammonsfarm
+WorkingDirectory=/mnt/storage/aic
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/mnt/storage/aic/.venv-pg/bin/python /mnt/storage/aic/scripts/cleanup_public_data_retention.py --env-file /mnt/storage/aic/.env --batch-size 500 --max-batches 20
+TimeoutStartSec=10m
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/mnt/storage/aic

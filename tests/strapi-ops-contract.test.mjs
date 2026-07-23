@@ -342,6 +342,9 @@ test("deploy builds Strapi before installing it and optionally verifies without 
   assert.ok(startTimersIndex > strapiHealthIndex && startTimersIndex > schemaBackupIndex);
   assert.match(deploy, /all_timers=\([\s\S]*aic-strapi-backup\.timer[\s\S]*\)/);
   assert.match(deploy, /all_worker_services=\([\s\S]*aic-scheduled-publication-worker\.service[\s\S]*\)/);
+  assert.match(deploy, /all_timers=\([\s\S]*aic-public-data-retention-worker\.timer[\s\S]*\)/);
+  assert.match(deploy, /all_worker_services=\([\s\S]*aic-public-data-retention-worker\.service[\s\S]*\)/);
+  assert.match(deploy, /START_TIMER=0 bash scripts\/install-public-data-retention-worker\.sh/);
   assert.match(deploy, /trap 'deployment_failed \\\$\?' EXIT/);
   assert.match(deploy, /migrations_started=1\n\.venv-pg\/bin\/python apply_postgres_migrations\.py/);
   assert.match(deploy, /forward-only migration phase started; no database or code rollback was attempted/);

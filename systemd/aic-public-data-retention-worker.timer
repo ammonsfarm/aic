@@ -1,0 +1,11 @@
+[Unit]
+Description=Apply public contact and subscription retention daily
+
+[Timer]
+OnBootSec=10m
+OnUnitActiveSec=1h
+AccuracySec=5m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

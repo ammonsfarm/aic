@@ -20,7 +20,7 @@ The trusted giving/dashboard panel remains on its public page even when the page
 
 The contact form does not store raw IP addresses or raw user-agent values. It stores keyed SHA-256 hashes using `CONTACT_RATE_LIMIT_SECRET`, with `CLERK_SECRET_KEY` as the configured production fallback. Public responses never include hashes or internal message identifiers.
 
-Abuse-attempt records are eligible for bounded cleanup after 30 days. Messages must first be archived in the protected inbox; archived messages are eligible for bounded cleanup after 365 days.
+Abuse-attempt records are eligible for bounded cleanup after 30 days. Messages must first be archived in the protected inbox; archived messages are eligible for bounded cleanup after 365 days. The hourly `aic-public-data-retention-worker.timer` applies those bounded deletions even when no one submits a new form; request-time cleanup remains a supplemental safeguard.
 
 ## Inbox and notification truth
 

@@ -7,9 +7,11 @@ browser identifier rather than their raw values.
 `public_subscription_attempts` supports rate limiting. Attempt rows are retained
 for 30 days. Each subscription request removes at most 500 expired rows, ordered
 oldest first, and migration `021_public_subscription_attempt_retention.sql` adds
-the age index used by that bounded cleanup. When the form is idle, cleanup resumes
-with the next request. The `accepted` column means the rate limiter admitted the
-attempt; subscriber status remains authoritative in `public_subscriptions`.
+the age index used by that bounded cleanup. The hourly
+`aic-public-data-retention-worker.timer` enforces the same bounded deletion while
+the form is idle; request-time cleanup remains a supplemental safeguard. The
+`accepted` column means the rate limiter admitted the attempt; subscriber status
+remains authoritative in `public_subscriptions`.
 
 A suppressed subscriber stays suppressed after another consent submission. The
 attempt refreshes the recorded consent context and writes a
@@ -43,12 +45,16 @@ protected server environment:
 
 - `MAILCHIMP_API_KEY`
 - `MAILCHIMP_SERVER_PREFIX` (may be derived from the API-key suffix)
-- `MAILCHIMP_AUDIENCE_ID` (defaults to the verified legacy audience)
+- `MAILCHIMP_AUDIENCE_ID` (required explicitly; there is no runtime fallback)
 - `MAILCHIMP_WEBHOOK_SECRET` (the one-time signing secret shown when the webhook is created)
+- `SUBSCRIPTION_RATE_LIMIT_SECRET`
+- `SUBSCRIPTION_UNSUBSCRIBE_SECRET`
+- `PASTORWOOD_SUBSCRIPTIONS_ENABLED` (must be exactly `true` to accept public requests)
 
-With no API key, the worker performs no database claim and exits cleanly while
-the admin page reports that delivery configuration is incomplete. No code path
-prints secret values.
+Complete provider secrets never enable public capture by themselves. With the
+runtime flag absent or false, the public API remains unavailable while existing
+unsubscribe and reconciliation work can still finish. No code path prints secret
+values.
 
 Unsubscribe links use a deterministic, signed opaque identifier. The email
 address is never encoded into the URL. PostgreSQL stores only a SHA-256 hash of

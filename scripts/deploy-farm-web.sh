@@ -14,6 +14,7 @@ INSTALL_ADMIN_OPERATIONS_WORKER="${INSTALL_ADMIN_OPERATIONS_WORKER:-1}"
 INSTALL_EPISODE_PUBLISH_WORKER="${INSTALL_EPISODE_PUBLISH_WORKER:-1}"
 INSTALL_SUBSCRIPTION_PROVIDER_WORKER="${INSTALL_SUBSCRIPTION_PROVIDER_WORKER:-1}"
 INSTALL_SCHEDULED_PUBLICATION_WORKER="${INSTALL_SCHEDULED_PUBLICATION_WORKER:-1}"
+INSTALL_PUBLIC_DATA_RETENTION_WORKER="${INSTALL_PUBLIC_DATA_RETENTION_WORKER:-1}"
 SERVICE_URL="http://127.0.0.1:${REMOTE_PORT}"
 
 for toggle in \
@@ -23,7 +24,8 @@ for toggle in \
   "${INSTALL_ADMIN_OPERATIONS_WORKER}" \
   "${INSTALL_EPISODE_PUBLISH_WORKER}" \
   "${INSTALL_SUBSCRIPTION_PROVIDER_WORKER}" \
-  "${INSTALL_SCHEDULED_PUBLICATION_WORKER}"; do
+  "${INSTALL_SCHEDULED_PUBLICATION_WORKER}" \
+  "${INSTALL_PUBLIC_DATA_RETENTION_WORKER}"; do
   case "${toggle}" in 0|1) ;; *) echo "Deployment toggles must be 0 or 1." >&2; exit 1 ;; esac
 done
 ssh_target="${REMOTE_USER}@${REMOTE_HOST}"
@@ -83,6 +85,7 @@ all_timers=(
   aic-episode-publish-worker.timer
   aic-subscription-provider-worker.timer
   aic-scheduled-publication-worker.timer
+  aic-public-data-retention-worker.timer
   aic-strapi-backup.timer
 )
 all_worker_services=(
@@ -91,6 +94,7 @@ all_worker_services=(
   aic-episode-publish-worker.service
   aic-subscription-provider-worker.service
   aic-scheduled-publication-worker.service
+  aic-public-data-retention-worker.service
 )
 previous_active_timers=()
 for timer in "\${all_timers[@]}"; do
@@ -251,6 +255,14 @@ if [ "${INSTALL_SCHEDULED_PUBLICATION_WORKER}" = "1" ]; then
   timers_to_start+=(aic-scheduled-publication-worker.timer)
 else
   sudo systemctl disable aic-scheduled-publication-worker.timer >/dev/null 2>&1 || true
+fi
+
+if [ "${INSTALL_PUBLIC_DATA_RETENTION_WORKER}" = "1" ]; then
+  echo "Installing public-data retention worker timer..."
+  START_TIMER=0 bash scripts/install-public-data-retention-worker.sh
+  timers_to_start+=(aic-public-data-retention-worker.timer)
+else
+  sudo systemctl disable --now aic-public-data-retention-worker.timer >/dev/null 2>&1 || true
 fi
 
 if [ "${INSTALL_STRAPI_SERVICE}" = "1" ]; then

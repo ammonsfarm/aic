@@ -216,6 +216,32 @@ test("scheduled publication is bounded, versioned, and timer driven", async () =
   assert.doesNotMatch(await source("scripts/deploy-farm-web.sh"), /restore-drill|RUN_STRAPI_BACKUP_DRILL/);
 });
 
+test("public-form retention runs independently of new submissions", async () => {
+  const [worker, migration, deploy, service, timer] = await Promise.all([
+    source("scripts/cleanup_public_data_retention.py"),
+    source("postgres/migrations/027_public_data_retention.sql"),
+    source("scripts/deploy-farm-web.sh"),
+    source("systemd/aic-public-data-retention-worker.service"),
+    source("systemd/aic-public-data-retention-worker.timer"),
+  ]);
+  for (const table of ["public_subscription_attempts", "public_contact_attempts", "public_contact_messages"]) {
+    assert.match(worker, new RegExp(table));
+  }
+  assert.match(worker, /status = 'archived'/);
+  assert.match(worker, /for update skip locked/i);
+  assert.match(worker, /limit %s/i);
+  assert.match(worker, /load_canonical_aic_env/);
+  assert.match(worker, /database_dsn/);
+  assert.doesNotMatch(worker, /docker|sqlite|create database|drop database/i);
+  assert.match(migration, /where status = 'archived'/);
+  assert.match(migration, /updated_at asc, id asc/);
+  assert.match(service, /cleanup_public_data_retention\.py --env-file \/mnt\/storage\/aic\/\.env/);
+  assert.match(timer, /OnUnitActiveSec=1h/);
+  assert.match(timer, /Persistent=true/);
+  assert.match(deploy, /install-public-data-retention-worker\.sh/);
+  assert.match(deploy, /aic-public-data-retention-worker\.timer/);
+});
+
 test("global site settings use attributed revisions, rollback, and an idempotent first-install path", async () => {
   const actions = await source("app/(private)/content/site-settings/actions.ts");
   for (const operation of [
