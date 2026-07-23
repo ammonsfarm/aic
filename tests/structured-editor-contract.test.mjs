@@ -185,6 +185,7 @@ test("scheduled publication is bounded, versioned, and timer driven", async () =
   assert.match(workflow, /scheduledAt > Date\.now\(\)/);
   assert.match(workflow, /scheduledFor: null/);
   assert.match(workflow, /\{ scheduled: true, scheduledFor \}/);
+  assert.match(workflow, /EDITORIAL_MISSING_PUBLIC_AUDIO/);
 
   const worker = await source("scripts/publish_scheduled_strapi_content.mjs");
   assert.match(worker, /safeLimit/);

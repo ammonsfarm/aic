@@ -525,7 +525,10 @@ const editorialWorkflowController = {
           );
         }
         if (entityType === 'episode' && isCutoverMetadataOnlyEpisode(current)) {
-          return ctx.badRequest('This imported episode has no verified public audio and cannot be published.');
+          return ctx.badRequest(
+            'This imported episode has no verified public audio and cannot be published.',
+            { code: 'EDITORIAL_MISSING_PUBLIC_AUDIO' },
+          );
         }
         const scheduleUpdate: Record<string, unknown> = { scheduledFor: null };
         if (contentTypeAttributes(model.uid).publishDate && !current.publishDate) {
@@ -567,7 +570,10 @@ const editorialWorkflowController = {
           return ctx.badRequest('Episode publication requires a valid permanent Track ID.');
         }
         if (entityType === 'episode' && isCutoverMetadataOnlyEpisode(current)) {
-          return ctx.badRequest('This imported episode has no verified public audio and cannot be published.');
+          return ctx.badRequest(
+            'This imported episode has no verified public audio and cannot be published.',
+            { code: 'EDITORIAL_MISSING_PUBLIC_AUDIO' },
+          );
         }
         if (current.scheduledFor) {
           current = await documents(model.uid).update({
