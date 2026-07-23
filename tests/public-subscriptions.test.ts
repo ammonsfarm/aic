@@ -1,14 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ queryRows: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  queryRows: vi.fn(),
+  requireContentManagerApiUser: vi.fn(),
+}));
 
 vi.mock("@/lib/db", () => ({ queryRows: mocks.queryRows }));
+vi.mock("@/lib/rbac", () => ({
+  isForbiddenError: () => false,
+  requireContentManagerApiUser: mocks.requireContentManagerApiUser,
+}));
 
 import {
   capturePublicSubscription,
   readSubscriptionJson,
   subscriptionUnsubscribeToken,
+  subscriptionUnsubscribeTokenHash,
   SubscriptionBodyTooLargeError,
+  unsubscribePublicSubscription,
   validateSubscriptionPayload,
   verifySubscriptionUnsubscribeToken,
 } from "@/lib/public-subscriptions";
@@ -17,6 +26,7 @@ import {
   SUBSCRIPTION_CONSENT_VERSION,
 } from "@/lib/public-subscription-contract";
 import { POST as subscribe } from "@/app/api/public/subscriptions/route";
+import { GET as exportSubscriptions } from "@/app/api/admin/subscriptions/export/route";
 
 function validPayload(startedAt: number) {
   return {
@@ -30,14 +40,66 @@ function validPayload(startedAt: number) {
 }
 
 describe("public subscription boundary", () => {
-  beforeEach(() => mocks.queryRows.mockReset());
+  beforeEach(() => {
+    mocks.queryRows.mockReset();
+    mocks.requireContentManagerApiUser.mockReset().mockResolvedValue({ email: "editor@example.com" });
+  });
 
-  it("uses tamper-evident signed unsubscribe tokens", () => {
+  it("uses opaque tamper-evident signed unsubscribe tokens", () => {
     process.env.SUBSCRIPTION_UNSUBSCRIBE_SECRET = "test-only-unsubscribe-secret";
     const token = subscriptionUnsubscribeToken("Listener@Example.com");
-    expect(verifySubscriptionUnsubscribeToken(token)).toBe("listener@example.com");
+    expect(token).toMatch(/^[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}$/);
+    expect(token).not.toContain(Buffer.from("listener@example.com").toString("base64url"));
+    expect(verifySubscriptionUnsubscribeToken(token)).toBe(token);
+    expect(subscriptionUnsubscribeTokenHash(token)).toMatch(/^[a-f0-9]{64}$/);
     expect(verifySubscriptionUnsubscribeToken(`${token.slice(0, -1)}x`)).toBeNull();
     expect(verifySubscriptionUnsubscribeToken("javascript:alert(1)")).toBeNull();
+  });
+
+  it("looks up unsubscribe requests by an opaque token hash instead of email", async () => {
+    process.env.SUBSCRIPTION_UNSUBSCRIBE_SECRET = "test-only-unsubscribe-secret";
+    const token = subscriptionUnsubscribeToken("Listener@Example.com");
+    mocks.queryRows.mockResolvedValueOnce([{ subscription_id: "42" }]);
+
+    await expect(unsubscribePublicSubscription(token)).resolves.toEqual({ ok: true });
+    const [sql, values] = mocks.queryRows.mock.calls[0] as [string, string[]];
+    expect(sql).toContain("where unsubscribe_token_hash = $1");
+    expect(sql).toContain("returning subscription_id::text");
+    expect(values).toEqual([subscriptionUnsubscribeTokenHash(token)]);
+    expect(JSON.stringify(values)).not.toContain("listener@example.com");
+    expect(JSON.stringify(values)).not.toContain(token);
+  });
+
+  it("persists matching opaque-token hashes before exporting unsubscribe URLs", async () => {
+    process.env.PASTORWOOD_PUBLIC_URL = "https://www.pastorwood.org";
+    process.env.SUBSCRIPTION_UNSUBSCRIBE_SECRET = "test-only-unsubscribe-secret";
+    mocks.queryRows
+      .mockResolvedValueOnce([{
+        email: "listener@example.com",
+        status: "active",
+        consent_version: SUBSCRIPTION_CONSENT_VERSION,
+        consent_at: "2026-07-22T12:00:00.000Z",
+        source_path: "/",
+        created_at: "2026-07-22T12:00:00.000Z",
+        updated_at: "2026-07-22T12:00:00.000Z",
+      }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    const response = await exportSubscriptions(new Request("https://aic.ammonsfarm.org/api/admin/subscriptions/export"));
+    expect(response.status).toBe(200);
+    const [, backfillValues] = mocks.queryRows.mock.calls[1] as [string, string[]];
+    const supplied = JSON.parse(backfillValues[0]) as Array<Record<string, string>>;
+    expect(supplied).toEqual([{
+      email: "listener@example.com",
+      token_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
+    }]);
+    expect(String(mocks.queryRows.mock.calls[1]?.[0])).toContain("supplied.token_hash");
+
+    const csv = await response.text();
+    const url = csv.match(/https:\/\/www\.pastorwood\.org\/unsubscribe\?token=([A-Za-z0-9_.~-]+)/)?.[0];
+    expect(url).toBeTruthy();
+    expect(url).not.toContain(Buffer.from("listener@example.com").toString("base64url"));
   });
 
   it("accepts a legitimate immediate autofill submission", () => {
@@ -121,5 +183,9 @@ describe("public subscription boundary", () => {
     expect(outcomeSql).toContain("public_subscriptions.status = 'suppressed' then 'suppressed'");
     expect(outcomeSql).toContain("resubscribe-blocked-suppressed");
     expect(outcomeSql).toContain("returning event_type");
+    expect(outcomeSql).toContain("source_path, ip_hash, user_agent_hash, unsubscribe_token_hash, updated_at");
+    expect(outcomeSql).toContain("values ($1, 'active', $2, $3, now(), $4, $5, $6, $7, now())");
+    expect(outcomeSql).toContain("unsubscribe_token_hash = excluded.unsubscribe_token_hash");
+    expect(mocks.queryRows.mock.calls[2]?.[1]?.[6]).toMatch(/^[a-f0-9]{64}$/);
   });
 });

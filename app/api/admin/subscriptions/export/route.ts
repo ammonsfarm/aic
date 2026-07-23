@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 
 import { queryRows } from "@/lib/db";
-import { subscriptionUnsubscribeUrl } from "@/lib/public-subscriptions";
+import {
+  subscriptionUnsubscribeToken,
+  subscriptionUnsubscribeTokenHash,
+  subscriptionUnsubscribeUrl,
+} from "@/lib/public-subscriptions";
 import { isForbiddenError, requireContentManagerApiUser } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
@@ -42,6 +46,32 @@ export async function GET(request: Request) {
       `,
       [status],
     );
+    const unsubscribeTokens = rows.map((row) => {
+      const token = subscriptionUnsubscribeToken(row.email);
+      const tokenHash = subscriptionUnsubscribeTokenHash(token);
+      if (!tokenHash) throw new Error("Could not create an opaque unsubscribe token.");
+      return { email: row.email, token_hash: tokenHash };
+    });
+    if (unsubscribeTokens.length > 0) {
+      await queryRows(
+        `
+          with supplied as (
+            select email, token_hash
+            from jsonb_to_recordset($1::jsonb) as token(email text, token_hash text)
+          )
+          update public_subscriptions subscriptions
+          set unsubscribe_token_hash = supplied.token_hash,
+              updated_at = case
+                when subscriptions.unsubscribe_token_hash is distinct from supplied.token_hash then now()
+                else subscriptions.updated_at
+              end
+          from supplied
+          where subscriptions.email = supplied.email
+            and subscriptions.unsubscribe_token_hash is distinct from supplied.token_hash
+        `,
+        [JSON.stringify(unsubscribeTokens)],
+      );
+    }
     await queryRows(
       `
         insert into content_audit_log(entity_type, entity_id, action, actor_email, after_json)

@@ -15,3 +15,10 @@ A suppressed subscriber stays suppressed after another consent submission. The
 attempt refreshes the recorded consent context and writes a
 `resubscribe-blocked-suppressed` event, but the public API returns a generic
 non-success response and does not echo the address or disclose internal status.
+
+Unsubscribe links use a deterministic, signed opaque identifier. The email
+address is never encoded into the URL. PostgreSQL stores only a SHA-256 hash of
+the signed token; new consent captures populate it immediately and an authorized
+subscriber export backfills or rotates hashes for older records. Keep
+`SUBSCRIPTION_UNSUBSCRIBE_SECRET` stable and in the protected deployment backup,
+because changing it intentionally invalidates previously exported links.

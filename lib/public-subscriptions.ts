@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
 import { queryRows } from "@/lib/db";
 import {
@@ -107,27 +107,31 @@ function unsubscribeSecret() {
 export function subscriptionUnsubscribeToken(emailValue: string) {
   const email = normalizeSubscriberEmail(emailValue);
   if (!email || email.length > 254) throw new Error("A valid subscriber email is required.");
-  const payload = Buffer.from(email, "utf8").toString("base64url");
-  const signature = createHmac("sha256", unsubscribeSecret()).update(`unsubscribe:v1:${payload}`).digest("base64url");
-  return `${payload}.${signature}`;
+  const tokenId = createHmac("sha256", unsubscribeSecret())
+    .update(`unsubscribe-id:v2:${email}`)
+    .digest("base64url");
+  const signature = createHmac("sha256", unsubscribeSecret())
+    .update(`unsubscribe-signature:v2:${tokenId}`)
+    .digest("base64url");
+  return `${tokenId}.${signature}`;
 }
 
 export function verifySubscriptionUnsubscribeToken(tokenValue: unknown) {
   const token = stringValue(tokenValue);
-  if (token.length > 800) return null;
-  const [payload, suppliedSignature, extra] = token.split(".");
-  if (!payload || !suppliedSignature || extra) return null;
-  const expectedSignature = createHmac("sha256", unsubscribeSecret()).update(`unsubscribe:v1:${payload}`).digest("base64url");
+  if (!/^[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}$/.test(token)) return null;
+  const [tokenId, suppliedSignature] = token.split(".");
+  const expectedSignature = createHmac("sha256", unsubscribeSecret())
+    .update(`unsubscribe-signature:v2:${tokenId}`)
+    .digest("base64url");
   const supplied = Buffer.from(suppliedSignature);
   const expected = Buffer.from(expectedSignature);
   if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) return null;
-  try {
-    const email = normalizeSubscriberEmail(Buffer.from(payload, "base64url").toString("utf8"));
-    if (Buffer.from(email, "utf8").toString("base64url") !== payload || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return null;
-    return email;
-  } catch {
-    return null;
-  }
+  return token;
+}
+
+export function subscriptionUnsubscribeTokenHash(tokenValue: unknown) {
+  const token = verifySubscriptionUnsubscribeToken(tokenValue);
+  return token ? createHash("sha256").update(token).digest("hex") : null;
 }
 
 export function subscriptionUnsubscribeUrl(email: string) {
@@ -161,6 +165,10 @@ export async function capturePublicSubscription(
 ): Promise<CapturePublicSubscriptionResult> {
   const { ipHash, userAgentHash } = subscriptionRequestIdentity(request);
   const emailHash = subscriptionFingerprint(input.email);
+  const unsubscribeTokenHash = subscriptionUnsubscribeTokenHash(subscriptionUnsubscribeToken(input.email));
+  if (!unsubscribeTokenHash) {
+    throw new Error("Subscription unsubscribe token could not be created.");
+  }
   const rates = await queryRows<RateRow>(
     `
       with expired as (
@@ -199,9 +207,9 @@ export async function capturePublicSubscription(
       with upserted as (
         insert into public_subscriptions(
           email, status, consent_version, consent_text, consent_at,
-          source_path, ip_hash, user_agent_hash, updated_at
+          source_path, ip_hash, user_agent_hash, unsubscribe_token_hash, updated_at
         )
-        values ($1, 'active', $2, $3, now(), $4, $5, $6, now())
+        values ($1, 'active', $2, $3, now(), $4, $5, $6, $7, now())
         on conflict (email) do update
         set status = case when public_subscriptions.status = 'suppressed' then 'suppressed' else 'active' end,
             consent_version = excluded.consent_version,
@@ -210,6 +218,7 @@ export async function capturePublicSubscription(
             source_path = excluded.source_path,
             ip_hash = excluded.ip_hash,
             user_agent_hash = excluded.user_agent_hash,
+            unsubscribe_token_hash = excluded.unsubscribe_token_hash,
             updated_at = now(),
             unsubscribed_at = case when public_subscriptions.status = 'suppressed' then public_subscriptions.unsubscribed_at else null end
         returning id, status
@@ -220,7 +229,7 @@ export async function capturePublicSubscription(
       from upserted
       returning event_type
     `,
-    [input.email, input.consentVersion, SUBSCRIPTION_CONSENT_TEXT, input.sourcePath, ipHash, userAgentHash],
+    [input.email, input.consentVersion, SUBSCRIPTION_CONSENT_TEXT, input.sourcePath, ipHash, userAgentHash, unsubscribeTokenHash],
   );
   const eventType = eventRows[0]?.event_type;
   if (eventType === "resubscribe-blocked-suppressed") return { ok: false, reason: "suppressed" };
@@ -229,25 +238,28 @@ export async function capturePublicSubscription(
 }
 
 export async function unsubscribePublicSubscription(tokenValue: unknown) {
-  const email = verifySubscriptionUnsubscribeToken(tokenValue);
-  if (!email) return { ok: false as const, invalidToken: true as const };
-  await queryRows(
+  const tokenHash = subscriptionUnsubscribeTokenHash(tokenValue);
+  if (!tokenHash) return { ok: false as const, invalidToken: true as const };
+  const rows = await queryRows<{ subscription_id: string }>(
     `
       with updated as (
         update public_subscriptions
         set status = case when status = 'suppressed' then 'suppressed' else 'unsubscribed' end,
             unsubscribed_at = coalesce(unsubscribed_at, now()), updated_at = now()
-        where email = $1
+        where unsubscribe_token_hash = $1
         returning id, status
       )
       insert into public_subscription_events(subscription_id, event_type, actor_type, metadata)
       select id, case when status = 'suppressed' then 'unsubscribe-confirmed-suppressed' else 'unsubscribed' end,
              'signed-link', '{}'::jsonb
       from updated
+      returning subscription_id::text
     `,
-    [email],
+    [tokenHash],
   );
-  return { ok: true as const };
+  return rows[0]
+    ? { ok: true as const }
+    : { ok: false as const, invalidToken: true as const };
 }
 
 export function isSameSiteSubscriptionRequest(request: Request) {
