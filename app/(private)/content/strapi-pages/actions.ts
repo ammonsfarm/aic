@@ -21,7 +21,14 @@ import { STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag } from "@/lib/strapi";
 import { STRAPI_PUBLIC_MEDIA_CACHE_TAG } from "@/lib/strapi-cache-tags";
 import { safeCmsHref } from "@/lib/cms-html";
 import { fetchWithTimeout, strapiUploadTimeoutMs } from "@/lib/strapi-request";
-import { assertReusableMediaSelection } from "@/lib/strapi-structured-management";
+import {
+  assertReusableMediaSelection,
+  deleteStructuredFile,
+} from "@/lib/strapi-structured-management";
+import {
+  createNewUploadCleanup,
+  type NewUploadCleanup,
+} from "@/lib/strapi-upload-cleanup";
 
 const PAGE_PATH_BY_KEY: Record<string, string> = {
   about: "/about-pastor-wood",
@@ -146,6 +153,7 @@ async function sectionPayload(
   formData: FormData,
   keyPrefix: string,
   allowedCurrentImageIds: ReadonlySet<number>,
+  uploads: NewUploadCleanup,
 ) {
   const component = formString(formData, `${keyPrefix}Component`);
   const remove = formBoolean(formData, `${keyPrefix}Remove`);
@@ -174,6 +182,9 @@ async function sectionPayload(
     await assertReusableMediaSelection(existingImageId, "image/*");
   }
   const uploadedImageId = hasImageUpload && imageFile instanceof File ? await uploadSectionImage(imageFile) : null;
+  if (uploadedImageId) {
+    uploads.track(uploadedImageId);
+  }
   const imageId = uploadedImageId ?? selectedImageId ?? existingImageId;
   const imageSide = formString(formData, `${keyPrefix}ImageSide`) || "right";
   const imageDescription = formString(formData, `${keyPrefix}ImageDescription`);
@@ -220,12 +231,16 @@ async function sectionPayload(
   return { order, section: base };
 }
 
-async function parseSections(formData: FormData, allowedCurrentImageIds: ReadonlySet<number>) {
+async function parseSections(
+  formData: FormData,
+  allowedCurrentImageIds: ReadonlySet<number>,
+  uploads: NewUploadCleanup,
+) {
   const count = formNumber(formData, "sectionCount") ?? 0;
   const parsed = [] as Array<{ order: number; section: Record<string, unknown> }>;
 
   for (let index = 0; index < count; index += 1) {
-    const section = await sectionPayload(formData, `section${index}`, allowedCurrentImageIds);
+    const section = await sectionPayload(formData, `section${index}`, allowedCurrentImageIds, uploads);
     if (section) {
       parsed.push(section);
     }
@@ -233,7 +248,7 @@ async function parseSections(formData: FormData, allowedCurrentImageIds: Readonl
 
   const newSectionCount = formNumber(formData, "newSectionCount") ?? 0;
   for (let index = 0; index < newSectionCount; index += 1) {
-    const newSection = await sectionPayload(formData, `newSection${index}`, allowedCurrentImageIds);
+    const newSection = await sectionPayload(formData, `newSection${index}`, allowedCurrentImageIds, uploads);
     if (newSection) {
       parsed.push({
         ...newSection,
@@ -242,7 +257,7 @@ async function parseSections(formData: FormData, allowedCurrentImageIds: Readonl
     }
   }
 
-  const legacyNewSection = await sectionPayload(formData, "newSection", allowedCurrentImageIds);
+  const legacyNewSection = await sectionPayload(formData, "newSection", allowedCurrentImageIds, uploads);
   if (legacyNewSection) {
     parsed.push({ ...legacyNewSection, order: parsed.length + 1 });
   }
@@ -252,6 +267,7 @@ async function parseSections(formData: FormData, allowedCurrentImageIds: Readonl
 
 async function parsePageInput(
   formData: FormData,
+  uploads: NewUploadCleanup,
   existing?: {
     pageKey: string;
     slug: string;
@@ -295,6 +311,9 @@ async function parsePageInput(
   const uploadedSocialImageId = hasSocialImageUpload && socialImageFile instanceof File
     ? await uploadSectionImage(socialImageFile)
     : null;
+  if (uploadedSocialImageId) {
+    uploads.track(uploadedSocialImageId);
+  }
   const socialImage = removeSocialImage
     ? null
     : uploadedSocialImageId ?? selectedSocialImageId ?? existing?.socialImageId ?? null;
@@ -316,7 +335,7 @@ async function parsePageInput(
     noIndex: formBoolean(formData, "noIndex"),
     socialImage,
     scheduledFor: formDateTime(formData, "scheduledFor"),
-    sections: await parseSections(formData, existing?.allowedImageIds || new Set<number>()),
+    sections: await parseSections(formData, existing?.allowedImageIds || new Set<number>(), uploads),
   };
 }
 
@@ -375,13 +394,29 @@ export async function saveStrapiPageAction(documentId: string, formData: FormDat
       ...existingPage.sections.flatMap((section) => section.image?.id ? [section.image.id] : []),
     ]),
   };
-  const input = await parsePageInput(formData, previousIdentity);
-  await assertPageSlugIsUnique(input, documentId);
-  const intent = publicationIntent(formData);
-  const note = formString(formData, "changeNote");
-  const expectedUpdatedAt = expectedVersion(formData);
+  const uploads = createNewUploadCleanup(deleteStructuredFile);
+  try {
+    const input = await parsePageInput(formData, uploads, previousIdentity);
+    await assertPageSlugIsUnique(input, documentId);
+    const intent = publicationIntent(formData);
+    const note = formString(formData, "changeNote");
+    const expectedUpdatedAt = expectedVersion(formData);
 
-  if (intent === "unpublish") {
+    if (intent === "unpublish") {
+      const updated = await updateManagedStrapiPageWithWorkflow(
+        documentId,
+        input,
+        user,
+        expectedUpdatedAt,
+        note,
+      );
+      uploads.commit();
+      await transitionManagedStrapiPage(documentId, "unpublish", user, updated.updatedAt, note);
+      revalidateManagedPageEditor(documentId);
+      revalidatePublishedPage(input, previousIdentity);
+      redirect(`/content/site-pages/${documentId}?state=unpublished`);
+    }
+
     const updated = await updateManagedStrapiPageWithWorkflow(
       documentId,
       input,
@@ -389,44 +424,43 @@ export async function saveStrapiPageAction(documentId: string, formData: FormDat
       expectedUpdatedAt,
       note,
     );
-    await transitionManagedStrapiPage(documentId, "unpublish", user, updated.updatedAt, note);
+    uploads.commit();
+    if (intent === "publish") {
+      await transitionManagedStrapiPage(documentId, "publish", user, updated.updatedAt, note);
+    }
     revalidateManagedPageEditor(documentId);
-    revalidatePublishedPage(input, previousIdentity);
-    redirect(`/content/site-pages/${documentId}?state=unpublished`);
+    if (intent === "publish") {
+      revalidatePublishedPage(input, previousIdentity);
+    }
+    redirect(`/content/site-pages/${documentId}?state=${intent === "publish" ? "published" : "draft-saved"}`);
+  } catch (error) {
+    await uploads.cleanup();
+    throw error;
   }
-
-  const updated = await updateManagedStrapiPageWithWorkflow(
-    documentId,
-    input,
-    user,
-    expectedUpdatedAt,
-    note,
-  );
-  if (intent === "publish") {
-    await transitionManagedStrapiPage(documentId, "publish", user, updated.updatedAt, note);
-  }
-  revalidateManagedPageEditor(documentId);
-  if (intent === "publish") {
-    revalidatePublishedPage(input, previousIdentity);
-  }
-  redirect(`/content/site-pages/${documentId}?state=${intent === "publish" ? "published" : "draft-saved"}`);
 }
 
 export async function createStrapiPageAction(formData: FormData) {
   const user = await requireContentManagerApiUser();
-  const input = await parsePageInput(formData);
-  await assertPageSlugIsUnique(input);
-  const status = publicationIntent(formData) === "publish" ? "published" : "draft";
-  const note = formString(formData, "changeNote");
-  const page = await createManagedStrapiPageWithWorkflow(input, user, note);
-  if (status === "published") {
-    await transitionManagedStrapiPage(page.documentId, "publish", user, page.updatedAt, note);
+  const uploads = createNewUploadCleanup(deleteStructuredFile);
+  try {
+    const input = await parsePageInput(formData, uploads);
+    await assertPageSlugIsUnique(input);
+    const status = publicationIntent(formData) === "publish" ? "published" : "draft";
+    const note = formString(formData, "changeNote");
+    const page = await createManagedStrapiPageWithWorkflow(input, user, note);
+    uploads.commit();
+    if (status === "published") {
+      await transitionManagedStrapiPage(page.documentId, "publish", user, page.updatedAt, note);
+    }
+    revalidateManagedPageEditor(page.documentId);
+    if (status === "published") {
+      revalidatePublishedPage(input);
+    }
+    redirect(`/content/site-pages/${page.documentId}?state=${status === "published" ? "created-published" : "created-draft"}`);
+  } catch (error) {
+    await uploads.cleanup();
+    throw error;
   }
-  revalidateManagedPageEditor(page.documentId);
-  if (status === "published") {
-    revalidatePublishedPage(input);
-  }
-  redirect(`/content/site-pages/${page.documentId}?state=${status === "published" ? "created-published" : "created-draft"}`);
 }
 
 export async function transitionStrapiPageAction(

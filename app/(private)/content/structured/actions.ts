@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import {
   assertReusableMediaSelection,
   createStructuredEntry,
+  deleteStructuredFile,
   getStructuredEntry,
   rollbackStructuredEntry,
   retryEpisodeProcessing,
@@ -13,6 +14,10 @@ import {
   updateStructuredEntry,
   uploadStructuredFile,
 } from "@/lib/strapi-structured-management";
+import {
+  createNewUploadCleanup,
+  type NewUploadCleanup,
+} from "@/lib/strapi-upload-cleanup";
 import {
   getStructuredCollection,
   slugifyStructuredContent,
@@ -251,6 +256,7 @@ async function structuredPayload(
   key: StructuredCollectionKey,
   formData: FormData,
   options: { creating: boolean; existingEntry?: Record<string, unknown> | null },
+  uploads: NewUploadCleanup,
 ) {
   const definition = getStructuredCollection(key);
   if (!definition) {
@@ -280,8 +286,15 @@ async function structuredPayload(
       if (hasUpload && candidate instanceof File) {
         validateFile(field, candidate);
         const uploaded = await uploadStructuredFile(candidate);
-        if (uploaded && field.mediaTarget) {
-          data[field.mediaTarget] = uploaded.id;
+        if (uploaded) {
+          const uploadedId = uploaded.id;
+          if (typeof uploadedId !== "number") {
+            throw new Error("Strapi did not return an uploaded media identifier.");
+          }
+          uploads.track(uploadedId);
+          if (field.mediaTarget) {
+            data[field.mediaTarget] = uploadedId;
+          }
         }
       } else if (selectedId) {
         await assertReusableMediaSelection(selectedId, field.accept || "");
@@ -314,7 +327,11 @@ async function structuredPayload(
           { ...field, type: "file", label: "Social sharing image", accept: "image/*" },
           candidate,
         );
-        replacementSocialImageId = (await uploadStructuredFile(candidate))?.id || null;
+        const uploaded = await uploadStructuredFile(candidate);
+        replacementSocialImageId = uploaded?.id || null;
+        if (replacementSocialImageId) {
+          uploads.track(replacementSocialImageId);
+        }
       }
       data[field.name] = parseField(
         field,
@@ -406,10 +423,17 @@ export async function createStructuredEntryAction(key: StructuredCollectionKey, 
     throw new Error("Unsupported structured content type.");
   }
 
-  const data = await structuredPayload(key, formData, { creating: true });
-  const entry = await createStructuredEntry(key, data, user, formString(formData, "changeNote"));
-  revalidateStructuredPaths(key, entry.documentId);
-  redirect(`${definition.editorPath}/${entry.documentId}?created=1`);
+  const uploads = createNewUploadCleanup(deleteStructuredFile);
+  try {
+    const data = await structuredPayload(key, formData, { creating: true }, uploads);
+    const entry = await createStructuredEntry(key, data, user, formString(formData, "changeNote"));
+    uploads.commit();
+    revalidateStructuredPaths(key, entry.documentId);
+    redirect(`${definition.editorPath}/${entry.documentId}?created=1`);
+  } catch (error) {
+    await uploads.cleanup();
+    throw error;
+  }
 }
 
 export async function saveStructuredEntryAction(
@@ -422,18 +446,25 @@ export async function saveStructuredEntryAction(
   if (!existingEntry) {
     throw new Error("The content item no longer exists in Strapi.");
   }
-  const data = await structuredPayload(key, formData, { creating: false, existingEntry });
-  await updateStructuredEntry(
-    key,
-    documentId,
-    data,
-    user,
-    expectedVersion(formData),
-    formString(formData, "changeNote"),
-  );
-  revalidateStructuredPaths(key, documentId);
-  const definition = getStructuredCollection(key);
-  redirect(`${definition?.editorPath || `/content/structured/${key}`}/${documentId}?saved=1`);
+  const uploads = createNewUploadCleanup(deleteStructuredFile);
+  try {
+    const data = await structuredPayload(key, formData, { creating: false, existingEntry }, uploads);
+    await updateStructuredEntry(
+      key,
+      documentId,
+      data,
+      user,
+      expectedVersion(formData),
+      formString(formData, "changeNote"),
+    );
+    uploads.commit();
+    revalidateStructuredPaths(key, documentId);
+    const definition = getStructuredCollection(key);
+    redirect(`${definition?.editorPath || `/content/structured/${key}`}/${documentId}?saved=1`);
+  } catch (error) {
+    await uploads.cleanup();
+    throw error;
+  }
 }
 
 export async function transitionStructuredEntryAction(
