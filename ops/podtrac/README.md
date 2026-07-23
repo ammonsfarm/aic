@@ -63,6 +63,26 @@ path. Its explicitly supplied local `.env` must contain credentials for the same
 existing AIC database. Never create, copy, clone, or restore another database for
 Podtrac ingestion.
 
+## Farm admin and scheduled path
+
+The protected AIC admin action and the farm schedule do not invoke the legacy
+`/mnt/storage/aic_podcast/scripts/run_podtrac_daily_server.sh` wrapper. They run
+this versioned AIC runner directly with `--server-admin-mode`, the AIC web
+Python environment, exact `/mnt/storage/aic/.env`, curl authentication from
+`/mnt/storage/aic_podcast/podtrac-auth.curl`, and logs under the podcast
+workspace. Server mode rejects any other runner, interpreter, env, auth, log,
+or authentication-mode path.
+
+Deployment installs `aic-podtrac-daily-ingest.timer` and
+`aic-podcast-daily-ingest.timer` at the existing 04:15 schedule. Only after
+both replacement timers are active does the deployment remove the two exact
+legacy cron commands; unrelated and commented cron entries are preserved.
+The deploy process holds the podcast runner's
+`/mnt/storage/aic_podcast/daily_ingest.lock` and Podtrac's
+`/tmp/aic_podtrac_ingest.lock` from before checkout mutation through verified
+timer startup, so a scheduled job cannot overlap migrations or service
+cutover.
+
 ## Validation
 
 Check recent activity dates after a run:

@@ -1,0 +1,9 @@
+[Unit]
+Description=Run the AIC canonical daily podcast ingest at 04:15
+
+[Timer]
+OnCalendar=*-*-* 04:15:00
+Unit=aic-podcast-daily-ingest.service
+
+[Install]
+WantedBy=timers.target

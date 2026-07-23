@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+START_TIMERS="${START_TIMERS:-0}"
+case "${START_TIMERS}" in 0|1) ;; *) echo "START_TIMERS must be 0 or 1." >&2; exit 1 ;; esac
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_dir="$(cd "${script_dir}/.." && pwd)"
+if [[ "${repo_dir}" != "/mnt/storage/aic" ]]; then
+  echo "Scheduled podcast units must be installed from /mnt/storage/aic." >&2
+  exit 1
+fi
+timers=(
+  aic-podcast-daily-ingest.timer
+  aic-podtrac-daily-ingest.timer
+)
+services=(
+  aic-podcast-daily-ingest.service
+  aic-podtrac-daily-ingest.service
+)
+
+for unit in "${services[@]}" "${timers[@]}"; do
+  sudo install -o root -g root -m 0644 "${repo_dir}/systemd/${unit}" "/etc/systemd/system/${unit}"
+done
+sudo systemctl daemon-reload
+sudo systemctl enable "${timers[@]}"
+if [[ "${START_TIMERS}" == "1" ]]; then
+  sudo systemctl start "${timers[@]}"
+fi
+sudo systemctl list-timers --all "${timers[@]}" --no-pager
