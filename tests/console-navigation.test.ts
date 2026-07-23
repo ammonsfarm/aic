@@ -83,6 +83,7 @@ describe("role-aware console navigation", () => {
     const childHrefs = content?.children?.map((item) => item.href) ?? [];
 
     expect(childHrefs).toContain("/content/site-settings");
+    expect(childHrefs).toContain("/content/inbox");
     expect(childHrefs).toContain("/content/newsletters");
   });
 });

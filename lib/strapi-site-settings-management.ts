@@ -52,6 +52,7 @@ export type ManagedSiteSettings = {
   showDonateButton: boolean;
   donateButtonLabel: string;
   donateButtonUrl: string;
+  donorDashboardUrl: string;
   headerLogo: ManagedSiteSettingsMedia | null;
   subscriptionEnabled: boolean;
   updatedAt: string;
@@ -78,6 +79,7 @@ export type ManagedSiteSettingsInput = {
   showDonateButton: boolean;
   donateButtonLabel: string;
   donateButtonUrl: string;
+  donorDashboardUrl: string;
   headerLogoId: number | null;
   subscriptionEnabled: boolean;
 };
@@ -261,6 +263,7 @@ function normalizeSettings(entity: StrapiEntity<ManagedSiteSettings>): ManagedSi
     showDonateButton: getBoolean(source.showDonateButton, true),
     donateButtonLabel: getString(source.donateButtonLabel) || "Donate",
     donateButtonUrl: getString(source.donateButtonUrl) || "/donate",
+    donorDashboardUrl: getString(source.donorDashboardUrl) || "https://www.pastorwood.org/donor-dashboard/",
     headerLogo: normalizeMedia(source.headerLogo),
     subscriptionEnabled: getBoolean(source.subscriptionEnabled, true),
     updatedAt: getString(source.updatedAt),
@@ -305,6 +308,7 @@ function siteSettingsPayload(input: ManagedSiteSettingsInput) {
       showDonateButton: input.showDonateButton,
       donateButtonLabel: input.donateButtonLabel,
       donateButtonUrl: input.donateButtonUrl,
+      donorDashboardUrl: input.donorDashboardUrl,
       headerLogo: input.headerLogoId,
       subscriptionEnabled: input.subscriptionEnabled,
     },

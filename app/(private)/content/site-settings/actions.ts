@@ -4,6 +4,7 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { safeCmsHref } from "@/lib/cms-html";
+import { safeExternalDonationUrl, safeExternalDonorDashboardUrl } from "@/lib/public-donation";
 import { requireContentManagerApiUser } from "@/lib/rbac";
 import { STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag } from "@/lib/strapi";
 import { STRAPI_PUBLIC_MEDIA_CACHE_TAG } from "@/lib/strapi-cache-tags";
@@ -128,9 +129,17 @@ async function parseSiteSettingsInput(
   }
 
   const requestedDonateUrl = formString(formData, "donateButtonUrl");
-  const donateButtonUrl = safeCmsHref(requestedDonateUrl);
+  const donateButtonUrl = requestedDonateUrl.startsWith("/")
+    ? safeCmsHref(requestedDonateUrl)
+    : safeExternalDonationUrl(requestedDonateUrl);
   if (requestedDonateUrl && !donateButtonUrl) {
-    throw new Error("Donate button URL is not allowed.");
+    throw new Error("Donate button URL must be a same-site path, the canonical GiveWP form, or an allowlisted HTTPS provider URL.");
+  }
+
+  const requestedDonorDashboardUrl = formString(formData, "donorDashboardUrl");
+  const donorDashboardUrl = safeExternalDonorDashboardUrl(requestedDonorDashboardUrl);
+  if (requestedDonorDashboardUrl && !donorDashboardUrl) {
+    throw new Error("Donor dashboard URL must be the canonical dashboard or an allowlisted HTTPS dashboard provider URL.");
   }
 
   const topNavigation = parseNavigationGroup(formData, "topNavigation");
@@ -147,7 +156,8 @@ async function parseSiteSettingsInput(
       copyrightText: formString(formData, "copyrightText"),
       showDonateButton: formBoolean(formData, "showDonateButton"),
       donateButtonLabel: formString(formData, "donateButtonLabel"),
-      donateButtonUrl,
+      donateButtonUrl: donateButtonUrl || "",
+      donorDashboardUrl: donorDashboardUrl || "",
       headerLogoId: logo.id,
       subscriptionEnabled: formBoolean(formData, "subscriptionEnabled"),
     },
@@ -243,6 +253,7 @@ export async function initializeSiteSettingsAction() {
       showDonateButton: true,
       donateButtonLabel: "Donate",
       donateButtonUrl: "/donate/",
+      donorDashboardUrl: "https://www.pastorwood.org/donor-dashboard/",
       headerLogoId: null,
       subscriptionEnabled: true,
     },

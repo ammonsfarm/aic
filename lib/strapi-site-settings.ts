@@ -26,6 +26,7 @@ export type StrapiSiteSettings = {
   showDonateButton: boolean;
   donateButtonLabel: string;
   donateButtonUrl: string;
+  donorDashboardUrl: string;
   headerLogo: {
     url: string;
     alternativeText: string;
@@ -137,6 +138,7 @@ function normalizeSettings(entity: StrapiEntity<StrapiSiteSettings>): StrapiSite
     showDonateButton: getBoolean(source.showDonateButton, true),
     donateButtonLabel: getString(source.donateButtonLabel) || "Donate",
     donateButtonUrl: getString(source.donateButtonUrl) || "/donate/",
+    donorDashboardUrl: getString(source.donorDashboardUrl) || "https://www.pastorwood.org/donor-dashboard/",
     headerLogo: headerLogoUrl ? {
       url: headerLogoUrl,
       alternativeText: getString(headerLogoSource.alternativeText),

@@ -58,7 +58,7 @@ const pages = [
         heading: "Support Abiding in Christ",
         body: "Use the original secure giving page to support Pastor Wood and Abiding in Christ.",
         buttonLabel: "Open on pastorwood.org",
-        buttonUrl: "https://www.pastorwood.org/donate/",
+        buttonUrl: "https://www.pastorwood.org/?givewp-route=donation-form-view&form-id=14759",
       },
     ],
   },

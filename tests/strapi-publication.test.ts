@@ -150,6 +150,7 @@ describe("Strapi publication semantics", () => {
       showDonateButton: true,
       donateButtonLabel: "Donate",
       donateButtonUrl: "/donate",
+      donorDashboardUrl: "https://www.pastorwood.org/donor-dashboard/",
       headerLogoId: 17,
       subscriptionEnabled: true,
     }, user, "2026-07-22T11:59:00.000Z", "Publish global settings");

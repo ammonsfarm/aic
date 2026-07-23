@@ -25,6 +25,7 @@ describe("public Strapi site settings", () => {
         showDonateButton: true,
         donateButtonLabel: "Donate",
         donateButtonUrl: "/donate/",
+        donorDashboardUrl: "https://www.pastorwood.org/donor-dashboard/",
         subscriptionEnabled: false,
         headerLogo: {
           id: 7,

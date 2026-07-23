@@ -318,7 +318,7 @@ export default async function SiteSettingsPage({ searchParams }: { searchParams:
 
         <form className="editor-form" action={saveSiteSettingsAction}>
           <input type="hidden" name="expectedUpdatedAt" value={settings.updatedAt} />
-          <div className="editor-grid editor-grid--three">
+          <div className="editor-grid editor-grid--two">
             <label>
               <span>Site name</span>
               <input name="siteName" required defaultValue={settings.siteName} />
@@ -330,6 +330,12 @@ export default async function SiteSettingsPage({ searchParams }: { searchParams:
             <label>
               <span>Donate button URL</span>
               <input name="donateButtonUrl" defaultValue={settings.donateButtonUrl} />
+              <small>Use /donate/ for the local landing page, the canonical GiveWP form, or an explicitly allowlisted HTTPS provider.</small>
+            </label>
+            <label>
+              <span>Donor dashboard URL</span>
+              <input name="donorDashboardUrl" type="url" defaultValue={settings.donorDashboardUrl} />
+              <small>Configured and validated separately from the giving form.</small>
             </label>
           </div>
 

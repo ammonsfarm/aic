@@ -2,13 +2,22 @@ import Image from "next/image";
 import Link from "next/link";
 
 import { DevotionalSignupForm } from "@/components/devotional-signup-form";
-import { getPublicDonationUrl } from "@/lib/public-donation";
+import { PublicContactForm } from "@/components/public-contact-form";
+import {
+  getPublicDonationUrl,
+  getPublicDonorDashboardUrl,
+  safeExternalDonationUrl,
+  safeExternalDonorDashboardUrl,
+} from "@/lib/public-donation";
+import {
+  CONTACT_ARCHIVED_RETENTION_DAYS,
+  CONTACT_ATTEMPT_RETENTION_DAYS,
+  CONTACT_CONSENT_TEXT,
+} from "@/lib/public-contact-contract";
 import { SUBSCRIPTION_ATTEMPT_RETENTION_DAYS } from "@/lib/public-subscription-contract";
 import { listPublishedEndorsementsResult, type PublishedEndorsement } from "@/lib/strapi-structured-public";
 import { getStrapiSiteSettings, type StrapiSiteSettings } from "@/lib/strapi-site-settings";
 import { safeCmsHref, sanitizeCmsHtml } from "@/lib/cms-html";
-
-const originalSite = "https://www.pastorwood.org";
 
 const routes = {
   home: "/",
@@ -370,7 +379,13 @@ function RichTextContent({ value }: { value: string }) {
   return <div className="pw-rich-text" dangerouslySetInnerHTML={{ __html: sanitizeCmsHtml(value) }} />;
 }
 
-function CmsPageSections({ sections }: { sections?: PastorWoodCmsSection[] }) {
+function CmsPageSections({
+  sections,
+  externalButtonUrl,
+}: {
+  sections?: PastorWoodCmsSection[];
+  externalButtonUrl?: (value: string) => string | null;
+}) {
   const renderedSections = (sections ?? []).filter((section) => section.body || section.heading || section.buttonLabel);
 
   if (renderedSections.length === 0) {
@@ -383,7 +398,9 @@ function CmsPageSections({ sections }: { sections?: PastorWoodCmsSection[] }) {
         const isCta = section.component === "page-sections.cta-section";
         const isImageText = section.component === "page-sections.image-text-section";
         const imageFirst = isImageText && section.imageSide === "left";
-        const buttonHref = safeCmsHref(section.buttonUrl ?? "");
+        const buttonHref = externalButtonUrl
+          ? externalButtonUrl(section.buttonUrl ?? "") || ""
+          : safeCmsHref(section.buttonUrl ?? "");
         const copy = (
           <div>
             {section.eyebrow ? <p className="pw-kicker">{section.eyebrow}</p> : null}
@@ -518,7 +535,9 @@ function ContactPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
   return (
     <>
       <PageHero eyebrow="Reach Us" title={heroTitle} body={heroBody} />
-      {cmsPage?.sections?.length ? <CmsPageSections sections={cmsPage.sections} /> : <ContactSection />}
+      {cmsPage?.sections?.length ? <CmsPageSections sections={cmsPage.sections} /> : null}
+      <ContactSection />
+      <PublicContactForm sourcePath="/contact/" />
     </>
   );
 }
@@ -530,13 +549,15 @@ function DonatePage({ cmsPage, donorDashboard = false, siteSettings }: { cmsPage
     <>
       <PageHero eyebrow="Donate" title={heroTitle} body={heroBody} />
       {cmsPage?.sections?.length ? (
-        <CmsPageSections sections={cmsPage.sections} />
-      ) : (
-        <section className="pw-section pw-donate-panel">
-          <div><h2>{donorDashboard ? "Access your donor dashboard" : "Support Abiding in Christ"}</h2><p>{donorDashboard ? "Use the original donor dashboard for account access and giving history." : "Use the original secure giving page to support Pastor Wood and Abiding in Christ."}</p></div>
-          <a className="pw-button pw-button--primary" href={donorDashboard ? `${originalSite}/donor-dashboard/` : getPublicDonationUrl(siteSettings?.donateButtonUrl)} target="_blank" rel="noreferrer noopener">{donorDashboard ? "Open donor dashboard" : "Open secure giving form"}</a>
-        </section>
-      )}
+        <CmsPageSections
+          sections={cmsPage.sections}
+          externalButtonUrl={donorDashboard ? safeExternalDonorDashboardUrl : safeExternalDonationUrl}
+        />
+      ) : null}
+      <section className="pw-section pw-donate-panel">
+        <div><h2>{donorDashboard ? "Access your donor dashboard" : "Support Abiding in Christ"}</h2><p>{donorDashboard ? "Open the separately secured donor account service for giving history and account access." : "Open the verified secure giving form to support Pastor Wood and Abiding in Christ."}</p></div>
+        <a className="pw-button pw-button--primary" href={donorDashboard ? getPublicDonorDashboardUrl(siteSettings?.donorDashboardUrl) : getPublicDonationUrl(siteSettings?.donateButtonUrl)} target="_blank" rel="noreferrer noopener">{donorDashboard ? "Open donor dashboard" : "Open secure giving form"}</a>
+      </section>
     </>
   );
 }
@@ -548,6 +569,11 @@ function SubscriptionPrivacyNotice() {
       <p>When you subscribe, we store your email address, the consent wording and version you accepted, the time of consent, and the page where you subscribed. We also store one-way keyed hashes derived from the requesting IP address and browser identifier to limit abuse; the raw values are not stored by the subscription form. Abuse-prevention attempt records are retained for {SUBSCRIPTION_ATTEMPT_RETENTION_DAYS} days and then removed in bounded cleanup batches.</p>
       <h2>How the information is used</h2>
       <p>Subscription information is used to manage the Abiding in Christ devotional list. Authorized content managers can export the active list for delivery through the ministry&apos;s approved email provider. Suppressed addresses remain suppressed if a later signup is attempted.</p>
+      <h2>Contact form messages</h2>
+      <p>When you use the contact form, we store your message type, name, email address, optional phone and organization, subject, message, the consent wording and version you accepted, the submission time, and the source page. The consent shown on the form is: “{CONTACT_CONSENT_TEXT}”</p>
+      <p>We use contact messages only to review and respond to feedback, prayer requests, speaking invitations, and ministry correspondence. Access is limited to authorized content managers and administrators. Messages are stored even when email notification is not configured, and the protected inbox reports the notification state rather than claiming delivery.</p>
+      <p>The contact form stores one-way keyed hashes derived from the requesting IP address, email address, and browser identifier for abuse prevention; it does not store the raw IP address or raw browser identifier. Abuse-attempt records are retained for {CONTACT_ATTEMPT_RETENTION_DAYS} days. Archived contact messages become eligible for bounded deletion after {CONTACT_ARCHIVED_RETENTION_DAYS} days.</p>
+      <p>Please do not submit emergency requests or financial, medical, or other highly sensitive details through the contact form. Call emergency services when immediate help is needed.</p>
       <h2>Other websites and giving</h2>
       <p>Links to giving, Apple Podcasts, Wears Valley Ranch, and other organizations open their websites. Their privacy practices apply once you leave this site. This website does not collect payment-card information.</p>
       <h2>Questions or removal requests</h2>

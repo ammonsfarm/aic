@@ -87,7 +87,9 @@ describe("CMS HTML sanitizer", () => {
   });
 
   it("restricts external donation destinations to approved hosts and path", () => {
-    expect(safeExternalDonationUrl("https://www.pastorwood.org/donations/givewp-donation-form/")).toContain("pastorwood.org/donations/");
+    expect(safeExternalDonationUrl("https://www.pastorwood.org/?givewp-route=donation-form-view&form-id=14759"))
+      .toBe("https://www.pastorwood.org/?givewp-route=donation-form-view&form-id=14759");
+    expect(safeExternalDonationUrl("https://www.pastorwood.org/donations/givewp-donation-form/")).toBeNull();
     expect(safeExternalDonationUrl("https://www.pastorwood.org/not-donations/phish")).toBeNull();
     expect(safeExternalDonationUrl("https://evil.example/donations/give")).toBeNull();
     expect(safeExternalDonationUrl("//evil.example/donations/give")).toBeNull();

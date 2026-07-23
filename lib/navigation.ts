@@ -91,6 +91,11 @@ export const consoleNav: ConsoleNavItem[] = [
         description: "Map verified old-site paths to replacement URLs.",
       },
       {
+        href: "/content/inbox",
+        label: "Contact inbox",
+        description: "Review public correspondence, notification state, and response status.",
+      },
+      {
         href: "/content/newsletters",
         label: "Newsletters",
         description: "Review devotional subscribers and export consented recipients.",
