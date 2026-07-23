@@ -122,6 +122,8 @@ APPLY_CONFIRMATION = "APPLY_PASTORWOOD_PUBLIC_CUTOVER"
 PUBLISH_REVIEWED_CONFIRMATION = "PUBLISH_REVIEWED_PASTORWOOD_CUTOVER"
 WORDPRESS_REFRESH_CONFIRMATION = "REFRESH_FROM_LIVE_WORDPRESS_DATABASE"
 CUTOVER_AUTHORITY = "aic-postgresql-and-minio-canonical-v1"
+STRAPI_STRING_MAX_LENGTH = 255
+STRAPI_SEO_TITLE_MAX_LENGTH = 70
 DIRECT_WORDPRESS_REFRESH_TEST_MODE_ENV = "PASTORWOOD_DIRECT_DATABASE_REFRESH_TEST_MODE"
 PUBLIC_CACHE_INVALIDATION_URL = "http://127.0.0.1:8087/api/revalidate/strapi"
 PUBLIC_CACHE_INVALIDATION_SOURCE = "pastorwood-cutover"
@@ -1225,7 +1227,7 @@ def build_pages(
             "navigationOrder": len(pages),
             "heroLabel": "Abiding in Christ",
             "heroTitle": title,
-            "heroBody": strip_markup(excerpt)[:320],
+            "heroBody": strip_markup(excerpt)[:STRAPI_STRING_MAX_LENGTH],
             "seoTitle": text(meta.get("_aioseo_title")) or title,
             "seoDescription": text(meta.get("_aioseo_description")) or strip_markup(excerpt or body)[:175],
             "legacyUrl": f"{LEGACY_ORIGIN}/{slug}/",
@@ -1558,7 +1560,7 @@ def build_episodes(
             "legacyUrl": "",
             "canonicalUrl": f"{LEGACY_ORIGIN}/radio/{slug}/",
             "seo": {
-                "title": title,
+                "title": title[:STRAPI_SEO_TITLE_MAX_LENGTH],
                 "description": summary[:175],
                 "canonicalUrl": f"{LEGACY_ORIGIN}/radio/{slug}/",
                 "noIndex": False,

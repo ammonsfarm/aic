@@ -405,6 +405,15 @@ class CutoverIdentityTests(unittest.TestCase):
         self.assertEqual([page["legacyId"] for page in pages], ["3"])
         self.assertEqual({item["reason"] for item in excluded}, {"operational-or-commerce-page", "contentless-page"})
 
+    def test_page_hero_body_fits_the_strapi_string_column(self):
+        pages, excluded = MODULE.build_pages([{
+            "id": "3", "type": "page", "slug": "ministry", "title": "Ministry",
+            "content": "<p>Body</p>", "excerpt": "x" * 320, "meta": {},
+        }])
+
+        self.assertEqual(excluded, [])
+        self.assertEqual(len(pages[0]["heroBody"]), MODULE.STRAPI_STRING_MAX_LENGTH)
+
     def test_episode_matching_is_one_to_one_and_aic_canonical(self):
         aic = [
             {"trackId": "track-1", "title": "Best Of: Life of Prayer, Part 1", "publishDate": "2024-01-02", "sourceFile": "track-1.json"},
@@ -421,6 +430,17 @@ class CutoverIdentityTests(unittest.TestCase):
     def test_aic_episode_uses_same_origin_public_audio_route(self):
         episodes, _ = MODULE.build_episodes([], [{"trackId": 1003386838, "title": "Program", "publishDate": "2024-01-01", "sourceFile": "1003386838.mp3", "detail": ""}])
         self.assertEqual(episodes[0]["externalAudioUrl"], "/media/episodes/1003386838")
+
+    def test_aic_episode_preserves_full_title_but_bounds_derived_seo_title(self):
+        title = "A canonical episode title that is intentionally longer than the SEO component allows"
+        episodes, _ = MODULE.build_episodes([], [{
+            "trackId": 1003386838, "title": title, "publishDate": "2024-01-01",
+            "sourceFile": "1003386838.mp3", "detail": "",
+        }])
+
+        self.assertEqual(episodes[0]["title"], title)
+        self.assertEqual(episodes[0]["seo"]["title"], title[:MODULE.STRAPI_SEO_TITLE_MAX_LENGTH])
+        self.assertEqual(len(episodes[0]["seo"]["title"]), MODULE.STRAPI_SEO_TITLE_MAX_LENGTH)
 
     def test_public_episode_media_urls_share_the_full_safe_track_id_contract(self):
         expected = {
