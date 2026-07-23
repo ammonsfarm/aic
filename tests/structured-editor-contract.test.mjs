@@ -62,12 +62,20 @@ test("editor mutations are role guarded and cover the full lifecycle", async () 
   assert.match(actions, /confirmation,\n\s*\);/);
 });
 
-test("redirect edits reject external, reserved, and self-referential targets", async () => {
+test("redirect edits reject owned, external, reserved, and self-referential targets", async () => {
   const actions = await source("app/(private)/content/structured/actions.ts");
+  assert.match(actions, /isOwnedLegacyRedirectSource/);
   assert.match(actions, /isReservedLegacyRedirectSource/);
   assert.match(actions, /isSafeLegacyRedirectTarget/);
+  assert.match(actions, /cannot replace an owned PastorWood public route/);
   assert.match(actions, /Redirect destination must be a non-reserved path on this site/);
   assert.match(actions, /A redirect cannot point to itself/);
+
+  const workflow = await source("services/jimwood-cms/src/api/editorial-workflow/controllers/editorial-workflow.ts");
+  assert.match(workflow, /pastorwood-editorial:redirect-graph/);
+  assert.match(workflow, /validateRedirectMutation/);
+  assert.match(workflow, /action === 'restore'[\s\S]*?validateRedirectMutation/);
+  assert.match(workflow, /action === 'rollback'[\s\S]*?validateRedirectMutation/);
 });
 
 test("site pages use the same revisioned workflow and enforce immutable identity inside Strapi", async () => {

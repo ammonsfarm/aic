@@ -46,6 +46,12 @@ test("redirects are an explicit non-draft registry", async () => {
   assert.equal(model.attributes.fromPath.unique, true);
   assert.equal(model.attributes.statusCode.type, "integer");
   assert.equal(model.attributes.statusCode.default, 301);
+
+  const controller = await text("src/api/redirect/controllers/redirect.ts");
+  for (const action of ["create", "update", "delete"]) {
+    assert.match(controller, new RegExp(`async ${action}\\(ctx\\)`));
+  }
+  assert.match(controller, /must use the audited editorial workflow/);
 });
 
 test("episode identity is validated while pipeline state lives in the durable outbox", async () => {

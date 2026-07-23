@@ -416,6 +416,9 @@ test("managed Strapi token is scoped, runtime-only, and replaces broad defaults"
   const unit = source("ops/strapi/systemd/aic-strapi.service");
   assert.match(bootstrap, /type: 'custom'/);
   assert.match(bootstrap, /managedPermissionPrefixes/);
+  assert.match(bootstrap, /managedExactPermissions/);
+  assert.match(bootstrap, /api::redirect\.redirect\.findOne/);
+  assert.doesNotMatch(bootstrap, /'api::redirect\.redirect\.'\s*,/);
   assert.match(bootstrap, /plugin::upload\.content-api\./);
   assert.match(bootstrap, /\['Full Access', 'Read Only'\]/);
   assert.match(bootstrap, /tokenService\.getByName\(broadTokenName\)/);

@@ -15,9 +15,15 @@ const managedPermissionPrefixes = [
   'api::page.page.',
   'api::person.person.',
   'api::post.post.',
-  'api::redirect.redirect.',
   'api::site-setting.site-setting.',
   'plugin::upload.content-api.',
+] as const;
+// Redirect core writes would bypass the editorial graph lock, validation,
+// revisions, and projection update. The deployed AIC token may read the
+// registry, but every mutation must use /api/editorial/redirect instead.
+const managedExactPermissions = [
+  'api::redirect.redirect.find',
+  'api::redirect.redirect.findOne',
 ] as const;
 
 type ManagedToken = {
@@ -37,10 +43,11 @@ function samePermissions(left: string[] = [], right: string[] = []) {
   return [...left].sort().join('\n') === [...right].sort().join('\n');
 }
 
-function managedPermissions(strapi: Core.Strapi) {
+export function managedPermissions(strapi: Core.Strapi) {
   const actionProvider = strapi.contentAPI.permissions.providers.action;
   const permissions = Array.from(actionProvider.keys()).filter((action) =>
-    managedPermissionPrefixes.some((prefix) => action.startsWith(prefix)),
+    managedPermissionPrefixes.some((prefix) => action.startsWith(prefix))
+    || managedExactPermissions.some((permission) => action === permission),
   );
 
   const missingPrefixes = managedPermissionPrefixes.filter(
@@ -48,6 +55,10 @@ function managedPermissions(strapi: Core.Strapi) {
   );
   if (missingPrefixes.length > 0) {
     throw new Error(`Managed API token is missing registered permission groups: ${missingPrefixes.join(', ')}`);
+  }
+  const missingExactPermissions = managedExactPermissions.filter((permission) => !permissions.includes(permission));
+  if (missingExactPermissions.length > 0) {
+    throw new Error(`Managed API token is missing required read permissions: ${missingExactPermissions.join(', ')}`);
   }
 
   return permissions.sort();
@@ -65,7 +76,7 @@ async function writeManagedToken(outputPath: string, accessKey: string) {
   await fs.rename(temporaryPath, outputPath);
 }
 
-export default {
+const strapiLifecycle = {
   /**
    * An asynchronous register function that runs before
    * your application is initialized.
@@ -124,3 +135,5 @@ export default {
     }
   },
 };
+
+export default strapiLifecycle;

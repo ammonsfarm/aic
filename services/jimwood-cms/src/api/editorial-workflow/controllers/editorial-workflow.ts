@@ -11,6 +11,11 @@ import {
   tombstonePublicProjection,
   type ProjectionTransaction,
 } from './public-projection';
+import {
+  validatePastorWoodRedirectGraph,
+  type NormalizedPastorWoodRedirectRule,
+  type PastorWoodRedirectRule,
+} from '../../../shared/pastorwood-redirect-policy';
 
 declare const strapi: Core.Strapi;
 
@@ -161,10 +166,15 @@ async function withEditorialTransaction<T>(
 ) {
   return strapi.db.transaction(async ({ trx }: { trx: ProjectionTransaction }) => {
     const databaseClient = String(strapi.db.config.connection.client || '');
-    if (documentId && databaseClient.includes('postgres')) {
+    const lockIdentity = entityType === 'redirect'
+      ? 'pastorwood-editorial:redirect-graph'
+      : documentId
+        ? `pastorwood-editorial:${entityType}:${documentId}`
+        : '';
+    if (lockIdentity && databaseClient.includes('postgres')) {
       await trx.raw(
         'select pg_advisory_xact_lock(hashtextextended(?, 0))',
-        [`pastorwood-editorial:${entityType}:${documentId}`],
+        [lockIdentity],
       );
     }
     return callback(trx as unknown as ProjectionTransaction);
@@ -177,6 +187,72 @@ async function findDraft(model: (typeof entityModels)[EntityType], documentId: s
     status: 'draft',
     populate: editorialPopulate(model),
   });
+}
+
+async function listActiveRedirectRules() {
+  const rules: DocumentRecord[] = [];
+  const pageSize = 100;
+  const maximumRules = 10_000;
+  for (let start = 0; start < maximumRules; start += pageSize) {
+    const batch = await documents(entityModels.redirect.uid).findMany({
+      filters: { active: true, archivedAt: { $null: true } },
+      sort: ['documentId:asc'],
+      start,
+      limit: pageSize,
+    });
+    rules.push(...batch);
+    if (batch.length < pageSize) return rules;
+  }
+  const overflow = await documents(entityModels.redirect.uid).findMany({
+    filters: { active: true, archivedAt: { $null: true } },
+    sort: ['documentId:asc'],
+    start: maximumRules,
+    limit: 1,
+  });
+  if (overflow.length > 0) throw new Error('Active redirect inventory exceeds the 10,000-rule safety bound.');
+  return rules;
+}
+
+function applyNormalizedRedirectData(
+  data: Record<string, unknown>,
+  rule: NormalizedPastorWoodRedirectRule,
+) {
+  data.fromPath = rule.fromPath;
+  data.toPath = rule.toPath;
+  data.statusCode = rule.statusCode;
+  data.active = rule.active;
+}
+
+async function validateRedirectMutation(
+  ctx: EditorialContext,
+  documentId: string,
+  current: DocumentRecord | null,
+  data: Record<string, unknown>,
+) {
+  const candidate = {
+    ...(current || {}),
+    ...data,
+    documentId,
+  } as PastorWoodRedirectRule;
+  const preliminary = validatePastorWoodRedirectGraph(candidate, []);
+  if (!preliminary.ok) {
+    ctx.badRequest(preliminary.message, { code: `EDITORIAL_REDIRECT_${preliminary.code.toUpperCase().replace(/-/g, '_')}` });
+    return false;
+  }
+  if (!preliminary.rule.active || preliminary.rule.archivedAt) {
+    applyNormalizedRedirectData(data, preliminary.rule);
+    return true;
+  }
+  const result = validatePastorWoodRedirectGraph(
+    candidate,
+    await listActiveRedirectRules() as unknown as PastorWoodRedirectRule[],
+  );
+  if (!result.ok) {
+    ctx.badRequest(result.message, { code: `EDITORIAL_REDIRECT_${result.code.toUpperCase().replace(/-/g, '_')}` });
+    return false;
+  }
+  applyNormalizedRedirectData(data, result.rule);
+  return true;
 }
 
 async function revisionNumber(entityType: EntityType, entityDocumentId: string) {
@@ -415,6 +491,14 @@ const editorialWorkflowController = {
           return ctx.badRequest('Site settings have already been initialized.');
         }
       }
+      if (entityType === 'redirect' && !await validateRedirectMutation(
+        ctx,
+        '',
+        null,
+        input.data as Record<string, unknown>,
+      )) {
+        return;
+      }
       const created = await documents(model.uid).create({
         data: input.data,
         status: 'draft',
@@ -468,6 +552,9 @@ const editorialWorkflowController = {
         if (requestedTrackId !== current.trackId && await hasPermanentEpisodeIdentity(documentId, current)) {
           return ctx.badRequest('Track ID cannot change after an episode has been published.');
         }
+      }
+      if (entityType === 'redirect' && !await validateRedirectMutation(ctx, documentId, current, data)) {
+        return;
       }
 
       const updated = await documents(model.uid).update({
@@ -726,6 +813,9 @@ const editorialWorkflowController = {
         if (contentTypeAttributes(model.uid).active) {
           data.active = true;
         }
+        if (entityType === 'redirect' && !await validateRedirectMutation(ctx, documentId, current, data)) {
+          return;
+        }
         const restored = await documents(model.uid).update({ documentId, data, status: 'draft', populate: editorialPopulate(model) });
         await recordAction(entityType, model, documentId, restored, action, actor, input.note);
         if (entityType === 'redirect') {
@@ -751,6 +841,9 @@ const editorialWorkflowController = {
         }
         if (entityType === 'episode' && await hasPermanentEpisodeIdentity(documentId, current)) {
           data.trackId = current.trackId;
+        }
+        if (entityType === 'redirect' && !await validateRedirectMutation(ctx, documentId, current, data)) {
+          return;
         }
         const restored = await documents(model.uid).update({ documentId, data, status: 'draft', populate: editorialPopulate(model) });
         await recordAction(

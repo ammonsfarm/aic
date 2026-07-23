@@ -20,6 +20,7 @@ import {
   type StructuredFieldDefinition,
 } from "@/lib/structured-content-config";
 import {
+  isOwnedLegacyRedirectSource,
   isReservedLegacyRedirectSource,
   isSafeLegacyRedirectTarget,
   normalizeLegacyRequestPath,
@@ -332,6 +333,9 @@ async function structuredPayload(
     const toPath = normalizeLegacyRequestPath(String(data.toPath || ""));
     if (!fromPath || isReservedLegacyRedirectSource(fromPath)) {
       throw new Error("Legacy path must be a non-reserved site path beginning with one slash.");
+    }
+    if (isOwnedLegacyRedirectSource(fromPath)) {
+      throw new Error("A managed redirect cannot replace an owned PastorWood public route.");
     }
     if (!toPath || !isSafeLegacyRedirectTarget(toPath)) {
       throw new Error("Redirect destination must be a non-reserved path on this site.");

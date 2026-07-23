@@ -10,12 +10,17 @@ import redirects from "@/data/legacy-redirects.json";
 import media from "@/data/public-media-manifest.json";
 import { resetPublicStrapiCircuitForTests } from "@/lib/strapi-request";
 import {
+  isOwnedLegacyRedirectSource,
   isReservedLegacyRedirectSource,
   isSafeLegacyRedirectTarget,
   legacyRedirectCount,
   resolveLegacyRedirect,
   resolvePublicLegacyRedirect,
 } from "@/lib/legacy-redirects";
+import {
+  PASTORWOOD_OWNED_PUBLIC_ROUTES,
+  PASTORWOOD_PROTECTED_REDIRECT_PREFIXES,
+} from "@/services/jimwood-cms/src/shared/pastorwood-redirect-policy";
 
 beforeEach(() => {
   resetPublicStrapiCircuitForTests();
@@ -36,10 +41,27 @@ afterEach(() => {
 
 describe("generated legacy redirect integrity", () => {
   it("cannot override current private, API, login, or asset routes", () => {
-    for (const path of ["/admin", "/api/private", "/content/pages", "/login", "/_next/static/file.js", "/privacy", "/privacy/archive"]) {
+    for (const path of ["/admin", "/api/private", "/content/pages", "/episodes/1", "/login", "/podcast", "/reading-plan/day", "/sermons/1", "/_next/static/file.js", "/privacy", "/privacy/archive"]) {
       expect(isReservedLegacyRedirectSource(path)).toBe(true);
       expect(resolveLegacyRedirect(path)).toBeNull();
     }
+    for (const prefix of PASTORWOOD_PROTECTED_REDIRECT_PREFIXES) {
+      expect(isReservedLegacyRedirectSource(`${prefix}/nested`), prefix).toBe(true);
+    }
+  });
+
+  it("never asks Strapi for a managed redirect that shadows an owned public route", async () => {
+    process.env.STRAPI_PUBLIC_URL = "https://cms.example.test";
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    for (const path of PASTORWOOD_OWNED_PUBLIC_ROUTES) {
+      expect(isOwnedLegacyRedirectSource(path), path).toBe(true);
+      const variant = path === "/" ? path : path.replace(/\/+$/, "").toUpperCase();
+      await expect(resolvePublicLegacyRedirect(variant), path).resolves.toBeNull();
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(projection.identity).not.toHaveBeenCalled();
   });
 
   it("never asks Strapi for a redirect that could shadow the GPT privacy route", async () => {
@@ -53,24 +75,37 @@ describe("generated legacy redirect integrity", () => {
 
   it("contains no self loops and all media targets exist in the verified manifest", () => {
     const mediaTargets = new Set(media.filter((entry) => entry.exists).map((entry) => entry.publicPath));
+    const sources = new Set(redirects.map((entry) => entry.fromPath.toLowerCase()));
     for (const redirect of redirects) {
       expect(redirect.fromPath.replace(/\/+$/, "")).not.toBe(redirect.toPath.replace(/\/+$/, ""));
       expect(isReservedLegacyRedirectSource(redirect.fromPath)).toBe(false);
+      expect(sources.has(redirect.toPath.toLowerCase()), `${redirect.fromPath} creates a redirect chain`).toBe(false);
       if (redirect.toPath.startsWith("/media/legacy/")) expect(mediaTargets.has(redirect.toPath)).toBe(true);
     }
     expect(legacyRedirectCount()).toBe(redirects.length);
   });
 
+  it("preserves intentional bootstrap aliases inside current route families", () => {
+    const radioAlias = redirects.find((entry) => entry.fromPath.startsWith("/radio/"));
+    const uploadAlias = redirects.find((entry) => entry.fromPath.startsWith("/wp-content/uploads/"));
+    expect(radioAlias).toBeTruthy();
+    expect(uploadAlias).toBeTruthy();
+    expect(resolveLegacyRedirect(radioAlias!.fromPath)).toEqual(expect.objectContaining({ toPath: radioAlias!.toPath }));
+    expect(resolveLegacyRedirect(uploadAlias!.fromPath)).toEqual(expect.objectContaining({ toPath: uploadAlias!.toPath }));
+  });
+
   it("uses a valid active content-manager redirect immediately", async () => {
     process.env.STRAPI_PUBLIC_URL = "https://cms.example.test";
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [{
-      documentId: "managed-1",
-      fromPath: "/managed-old/",
-      toPath: "/radio/managed-current/",
-      statusCode: 308,
-      active: true,
-      archivedAt: null,
-    }] }), { status: 200 }));
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{
+        documentId: "managed-1",
+        fromPath: "/managed-old/",
+        toPath: "/radio/managed-current/",
+        statusCode: 308,
+        active: true,
+        archivedAt: null,
+      }] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [] }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(resolvePublicLegacyRedirect("/managed-old")).resolves.toMatchObject({
@@ -80,6 +115,41 @@ describe("generated legacy redirect integrity", () => {
     });
     const [url] = fetchMock.mock.calls[0] as [URL, RequestInit];
     expect(url.searchParams.get("filters[fromPath][$eq]")).toBe("/managed-old/");
+  });
+
+  it("fails closed when a managed redirect points to another managed redirect", async () => {
+    process.env.STRAPI_PUBLIC_URL = "https://cms.example.test";
+    const fetchMock = vi.fn(async (input: URL | RequestInfo) => {
+      const url = input instanceof URL ? input : new URL(String(input));
+      const source = url.searchParams.get("filters[fromPath][$eq]")
+        || url.searchParams.get("filters[fromPath][$eqi]");
+      const data = source?.toLowerCase() === "/managed-old/"
+        ? [{ documentId: "managed-a", fromPath: "/managed-old/", toPath: "/managed-middle/", statusCode: 308, active: true }]
+        : [{ documentId: "managed-b", fromPath: "/managed-middle/", toPath: "/radio/final/", statusCode: 308, active: true }];
+      return new Response(JSON.stringify({ data }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(resolvePublicLegacyRedirect("/managed-old/")).resolves.toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const secondUrl = fetchMock.mock.calls[1]?.[0] as URL;
+    expect(secondUrl.searchParams.get("filters[fromPath][$eqi]")).toBe("/managed-middle/");
+  });
+
+  it("fails closed when a managed rule targets an immutable bootstrap redirect source", async () => {
+    process.env.STRAPI_PUBLIC_URL = "https://cms.example.test";
+    const generated = redirects[0];
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [{
+      documentId: "managed-bootstrap-chain",
+      fromPath: "/managed-old/",
+      toPath: generated.fromPath,
+      statusCode: 301,
+      active: true,
+    }] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(resolvePublicLegacyRedirect("/managed-old/")).resolves.toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("treats an inactive managed redirect as authoritative", async () => {
