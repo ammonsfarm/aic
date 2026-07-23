@@ -6,6 +6,7 @@ import { SubscriptionProviderRetryForm } from "@/components/subscription-provide
 import { requireContentManagerOrAdmin } from "@/lib/rbac";
 import { getSubscriptionProviderSummary } from "@/lib/subscription-provider-admin";
 import { getPublishedManagedSiteSettings } from "@/lib/strapi-site-settings-management";
+import { pastorWoodPublicCmsCutoverEnabled } from "@/lib/pastorwood-public-cms-cutover";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +26,8 @@ export default async function NewsletterSubscribersPage() {
   const runtimeReady = summary.provider.publicCaptureEnabled;
   const cmsGateReady = publishedSettings?.subscriptionEnabled === true;
   const cmsGateUnavailable = !publishedLookup.available;
-  const publicSignupReady = providerReady && runtimeReady && cmsGateReady;
+  const publicCutoverReady = pastorWoodPublicCmsCutoverEnabled();
+  const publicSignupReady = providerReady && runtimeReady && cmsGateReady && publicCutoverReady;
   return (
     <div className="stack">
       <MountainPanel
@@ -52,6 +54,9 @@ export default async function NewsletterSubscribersPage() {
           </span>
           <span className={cmsGateReady ? "status-item status-item--active" : "status-item status-item--warn"}>
             Published CMS gate: {cmsGateUnavailable ? "unavailable" : cmsGateReady ? "enabled" : "disabled"}
+          </span>
+          <span className={publicCutoverReady ? "status-item status-item--active" : "status-item status-item--warn"}>
+            Public CMS cutover: {publicCutoverReady ? "enabled" : "bootstrap mode"}
           </span>
         </div>
         <div className="data-card responsive-table">
@@ -80,6 +85,9 @@ export default async function NewsletterSubscribersPage() {
           <p className="notice-card status-item--warn" role="status">The published CMS subscription setting could not be verified, so public signup remains disabled.</p>
         ) : !cmsGateReady ? (
           <p className="notice-card status-item--warn" role="status">Publish the CMS subscription switch only after provider configuration and the runtime gate are intentionally ready.</p>
+        ) : null}
+        {!publicCutoverReady ? (
+          <p className="notice-card status-item--warn" role="status">The public site is intentionally using bootstrap continuity until the reviewed CMS publication batch is complete and the cutover gate is enabled.</p>
         ) : null}
         {summary.outbox.latestError ? <p className="notice-card status-item--warn" role="alert">Latest provider error: {summary.outbox.latestError}</p> : null}
         <SubscriptionProviderRetryForm disabled={!summary.outbox.failed} />

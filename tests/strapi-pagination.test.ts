@@ -29,8 +29,10 @@ import {
 } from "@/lib/strapi-structured-public";
 
 const originalUrl = process.env.STRAPI_URL;
+const originalCutover = process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED;
 
 beforeEach(() => {
+  process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED = "true";
   const unavailable = new Error("projection unavailable in isolated test");
   projection.page.mockReset().mockRejectedValue(unavailable);
   projection.all.mockReset().mockRejectedValue(unavailable);
@@ -39,6 +41,8 @@ beforeEach(() => {
 
 afterEach(() => {
   process.env.STRAPI_URL = originalUrl;
+  if (originalCutover === undefined) delete process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED;
+  else process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED = originalCutover;
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });

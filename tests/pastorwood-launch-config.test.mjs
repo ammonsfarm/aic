@@ -15,6 +15,7 @@ function runLaunchCheck(overrides = {}, worker = "1", inherited = {}) {
     PASTORWOOD_LAUNCH_STAGE: "development",
     PASTORWOOD_PUBLIC_URL: "https://aic.ammonsfarm.org",
     PASTORWOOD_ALLOW_INDEXING: "false",
+    PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED: "false",
     PASTORWOOD_SUBSCRIPTIONS_ENABLED: "false",
     MAILCHIMP_API_KEY: "key-us21",
     MAILCHIMP_SERVER_PREFIX: "us21",
@@ -50,6 +51,7 @@ test("canonical file values keep signup off even when inherited state says true"
     launchStage: "development",
     publicOrigin: "development",
     publicIndexing: "disabled",
+    publicCmsCutover: "bootstrap",
     subscriptionRuntime: "disabled",
     subscriptionProvider: "ready",
     subscriptionWorker: "disabled",
@@ -97,4 +99,8 @@ test("launch checks reject an ambiguous subscription gate", () => {
   const ambiguous = runLaunchCheck({ PASTORWOOD_SUBSCRIPTIONS_ENABLED: "yes" });
   assert.notEqual(ambiguous.status, 0);
   assert.match(ambiguous.stderr, /exactly true or false/i);
+
+  const ambiguousCutover = runLaunchCheck({ PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED: "yes" });
+  assert.notEqual(ambiguousCutover.status, 0);
+  assert.match(ambiguousCutover.stderr, /PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED must be exactly true or false/);
 });

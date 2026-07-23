@@ -55,6 +55,7 @@ test("subscription readiness and admin status use the same complete provider con
   assert.match(page, /Provider configuration:/);
   assert.match(page, /Runtime gate:/);
   assert.match(page, /Published CMS gate:/);
+  assert.match(page, /Public CMS cutover:/);
 });
 
 test("contact UI remains present with CMS content and has explicit privacy consent", async () => {

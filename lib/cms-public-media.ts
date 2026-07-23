@@ -2,9 +2,11 @@ import "server-only";
 
 import path from "node:path";
 
+import { pastorWoodPublicCmsCutoverEnabled } from "@/lib/pastorwood-public-cms-cutover";
 import { getProjectedPublicMedia } from "@/lib/public-content-projection";
 
 export async function authorizedPublishedCmsMedia(documentId: string) {
+  if (!pastorWoodPublicCmsCutoverEnabled()) return null;
   return getProjectedPublicMedia(documentId);
 }
 

@@ -1,4 +1,5 @@
 import redirectManifest from "@/data/legacy-redirects.json";
+import { pastorWoodPublicCmsCutoverEnabled } from "@/lib/pastorwood-public-cms-cutover";
 import { getProjectedContentByIdentity } from "@/lib/public-content-projection";
 import { fetchWithTimeout } from "@/lib/strapi-request";
 import { STRAPI_STRUCTURED_CACHE_TAG, strapiStructuredCacheTag } from "@/lib/strapi-cache-tags";
@@ -132,6 +133,7 @@ export async function resolvePublicLegacyRedirect(pathname: string): Promise<Leg
   const source = normalizePath(pathname);
   if (!source || isReservedPath(source)) return null;
   const fallback = resolveLegacyRedirect(source);
+  if (!pastorWoodPublicCmsCutoverEnabled()) return fallback;
   const projectedOrBootstrap = async () => {
     try {
       const projection = await getProjectedContentByIdentity<Record<string, unknown>>(

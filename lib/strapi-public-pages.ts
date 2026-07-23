@@ -1,6 +1,7 @@
 import "server-only";
 
 import { listAllProjectedContent } from "@/lib/public-content-projection";
+import { pastorWoodPublicCmsCutoverEnabled } from "@/lib/pastorwood-public-cms-cutover";
 import { STRAPI_PAGES_CACHE_TAG } from "@/lib/strapi";
 import { fetchStrapiJsonResult } from "@/lib/strapi-request";
 
@@ -71,6 +72,7 @@ async function projectedPages() {
 }
 
 export async function getPublishedPageSitemapListing(): Promise<PublishedPageSitemapListing> {
+  if (!pastorWoodPublicCmsCutoverEnabled()) return { entries: [], source: "unavailable" };
   const baseUrl = strapiBaseUrl();
   if (!baseUrl) return projectedPages();
   const token = process.env.STRAPI_READ_TOKEN?.trim() || process.env.STRAPI_API_TOKEN?.trim() || "";

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const fallback = vi.hoisted(() => ({
   episodesPage: vi.fn(),
@@ -53,6 +53,7 @@ function fallbackEpisode(index: number) {
 }
 
 beforeEach(() => {
+  process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED = "true";
   process.env.STRAPI_URL = "http://127.0.0.1:1337";
   vi.restoreAllMocks();
   fallback.episodesPage.mockReset();
@@ -66,6 +67,10 @@ beforeEach(() => {
   projection.page.mockResolvedValue({ items: [], page: 1, pageSize: 100, pageCount: 0, total: 0, hasState: false });
   projection.all.mockResolvedValue({ items: [], hasState: false });
   projection.identity.mockResolvedValue({ status: "absent" });
+});
+
+afterEach(() => {
+  delete process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED;
 });
 
 describe("published archive fallback source consistency", () => {

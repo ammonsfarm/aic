@@ -1,6 +1,7 @@
 import "server-only";
 
 import { cmsMediaPublicUrl } from "@/lib/cms-media-url";
+import { pastorWoodPublicCmsCutoverEnabled } from "@/lib/pastorwood-public-cms-cutover";
 import { getProjectedContentByIdentity } from "@/lib/public-content-projection";
 import { STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag } from "@/lib/strapi";
 import { fetchStrapiJsonResult } from "@/lib/strapi-request";
@@ -199,6 +200,7 @@ async function projectedSettings() {
 }
 
 export async function getStrapiSiteSettings(): Promise<StrapiSiteSettings | null> {
+  if (!pastorWoodPublicCmsCutoverEnabled()) return null;
   const baseUrl = strapiBaseUrl();
   if (!baseUrl) {
     return projectedSettings();

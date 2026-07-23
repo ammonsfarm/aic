@@ -1,6 +1,7 @@
 import "server-only";
 
 import { cmsMediaPublicUrl } from "@/lib/cms-media-url";
+import { pastorWoodPublicCmsCutoverEnabled } from "@/lib/pastorwood-public-cms-cutover";
 import { getProjectedContentByIdentity } from "@/lib/public-content-projection";
 import { fetchStrapiJsonResult } from "@/lib/strapi-request";
 
@@ -242,6 +243,7 @@ export async function getStrapiPageByPageKey(pageKey: string): Promise<StrapiPag
 }
 
 export async function getStrapiPageByPageKeyResult(pageKey: string): Promise<StrapiPageLookupResult> {
+  if (!pastorWoodPublicCmsCutoverEnabled()) return { status: "unavailable" };
   const baseUrl = strapiBaseUrl();
   if (!baseUrl) {
     return projectedPage("page-key", pageKey);
@@ -268,6 +270,9 @@ export async function getStrapiPageBySlug(slug: string): Promise<StrapiPage | nu
 }
 
 export async function getStrapiPageBySlugResult(slug: string): Promise<StrapiPageLookupResult> {
+  // Dynamic CMS-only routes have no reviewed bootstrap equivalent, so they
+  // remain real 404s until the explicit public cutover.
+  if (!pastorWoodPublicCmsCutoverEnabled()) return { status: "not-found" };
   const baseUrl = strapiBaseUrl();
   if (!baseUrl) {
     return projectedPage("slug", slug);

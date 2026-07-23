@@ -9,11 +9,13 @@ vi.mock("@/lib/public-content-projection", () => ({
 import { getStrapiPageBySlugResult, strapiPageCacheTag } from "@/lib/strapi";
 
 beforeEach(() => {
+  process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED = "true";
   projection.identity.mockReset();
   projection.identity.mockResolvedValue({ status: "absent" });
 });
 
 afterEach(() => {
+  delete process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED;
   delete process.env.STRAPI_URL;
   delete process.env.STRAPI_API_TOKEN;
   delete process.env.STRAPI_PAGE_REVALIDATE_SECONDS;

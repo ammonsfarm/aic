@@ -2,6 +2,7 @@ import "server-only";
 
 import { safeCmsHref, safeCmsImageSrc } from "@/lib/cms-html";
 import { cmsMediaPublicUrl } from "@/lib/cms-media-url";
+import { pastorWoodPublicCmsCutoverEnabled } from "@/lib/pastorwood-public-cms-cutover";
 import {
   getFallbackEpisodeBySlug,
   getFallbackEpisodeByTrackId,
@@ -305,6 +306,7 @@ async function publishedCollectionPage(
   const requestedPage = Math.max(1, Math.floor(options.page || 1));
   const requestedPageSize = strapiPageSize(options.pageSize);
   const empty = { items: [], page: requestedPage, pageSize: requestedPageSize, pageCount: 0, total: 0, available: false };
+  if (!pastorWoodPublicCmsCutoverEnabled()) return empty;
   const origin = baseUrl();
   if (!origin) return empty;
 
@@ -479,9 +481,11 @@ export async function listPublishedPosts(contentType?: string): Promise<Publishe
 }
 
 export async function listPublishedPostsPage(contentType: string | undefined, page = 1, pageSize = 24): Promise<PublishedPage<PublishedPost>> {
+  const cutoverEnabled = pastorWoodPublicCmsCutoverEnabled();
   const result = await publishedCollectionPage("posts", { filters: contentType ? { contentType } : undefined, sort: "publishDate:desc", page, pageSize });
   if (result.available) return { ...result, items: result.items.map(publishedPost) };
   try {
+    if (!cutoverEnabled) throw new Error("Public CMS cutover is disabled.");
     const projection = await listProjectedContentPage<PublicEntry>("post", page, pageSize, { contentType });
     if (projection.hasState) {
       return {
@@ -493,7 +497,7 @@ export async function listPublishedPostsPage(contentType: string | undefined, pa
       };
     }
   } catch (error) {
-    console.error("Published post projection lookup failed; trying the bootstrap archive.", error);
+    if (cutoverEnabled) console.error("Published post projection lookup failed; trying the bootstrap archive.", error);
   }
   try {
     const fallback = await getFallbackPostsPage(contentType, page, pageSize);
@@ -516,16 +520,18 @@ export async function getPublishedPostBySlug(slug: string) {
 }
 
 export async function getPublishedPostBySlugResult(slug: string): Promise<PublishedLookupResult<PublishedPost>> {
+  const cutoverEnabled = pastorWoodPublicCmsCutoverEnabled();
   const result = await publishedCollectionPage("posts", { filters: { slug }, pageSize: 1 });
   if (!result.available) {
     try {
+      if (!cutoverEnabled) throw new Error("Public CMS cutover is disabled.");
       const projection = await getProjectedContentByIdentity<PublicEntry>("post", "slug", slug);
       if (projection.status === "found") {
         return { status: "found", item: publishedPost(projection.item), degraded: true };
       }
       if (projection.status === "not-found") return { status: "not-found" };
     } catch (error) {
-      console.error("Published post detail projection lookup failed; trying the bootstrap archive.", error);
+      if (cutoverEnabled) console.error("Published post detail projection lookup failed; trying the bootstrap archive.", error);
     }
     try {
       const fallback = await getFallbackPostBySlug(slug);
@@ -606,6 +612,7 @@ export async function listPublishedEpisodesPage(
   pageSize = 24,
   filters: { query?: string; year?: number | null } = {},
 ): Promise<PublishedPage<PublishedEpisode>> {
+  const cutoverEnabled = pastorWoodPublicCmsCutoverEnabled();
   const query = Array.from((filters.query || "").trim()).slice(0, 80).join("");
   const year = Number.isSafeInteger(filters.year) && Number(filters.year) >= 1900 && Number(filters.year) <= 2100
     ? Number(filters.year)
@@ -622,6 +629,7 @@ export async function listPublishedEpisodesPage(
   });
   if (result.available) return { ...result, items: result.items.map(publishedEpisode) };
   try {
+    if (!cutoverEnabled) throw new Error("Public CMS cutover is disabled.");
     const projection = await listProjectedContentPage<PublicEntry>("episode", page, pageSize, { query, year });
     if (projection.hasState) {
       return {
@@ -633,7 +641,7 @@ export async function listPublishedEpisodesPage(
       };
     }
   } catch (error) {
-    console.error("Published episode projection lookup failed; trying the bootstrap archive.", error);
+    if (cutoverEnabled) console.error("Published episode projection lookup failed; trying the bootstrap archive.", error);
   }
   try {
     const fallback = await getFallbackEpisodesPage(page, pageSize, { query, year });
@@ -656,9 +664,11 @@ export async function getPublishedEpisodeBySlug(slug: string) {
 }
 
 async function publishedEpisodeLookupResult(filters: Record<string, string>): Promise<PublishedLookupResult<PublishedEpisode>> {
+  const cutoverEnabled = pastorWoodPublicCmsCutoverEnabled();
   const result = await publishedCollectionPage("episodes", { filters, pageSize: 1 });
   if (!result.available) {
     try {
+      if (!cutoverEnabled) throw new Error("Public CMS cutover is disabled.");
       const projection = filters.slug !== undefined
         ? await getProjectedContentByIdentity<PublicEntry>("episode", "slug", filters.slug)
         : await getProjectedContentByIdentity<PublicEntry>("episode", "track-id", filters.trackId || "");
@@ -667,7 +677,7 @@ async function publishedEpisodeLookupResult(filters: Record<string, string>): Pr
       }
       if (projection.status === "not-found") return { status: "not-found" };
     } catch (error) {
-      console.error("Published episode detail projection lookup failed; trying the bootstrap archive.", error);
+      if (cutoverEnabled) console.error("Published episode detail projection lookup failed; trying the bootstrap archive.", error);
     }
     try {
       const fallback = filters.slug !== undefined
@@ -759,12 +769,14 @@ export async function listPublishedBoardMembers(): Promise<PublishedPerson[]> {
 }
 
 export async function listPublishedBoardMembersResult(): Promise<PublishedPage<PublishedPerson>> {
+  const cutoverEnabled = pastorWoodPublicCmsCutoverEnabled();
   const result = await publishedCollectionPage("people", {
     filters: { active: true, showOnBoard: true },
     sort: "sortOrder:asc",
   });
   if (!result.available) {
     try {
+      if (!cutoverEnabled) throw new Error("Public CMS cutover is disabled.");
       const projection = await listProjectedContentPage<PublicEntry>("person", 1, STRAPI_MAX_PAGE_SIZE, {
         activeOnly: true,
         boardOnly: true,
@@ -788,7 +800,7 @@ export async function listPublishedBoardMembersResult(): Promise<PublishedPage<P
         };
       }
     } catch (error) {
-      console.error("Published board projection lookup failed; using the bootstrap snapshot.", error);
+      if (cutoverEnabled) console.error("Published board projection lookup failed; using the bootstrap snapshot.", error);
     }
     return {
       items: STATIC_BOARD_MEMBERS.map((member, index) => ({
@@ -827,12 +839,14 @@ export async function listPublishedEndorsements(): Promise<PublishedEndorsement[
 }
 
 export async function listPublishedEndorsementsResult(): Promise<PublishedPage<PublishedEndorsement>> {
+  const cutoverEnabled = pastorWoodPublicCmsCutoverEnabled();
   const result = await publishedCollectionPage("endorsements", {
     filters: { active: true },
     sort: "sortOrder:asc",
   });
   if (!result.available) {
     try {
+      if (!cutoverEnabled) throw new Error("Public CMS cutover is disabled.");
       const projection = await listProjectedContentPage<PublicEntry>("endorsement", 1, STRAPI_MAX_PAGE_SIZE, {
         activeOnly: true,
       });
@@ -855,7 +869,7 @@ export async function listPublishedEndorsementsResult(): Promise<PublishedPage<P
         };
       }
     } catch (error) {
-      console.error("Published endorsement projection lookup failed; using the bootstrap snapshot.", error);
+      if (cutoverEnabled) console.error("Published endorsement projection lookup failed; using the bootstrap snapshot.", error);
     }
     return {
       items: STATIC_ENDORSEMENTS.map((endorsement, index) => ({
@@ -889,6 +903,7 @@ export async function listPublishedEndorsementsResult(): Promise<PublishedPage<P
 }
 
 export async function listPublicMediaAssets(): Promise<PublishedMediaAsset[]> {
+  if (!pastorWoodPublicCmsCutoverEnabled()) return [];
   const live = await allPublishedCollection("media-assets", {
     filters: { visibility: "public" },
     sort: "title:asc",
@@ -920,6 +935,7 @@ export async function listPublicMediaAssets(): Promise<PublishedMediaAsset[]> {
 }
 
 export async function listPublicRedirects(): Promise<PublicRedirect[]> {
+  if (!pastorWoodPublicCmsCutoverEnabled()) return [];
   const live = await allPublishedCollection("redirects", {
     filters: { active: true },
     sort: "fromPath:asc",

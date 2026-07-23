@@ -17,11 +17,13 @@ import {
 } from "@/lib/legacy-redirects";
 
 beforeEach(() => {
+  process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED = "true";
   projection.identity.mockReset();
   projection.identity.mockResolvedValue({ status: "absent" });
 });
 
 afterEach(() => {
+  delete process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED;
   delete process.env.STRAPI_PUBLIC_URL;
   delete process.env.STRAPI_URL;
   delete process.env.STRAPI_READ_TOKEN;

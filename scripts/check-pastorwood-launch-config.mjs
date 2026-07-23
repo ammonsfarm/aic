@@ -12,6 +12,7 @@ const MANAGED_KEYS = [
   "PASTORWOOD_LAUNCH_STAGE",
   "PASTORWOOD_PUBLIC_URL",
   "PASTORWOOD_ALLOW_INDEXING",
+  "PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED",
   "PASTORWOOD_SUBSCRIPTIONS_ENABLED",
   "MAILCHIMP_API_KEY",
   "MAILCHIMP_SERVER_PREFIX",
@@ -20,7 +21,14 @@ const MANAGED_KEYS = [
   "SUBSCRIPTION_RATE_LIMIT_SECRET",
   "SUBSCRIPTION_UNSUBSCRIBE_SECRET",
 ];
-const PROVIDER_KEYS = MANAGED_KEYS.slice(4);
+const PROVIDER_KEYS = [
+  "MAILCHIMP_API_KEY",
+  "MAILCHIMP_SERVER_PREFIX",
+  "MAILCHIMP_AUDIENCE_ID",
+  "MAILCHIMP_WEBHOOK_SECRET",
+  "SUBSCRIPTION_RATE_LIMIT_SECRET",
+  "SUBSCRIPTION_UNSUBSCRIBE_SECRET",
+];
 
 function argument(name) {
   const index = process.argv.indexOf(name);
@@ -83,6 +91,11 @@ if (launchStage === "development" && indexingValue !== "false") {
   throw new Error("Development PastorWood deployments must keep public indexing disabled.");
 }
 
+const publicCmsCutoverValue = (values.get("PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED") || "false").toLowerCase();
+if (publicCmsCutoverValue !== "true" && publicCmsCutoverValue !== "false") {
+  throw new Error("PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED must be exactly true or false.");
+}
+
 const runtimeValue = (values.get("PASTORWOOD_SUBSCRIPTIONS_ENABLED") || "false").toLowerCase();
 if (runtimeValue !== "true" && runtimeValue !== "false") {
   throw new Error("PASTORWOOD_SUBSCRIPTIONS_ENABLED must be exactly true or false.");
@@ -104,6 +117,7 @@ console.log(JSON.stringify({
   launchStage,
   publicOrigin: launchStage === "development" ? "development" : "canonical",
   publicIndexing: indexingValue === "true" ? "enabled" : "disabled",
+  publicCmsCutover: publicCmsCutoverValue === "true" ? "enabled" : "bootstrap",
   subscriptionRuntime: runtimeEnabled ? "enabled" : "disabled",
   subscriptionProvider: providerReady ? "ready" : "incomplete",
   subscriptionWorker: workerEnabled === "1" ? "enabled" : "disabled",

@@ -12,11 +12,13 @@ const originalPublicUrl = process.env.STRAPI_PUBLIC_URL;
 const originalUrl = process.env.STRAPI_URL;
 
 beforeEach(() => {
+  process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED = "true";
   projection.listAll.mockReset();
   projection.listAll.mockResolvedValue({ items: [], hasState: false });
 });
 
 afterEach(() => {
+  delete process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED;
   process.env.STRAPI_PUBLIC_URL = originalPublicUrl;
   process.env.STRAPI_URL = originalUrl;
   vi.unstubAllGlobals();

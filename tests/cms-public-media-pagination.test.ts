@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const projection = vi.hoisted(() => ({ getMedia: vi.fn() }));
 
@@ -9,7 +9,12 @@ vi.mock("@/lib/public-content-projection", () => ({
 import { authorizedPublishedCmsMedia } from "@/lib/cms-public-media";
 
 beforeEach(() => {
+  process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED = "true";
   projection.getMedia.mockReset();
+});
+
+afterEach(() => {
+  delete process.env.PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED;
 });
 
 describe("published media authorization projection", () => {
