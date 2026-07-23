@@ -9,14 +9,9 @@ umask 077
 : "${DATABASE_PASSWORD:?DATABASE_PASSWORD is required}"
 : "${DATABASE_SCHEMA:?DATABASE_SCHEMA is required}"
 
-if [[ "${DATABASE_SCHEMA}" != "aic_strapi" ]]; then
-  echo "Refusing unexpected Strapi schema: ${DATABASE_SCHEMA}" >&2
-  exit 1
-fi
-if [[ "${DATABASE_HOST}" != "192.168.1.106" || "${DATABASE_PORT}" != "5432" ]]; then
-  echo "Refusing any PostgreSQL target other than 192.168.1.106:5432." >&2
-  exit 1
-fi
+script_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck disable=SC1091
+source "${script_root}/require-canonical-db-context.sh"
 
 canonical_client_root="/usr/lib/postgresql/16/bin"
 client_root="${STRAPI_POSTGRES_CLIENT_ROOT:-${canonical_client_root}}"

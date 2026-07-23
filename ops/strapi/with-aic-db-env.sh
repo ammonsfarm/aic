@@ -17,6 +17,16 @@ if [[ "${test_mode}" == "1" && "${NODE_ENV:-}" == "production" ]]; then
   echo "Test database environment overrides are forbidden in production." >&2
   exit 1
 fi
+if [[ "${test_mode}" == "1" ]]; then
+  if [[ "${NODE_ENV:-}" != "test" ||
+        "${STRAPI_NATIVE_CLIENT_TEST_MODE:-}" != "1" ||
+        -z "${STRAPI_POSTGRES_CLIENT_ROOT:-}" ||
+        "${STRAPI_POSTGRES_CLIENT_ROOT}" == "/usr/lib/postgresql/16/bin" ||
+        ! -d "${STRAPI_POSTGRES_CLIENT_ROOT}" ]]; then
+    echo "Alternate database environment files require NODE_ENV=test and an explicit non-production stub client root." >&2
+    exit 1
+  fi
+fi
 
 if [[ "${test_mode}" == "0" && "${aic_env}" != "${canonical_aic_env}" ]]; then
   echo "Production Strapi must use ${canonical_aic_env}." >&2
@@ -31,23 +41,46 @@ if [[ "$#" -eq 0 ]]; then
   exit 1
 fi
 
-# Load only the five database values in a subshell. Other assignments in the AIC
-# file must not overwrite NODE_ENV, Strapi application secrets, or service paths.
+# Parse only the five database values without sourcing the file. Other
+# assignments cannot execute or overwrite NODE_ENV, Strapi application secrets,
+# or service paths, and duplicate database/routing keys fail closed.
 database_values=()
 mapfile -d '' -t database_values < <(
-  (
-    set -euo pipefail
-    unset DB_HOST DB_PORT DB_NAME DB_USER DB_PASSWORD
-    # shellcheck disable=SC1090
-    source "${aic_env}" >/dev/null
-    for variable in DB_HOST DB_PORT DB_NAME DB_USER DB_PASSWORD; do
-      if [[ -z "${!variable:-}" ]]; then
-        echo "${variable} is required in ${aic_env}." >&2
-        exit 1
-      fi
-    done
-    printf '%s\0' "${DB_HOST}" "${DB_PORT}" "${DB_NAME}" "${DB_USER}" "${DB_PASSWORD}"
-  )
+  /usr/bin/python3 - "${aic_env}" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+database_keys = ("DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD")
+routing_keys = (
+    "PGHOST", "PGHOSTADDR", "PGPORT", "PGDATABASE", "PGUSER", "PGPASSWORD",
+    "PGPASSFILE", "PGSERVICE", "PGSERVICEFILE", "DATABASE_URL",
+)
+sensitive_keys = {*database_keys, *routing_keys}
+seen_sensitive: set[str] = set()
+values: dict[str, str] = {}
+for raw_line in path.read_text(encoding="utf-8").splitlines():
+    line = raw_line.strip()
+    if line.startswith("export "):
+        line = line.removeprefix("export ").lstrip()
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+    key, value = line.split("=", 1)
+    key = key.strip()
+    if key in sensitive_keys:
+        if key in seen_sensitive:
+            raise SystemExit(f"Duplicate sensitive database environment key: {key}")
+        seen_sensitive.add(key)
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        value = value[1:-1]
+    values[key] = value
+
+if any(not values.get(key) for key in database_keys):
+    raise SystemExit("Canonical AIC environment is missing a required database value.")
+for key in database_keys:
+    sys.stdout.buffer.write(values[key].encode("utf-8") + b"\0")
+PY
 )
 if [[ "${#database_values[@]}" -ne 5 ]]; then
   echo "Could not load the five required database values from ${aic_env}." >&2
@@ -88,5 +121,16 @@ export PGDATABASE="${DB_NAME}"
 export PGUSER="${DB_USER}"
 export PGPASSWORD="${DB_PASSWORD}"
 export PGCONNECT_TIMEOUT=5
+
+# Mark the exact wrapper process with a fresh, non-reusable guard. Internal
+# schema and backup commands independently re-read the canonical file and
+# require this PID-bound nonce, preventing accidental direct invocation.
+unset AIC_CANONICAL_DB_GUARD
+guard_nonce="$(/usr/bin/od -An -N32 -tx1 /dev/urandom | /usr/bin/tr -d ' \n')"
+if [[ ! "${guard_nonce}" =~ ^[0-9a-f]{64}$ ]]; then
+  echo "Could not generate the canonical database operation guard." >&2
+  exit 1
+fi
+export AIC_CANONICAL_DB_GUARD="${BASHPID}:${guard_nonce}"
 
 exec "$@"

@@ -20,6 +20,7 @@ for (const name of [
   "install-strapi-service.sh",
   "prepare-strapi-storage.sh",
   "provision-strapi.sh",
+  "require-canonical-db-context.sh",
   "run-consistent-backup.sh",
   "sync-aic-strapi-env.sh",
   "verify-strapi-backup.sh",
@@ -82,6 +83,7 @@ test("runtime database mapping uses only the canonical AIC target and aic_strapi
           nodeEnv: process.env.NODE_ENV,
           serviceHost: process.env.HOST,
           appKeysPreserved: process.env.APP_KEYS === 'right-app-keys',
+          guardMatchesProcess: new RegExp('^' + process.pid + ':[0-9a-f]{64}$').test(process.env.AIC_CANONICAL_DB_GUARD || ''),
         }))`,
       ],
       {
@@ -103,6 +105,8 @@ test("runtime database mapping uses only the canonical AIC target and aic_strapi
           APP_KEYS: "right-app-keys",
           STRAPI_AIC_ENV_FILE: aicEnv,
           STRAPI_DATABASE_ENV_TEST_MODE: "1",
+          STRAPI_POSTGRES_CLIENT_ROOT: sandbox,
+          STRAPI_NATIVE_CLIENT_TEST_MODE: "1",
         },
       },
     );
@@ -129,6 +133,7 @@ test("runtime database mapping uses only the canonical AIC target and aic_strapi
       nodeEnv: "test",
       serviceHost: "127.0.0.1",
       appKeysPreserved: true,
+      guardMatchesProcess: true,
     });
     assert.doesNotMatch(result.stderr, /contract-password/);
   } finally {
@@ -155,8 +160,11 @@ test("runtime database mapping rejects any host or port repointing", () => {
         encoding: "utf8",
         env: {
           ...process.env,
+          NODE_ENV: "test",
           STRAPI_AIC_ENV_FILE: aicEnv,
           STRAPI_DATABASE_ENV_TEST_MODE: "1",
+          STRAPI_POSTGRES_CLIENT_ROOT: sandbox,
+          STRAPI_NATIVE_CLIENT_TEST_MODE: "1",
         },
       });
       assert.notEqual(result.status, 0);
@@ -167,9 +175,38 @@ test("runtime database mapping rejects any host or port repointing", () => {
   }
 });
 
+test("runtime database mapping rejects duplicate sensitive keys", () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "aic-strapi-duplicate-db-key-"));
+  const aicEnv = join(sandbox, ".env");
+  const wrapper = join(opsRoot, "with-aic-db-env.sh");
+  try {
+    writeFileSync(
+      aicEnv,
+      "DB_HOST=192.168.1.106\nDB_PORT=5432\nDB_NAME=aic\nDB_USER=aic\nDB_PASSWORD=test\nDB_NAME=alternate\n",
+      { mode: 0o600 },
+    );
+    const result = spawnSync(wrapper, [process.execPath, "-e", "process.exit(0)"], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        NODE_ENV: "test",
+        STRAPI_AIC_ENV_FILE: aicEnv,
+        STRAPI_DATABASE_ENV_TEST_MODE: "1",
+        STRAPI_POSTGRES_CLIENT_ROOT: sandbox,
+        STRAPI_NATIVE_CLIENT_TEST_MODE: "1",
+      },
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Duplicate sensitive database environment key: DB_NAME/);
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true });
+  }
+});
+
 test("provisioning keeps application secrets separate and creates only the shared-database schema", () => {
   const provision = source("ops/strapi/provision-strapi.sh");
   const ensureSchema = source("ops/strapi/ensure-strapi-schema.sh");
+  const canonicalContext = source("ops/strapi/require-canonical-db-context.sh");
 
   assert.match(provision, /env_file="\$\{STRAPI_ENV_FILE:-\/etc\/aic\/strapi\.env\}"/);
   assert.match(provision, /secrets_backup="\$\{STRAPI_SECRETS_BACKUP:-\/mnt\/storage\/backups\/aic-strapi-secrets\}"/);
@@ -186,14 +223,90 @@ test("provisioning keeps application secrets separate and creates only the share
   assert.doesNotMatch(provision, /printf 'DATABASE_|DATABASE_PASSWORD=.*random_hex/);
   assert.doesNotMatch(provision, /^"\$\{ops_root\}\/with-aic-db-env\.sh"/m);
 
-  assert.match(ensureSchema, /DATABASE_SCHEMA.*aic_strapi/);
-  assert.match(ensureSchema, /192\.168\.1\.106.*5432/);
+  assert.match(ensureSchema, /require-canonical-db-context\.sh/);
+  assert.match(canonicalContext, /DATABASE_SCHEMA:-/);
+  assert.match(canonicalContext, /aic_strapi/);
+  assert.match(canonicalContext, /192\.168\.1\.106.*5432/);
+  assert.match(canonicalContext, /DATABASE_NAME:-.*expected_name/);
+  assert.match(canonicalContext, /DATABASE_USERNAME:-.*expected_user/);
+  assert.match(canonicalContext, /AIC_CANONICAL_DB_GUARD/);
+  assert.match(canonicalContext, /guard%%:\*.*BASHPID/);
   assert.match(ensureSchema, /CREATE SCHEMA IF NOT EXISTS \$\{DATABASE_SCHEMA\} AUTHORIZATION CURRENT_USER/);
   assert.match(ensureSchema, /REVOKE ALL ON SCHEMA \$\{DATABASE_SCHEMA\} FROM PUBLIC/);
   assert.match(ensureSchema, /actual_owner IS DISTINCT FROM current_user/);
   assert.match(ensureSchema, /--host "\$\{DATABASE_HOST\}"/);
   assert.match(ensureSchema, /--dbname "\$\{DATABASE_NAME\}"/);
   assert.doesNotMatch(ensureSchema, /CREATE DATABASE|CREATE ROLE|pg_restore|farm-postgres/);
+});
+
+test("canonical database operation guard cannot use test overrides in production", () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "aic-strapi-production-guard-"));
+  const aicEnv = join(sandbox, ".env");
+  const wrapper = join(opsRoot, "with-aic-db-env.sh");
+  try {
+    writeFileSync(
+      aicEnv,
+      "DB_HOST=192.168.1.106\nDB_PORT=5432\nDB_NAME=aic_contract\nDB_USER=aic\nDB_PASSWORD=test\n",
+      { mode: 0o600 },
+    );
+    const result = spawnSync(wrapper, [process.execPath, "-e", "process.exit(0)"], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        NODE_ENV: "production",
+        STRAPI_AIC_ENV_FILE: aicEnv,
+        STRAPI_DATABASE_ENV_TEST_MODE: "1",
+      },
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /forbidden in production/);
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true });
+  }
+});
+
+test("alternate database environment escape hatch requires an explicit isolated test client", () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "aic-strapi-test-escape-"));
+  const aicEnv = join(sandbox, ".env");
+  const wrapper = join(opsRoot, "with-aic-db-env.sh");
+  try {
+    writeFileSync(
+      aicEnv,
+      "DB_HOST=192.168.1.106\nDB_PORT=5432\nDB_NAME=aic_contract\nDB_USER=aic\nDB_PASSWORD=test\n",
+      { mode: 0o600 },
+    );
+    const cases = [
+      { name: "unset NODE_ENV", nodeEnv: null, nativeMode: "1", clientRoot: sandbox },
+      { name: "development NODE_ENV", nodeEnv: "development", nativeMode: "1", clientRoot: sandbox },
+      { name: "missing native test mode", nodeEnv: "test", nativeMode: "0", clientRoot: sandbox },
+      {
+        name: "production client path",
+        nodeEnv: "test",
+        nativeMode: "1",
+        clientRoot: "/usr/lib/postgresql/16/bin",
+      },
+      { name: "missing stub directory", nodeEnv: "test", nativeMode: "1", clientRoot: join(sandbox, "missing") },
+    ];
+    for (const item of cases) {
+      const environment = {
+        ...process.env,
+        STRAPI_AIC_ENV_FILE: aicEnv,
+        STRAPI_DATABASE_ENV_TEST_MODE: "1",
+        STRAPI_POSTGRES_CLIENT_ROOT: item.clientRoot,
+        STRAPI_NATIVE_CLIENT_TEST_MODE: item.nativeMode,
+      };
+      if (item.nodeEnv === null) delete environment.NODE_ENV;
+      else environment.NODE_ENV = item.nodeEnv;
+      const result = spawnSync(wrapper, [process.execPath, "-e", "process.exit(0)"], {
+        encoding: "utf8",
+        env: environment,
+      });
+      assert.notEqual(result.status, 0, item.name);
+      assert.match(result.stderr, /explicit non-production stub client root/, item.name);
+    }
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true });
+  }
 });
 
 test("root-executed operations are installed immutably outside the writable checkout", () => {
@@ -229,13 +342,26 @@ test("migration runner cannot inherit or accept a different database target", ()
   assert.ok(dsnIndex >= 0 && connectIndex > dsnIndex);
 });
 
-test("production Strapi rejects URL repointing and any schema other than aic_strapi", () => {
+test("production Strapi rejects SQLite, URL repointing, and any schema other than aic_strapi", () => {
   const databaseConfig = source("services/jimwood-cms/config/database.ts");
+  const localExample = source("services/jimwood-cms/.env.example");
+  const cmsReadme = source("services/jimwood-cms/README.md");
+  const service = source("ops/strapi/systemd/aic-strapi.service");
+  const wrapper = source("ops/strapi/with-aic-db-env.sh");
+  assert.match(databaseConfig, /if \(production && client !== 'postgres'\)/);
+  assert.match(databaseConfig, /Production Strapi requires DATABASE_CLIENT=postgres/);
   assert.match(databaseConfig, /Production Strapi does not accept DATABASE_URL/);
   assert.match(databaseConfig, /Production Strapi requires the existing AIC PostgreSQL target at 192\.168\.1\.106:5432/);
   assert.match(databaseConfig, /Production Strapi requires DATABASE_SCHEMA=aic_strapi/);
   assert.match(databaseConfig, /DATABASE_HOST/);
   assert.match(databaseConfig, /DATABASE_PASSWORD/);
+  assert.match(localExample, /Local development only/);
+  assert.match(localExample, /DATABASE_CLIENT=sqlite/);
+  assert.match(cmsReadme, /disposable local UI\/schema development/);
+  assert.match(cmsReadme, /not a copy, clone, restore/);
+  assert.match(service, /Environment=NODE_ENV=production/);
+  assert.match(service, /ExecStart=.*with-aic-db-env\.sh/);
+  assert.match(wrapper, /export DATABASE_CLIENT=postgres/);
 });
 
 test("all systemd writable paths exist before service namespace setup", () => {

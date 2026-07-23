@@ -21,6 +21,7 @@ scripts=(
   install-strapi-service.sh
   prepare-strapi-storage.sh
   provision-strapi.sh
+  require-canonical-db-context.sh
   run-consistent-backup.sh
   sync-aic-strapi-env.sh
   verify-strapi-backup.sh
