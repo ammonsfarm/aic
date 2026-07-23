@@ -15,6 +15,7 @@ INSTALL_EPISODE_PUBLISH_WORKER="${INSTALL_EPISODE_PUBLISH_WORKER:-1}"
 INSTALL_SUBSCRIPTION_PROVIDER_WORKER="${INSTALL_SUBSCRIPTION_PROVIDER_WORKER:-1}"
 INSTALL_SCHEDULED_PUBLICATION_WORKER="${INSTALL_SCHEDULED_PUBLICATION_WORKER:-1}"
 INSTALL_PUBLIC_DATA_RETENTION_WORKER="${INSTALL_PUBLIC_DATA_RETENTION_WORKER:-1}"
+CONFIGURE_PASTORWOOD_DEVELOPMENT_ENV="${CONFIGURE_PASTORWOOD_DEVELOPMENT_ENV:-0}"
 SERVICE_URL="http://127.0.0.1:${REMOTE_PORT}"
 
 for toggle in \
@@ -25,7 +26,8 @@ for toggle in \
   "${INSTALL_EPISODE_PUBLISH_WORKER}" \
   "${INSTALL_SUBSCRIPTION_PROVIDER_WORKER}" \
   "${INSTALL_SCHEDULED_PUBLICATION_WORKER}" \
-  "${INSTALL_PUBLIC_DATA_RETENTION_WORKER}"; do
+  "${INSTALL_PUBLIC_DATA_RETENTION_WORKER}" \
+  "${CONFIGURE_PASTORWOOD_DEVELOPMENT_ENV}"; do
   case "${toggle}" in 0|1) ;; *) echo "Deployment toggles must be 0 or 1." >&2; exit 1 ;; esac
 done
 ssh_target="${REMOTE_USER}@${REMOTE_HOST}"
@@ -267,6 +269,22 @@ checkout_changed=1
 git fetch --all
 git checkout "${REMOTE_BRANCH}"
 git pull --ff-only origin "${REMOTE_BRANCH}"
+
+if [ "${CONFIGURE_PASTORWOOD_DEVELOPMENT_ENV}" = "1" ]; then
+  echo "Pinning the five PastorWood development launch gates in the canonical environment..."
+  sudo install -o root -g root -m 0755 \
+    scripts/configure-pastorwood-development-env.py \
+    /usr/local/sbin/aic-configure-pastorwood-development-env
+  sudo /usr/bin/env \
+    -u NODE_ENV \
+    -u PASTORWOOD_DEVELOPMENT_ENV_TEST_MODE \
+    -u PASTORWOOD_DEVELOPMENT_ENV_TEST_ROOT \
+    -u PASTORWOOD_DEVELOPMENT_ENV_TEST_ENV_FILE \
+    -u PASTORWOOD_DEVELOPMENT_ENV_TEST_LOCK_FILE \
+    -u PASTORWOOD_DEVELOPMENT_ENV_TEST_READY_FILE \
+    -u PASTORWOOD_DEVELOPMENT_ENV_TEST_RELEASE_FILE \
+    /usr/local/sbin/aic-configure-pastorwood-development-env CONFIGURE_PASTORWOOD_DEVELOPMENT
+fi
 
 echo "Installing dependencies..."
 npm ci
