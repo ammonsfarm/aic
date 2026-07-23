@@ -1,5 +1,6 @@
 import "server-only";
 import { queryRows } from "@/lib/db";
+import { isPublicEpisodeTrackId } from "@/lib/episode-audio";
 import {
   calculateFreshness,
   normalizeReportDate,
@@ -632,7 +633,7 @@ function buildAudioUrl(_sourceFile: string, trackId: string, externalAudioUrl = 
     return null;
   }
 
-  if (!/^\d+$/.test(trackId)) {
+  if (!isPublicEpisodeTrackId(trackId)) {
     return null;
   }
 

@@ -43,6 +43,7 @@ DEFAULT_LOCK_FILE = Path("/tmp/aic_episode_publish_worker.lock")
 TRACK_ID_PATTERN = re.compile(
     r"^(?:[0-9]+|sa_[0-9]+|wp-sermon:[0-9]+|cms_[a-z0-9][a-z0-9_-]{0,62})$"
 )
+SOURCE_FINGERPRINT_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 MAX_AUDIO_BYTES = 250 * 1024 * 1024
 DEFAULT_MAX_ATTEMPTS = 6
 DEFAULT_STALE_SECONDS = 4 * 60 * 60
@@ -54,6 +55,10 @@ class StagedAudio:
     path: Path
     source: str
     fingerprint: str
+
+
+class RequestNoLongerCurrent(RuntimeError):
+    """Stop stale work without requeueing it ahead of a newer publication."""
 
 
 def utc_now() -> dt.datetime:
@@ -90,10 +95,11 @@ def bounded_text(value: Any, limit: int) -> str:
 
 
 def validate_track_id(value: Any) -> str:
-    track_id = bounded_text(value, 100)
-    if not TRACK_ID_PATTERN.fullmatch(track_id):
+    track_id = value.strip() if isinstance(value, str) else ""
+    if len(track_id) > 100 or not TRACK_ID_PATTERN.fullmatch(track_id):
         raise ValueError(
-            "Track ID must be numeric, sa_<number>, wp-sermon:<number>, or a safe cms_<name>."
+            "Track ID must be at most 100 characters and use a numeric, sa_<number>, "
+            "wp-sermon:<number>, or safe cms_<name> value."
         )
     return track_id
 
@@ -219,12 +225,84 @@ class StrapiClient:
             raise RuntimeError("Strapi did not return the updated episode processing request.")
         return row
 
+    def get_request(self, document_id: str) -> dict[str, Any]:
+        response = self.request(
+            "GET",
+            f"/api/episode-processing-requests/{urllib.parse.quote(document_id, safe='')}",
+        ) or {}
+        row = response.get("data") if isinstance(response, dict) else None
+        if not isinstance(row, dict):
+            raise RuntimeError("Strapi did not return the episode processing request.")
+        return row
+
+    def latest_request(self, episode_document_id: str) -> dict[str, Any] | None:
+        query = [
+            ("filters[episodeDocumentId][$eq]", episode_document_id),
+            ("sort", "revisionNumber:desc"),
+            ("pagination[pageSize]", "1"),
+        ]
+        response = self.request(
+            "GET",
+            f"/api/episode-processing-requests?{urllib.parse.urlencode(query)}",
+        ) or {}
+        rows = response.get("data") if isinstance(response, dict) else None
+        if not isinstance(rows, list):
+            raise RuntimeError("Strapi did not return the episode processing request list.")
+        return rows[0] if rows and isinstance(rows[0], dict) else None
+
 
 def request_document_id(request: dict[str, Any]) -> str:
     document_id = bounded_text(request.get("documentId"), 200)
     if not document_id:
         raise ValueError("Episode processing request is missing documentId.")
     return document_id
+
+
+def episode_document_id(request: dict[str, Any]) -> str:
+    document_id = bounded_text(request.get("episodeDocumentId"), 200)
+    if not document_id:
+        raise ValueError("Episode processing request is missing episodeDocumentId.")
+    return document_id
+
+
+def request_key(request: dict[str, Any]) -> str:
+    key = bounded_text(request.get("requestKey"), 500)
+    if not key:
+        raise ValueError("Episode processing request is missing requestKey.")
+    return key
+
+
+def supersede_stale_request(client: StrapiClient, request: dict[str, Any], latest_revision: int) -> None:
+    current = client.get_request(request_document_id(request))
+    if current.get("status") == "superseded":
+        return
+    client.update_request(
+        request_document_id(request),
+        {
+            "status": "superseded",
+            "claimedAt": None,
+            "workerId": "",
+            "completedAt": iso(),
+            "lastError": f"Superseded by publication revision {latest_revision}.",
+        },
+    )
+
+
+def ensure_request_current(client: StrapiClient, request: dict[str, Any]) -> dict[str, Any]:
+    current = client.get_request(request_document_id(request))
+    latest = client.latest_request(episode_document_id(request))
+    current_key = request_key(request)
+    latest_key = request_key(latest) if latest else ""
+    latest_revision = int(latest.get("revisionNumber") or 0) if latest else 0
+    if current.get("status") == "superseded" or latest_key != current_key:
+        supersede_stale_request(client, request, latest_revision)
+        raise RequestNoLongerCurrent(
+            f"Episode publication request was superseded by revision {latest_revision}."
+        )
+    expected_worker = bounded_text(request.get("workerId"), 300)
+    if current.get("status") != "running" or bounded_text(current.get("workerId"), 300) != expected_worker:
+        raise RequestNoLongerCurrent("Episode publication request claim is no longer owned by this worker.")
+    return current
 
 
 def recover_stale_requests(
@@ -307,7 +385,11 @@ def mark_failed(
     *,
     now: dt.datetime,
     max_attempts: int,
-) -> None:
+) -> bool:
+    try:
+        ensure_request_current(client, request)
+    except RequestNoLongerCurrent:
+        return False
     attempts = max(1, int(request.get("attemptCount") or 1))
     terminal = attempts >= max_attempts
     message = sanitized_error(error)
@@ -322,9 +404,11 @@ def mark_failed(
             "completedAt": iso(now) if terminal else None,
         },
     )
+    return True
 
 
 def mark_completed(client: StrapiClient, request: dict[str, Any], result: dict[str, Any], *, now: dt.datetime) -> None:
+    ensure_request_current(client, request)
     client.update_request(
         request_document_id(request),
         {
@@ -338,8 +422,19 @@ def mark_completed(client: StrapiClient, request: dict[str, Any], result: dict[s
     )
 
 
-def upsert_operational_episode(conn: psycopg.Connection[Any], payload: dict[str, Any]) -> str:
+def upsert_operational_episode(
+    conn: psycopg.Connection[Any],
+    request: dict[str, Any],
+    payload: dict[str, Any],
+) -> str:
     track_id = validate_track_id(payload.get("trackId"))
+    document_id = episode_document_id(request)
+    source_fingerprint = payload.get("sourceFingerprint", "")
+    if not isinstance(source_fingerprint, str):
+        raise ValueError("Episode source fingerprint is malformed.")
+    source_fingerprint = source_fingerprint.strip()
+    if source_fingerprint and not SOURCE_FINGERPRINT_PATTERN.fullmatch(source_fingerprint):
+        raise ValueError("Episode source fingerprint is malformed.")
     title = bounded_text(payload.get("title"), 1_000)
     if not title:
         raise ValueError("Published episode is missing a title.")
@@ -353,6 +448,39 @@ def upsert_operational_episode(conn: psycopg.Connection[Any], payload: dict[str,
         f"{track_id}.mp3",
     )
     with conn.transaction():
+        existing_episode = conn.execute(
+            "select track_id from episodes where track_id = %s for update",
+            (track_id,),
+        ).fetchone()
+        owners = conn.execute(
+            """
+            select track_id, episode_document_id, source_fingerprint
+            from episode_processing_ownership
+            where track_id = %s or episode_document_id = %s
+            for update
+            """,
+            (track_id, document_id),
+        ).fetchall()
+        matching_owner = any(
+            str(owner.get("track_id") or "") == track_id
+            and str(owner.get("episode_document_id") or "") == document_id
+            for owner in owners
+        )
+        if owners and not matching_owner:
+            raise ValueError("Track ID is permanently owned by a different Strapi episode.")
+        if not matching_owner:
+            if existing_episode and not source_fingerprint:
+                raise ValueError(
+                    "Track ID already exists in the operational archive and requires explicit baseline reconciliation."
+                )
+            conn.execute(
+                """
+                insert into episode_processing_ownership(
+                    track_id, episode_document_id, source_fingerprint, claimed_at, updated_at
+                ) values (%s, %s, %s, now(), now())
+                """,
+                (track_id, document_id, source_fingerprint),
+            )
         row = conn.execute(
             """
             insert into episodes(track_id, title, publish_date, album, category, detail, source_file, updated_at)
@@ -412,6 +540,23 @@ def operational_provenance(
     return dict(row) if row else None
 
 
+def ensure_operational_ownership(
+    conn: psycopg.Connection[Any],
+    request: dict[str, Any],
+    track_id: str,
+) -> None:
+    owner = conn.execute(
+        """
+        select track_id
+        from episode_processing_ownership
+        where track_id = %s and episode_document_id = %s
+        """,
+        (track_id, episode_document_id(request)),
+    ).fetchone()
+    if not owner:
+        raise ValueError("Track ID ownership no longer matches this Strapi episode.")
+
+
 def reset_derived_processing(conn: psycopg.Connection[Any], track_id: str) -> dict[str, int]:
     deleted: dict[str, int] = {}
     tables = (
@@ -443,6 +588,7 @@ def save_processing_provenance(
     if not episode_document_id or not request_key or revision_number < 1:
         raise ValueError("Episode processing request provenance is incomplete.")
     with conn.transaction():
+        ensure_operational_ownership(conn, request, track_id)
         conn.execute(
             """
             insert into episode_processing_provenance(
@@ -450,13 +596,13 @@ def save_processing_provenance(
                 audio_source, audio_fingerprint, completed_at, updated_at
             ) values (%s, %s, %s, %s, %s, %s, %s, now())
             on conflict(track_id) do update set
-                episode_document_id = excluded.episode_document_id,
                 revision_number = excluded.revision_number,
                 request_key = excluded.request_key,
                 audio_source = excluded.audio_source,
                 audio_fingerprint = excluded.audio_fingerprint,
                 completed_at = excluded.completed_at,
                 updated_at = now()
+            where episode_processing_provenance.episode_document_id = excluded.episode_document_id
             """,
             (
                 track_id,
@@ -655,6 +801,8 @@ def run_pipeline(
         os.environ.get("AIC_INTELLIGENCE_MODEL", "openai-codex/gpt-5.6-luna"),
         "--intelligence-reasoning-effort",
         "medium",
+        "--mistral-max-file-mb",
+        str(MAX_AUDIO_BYTES // (1024 * 1024)),
         "--no-extractive-fallback",
         "--run-id",
         run_id,
@@ -689,7 +837,9 @@ def process_request(
     payload = request.get("payload")
     if not isinstance(payload, dict):
         raise ValueError("Episode processing request payload is missing or malformed.")
-    track_id = upsert_operational_episode(conn, payload)
+    ensure_request_current(client, request)
+    track_id = upsert_operational_episode(conn, request, payload)
+    ensure_request_current(client, request)
     staged = stage_audio(
         payload,
         track_id,
@@ -710,9 +860,12 @@ def process_request(
     runner: dict[str, Any] = {"skipped": reason}
     reset: dict[str, int] = {}
     if reason not in {"matching_complete_provenance", "adopt_existing_coverage"}:
+        ensure_request_current(client, request)
         publish_managed_audio(staged, track_id, args.mc_bin)
         if retranscribe:
+            ensure_request_current(client, request)
             reset = reset_derived_processing(conn, track_id)
+        ensure_request_current(client, request)
         runner = run_pipeline(
             request,
             track_id,
@@ -724,11 +877,13 @@ def process_request(
         # Transcript import also upserts the episode row from transcript
         # metadata. Reassert the current non-blank CMS values afterward so an
         # older cached transcript cannot undo the publication metadata.
-        upsert_operational_episode(conn, payload)
+        ensure_request_current(client, request)
+        upsert_operational_episode(conn, request, payload)
     after = operational_coverage(conn, track_id)
     if not after["complete"]:
         raise RuntimeError(f"Pipeline returned without complete operational coverage: {json.dumps(after, sort_keys=True)}")
     completed_at = utc_now()
+    ensure_request_current(client, request)
     save_processing_provenance(conn, request, track_id, staged, now=completed_at)
     result = {
         "trackId": track_id,
@@ -798,19 +953,30 @@ def main() -> int:
                     break
                 try:
                     process_request(client, request, conn, args)
-                except Exception as error:
-                    failures += 1
+                except RequestNoLongerCurrent as error:
                     print(
-                        f"request={request_document_id(request)} failed: {sanitized_error(error)}",
+                        f"request={request_document_id(request)} stopped: {sanitized_error(error)}",
                         file=sys.stderr,
                     )
-                    mark_failed(
+                except Exception as error:
+                    marked_failed = mark_failed(
                         client,
                         request,
                         error,
                         now=utc_now(),
                         max_attempts=max(1, args.max_attempts),
                     )
+                    if marked_failed:
+                        failures += 1
+                        print(
+                            f"request={request_document_id(request)} failed: {sanitized_error(error)}",
+                            file=sys.stderr,
+                        )
+                    else:
+                        print(
+                            f"request={request_document_id(request)} stopped after supersession.",
+                            file=sys.stderr,
+                        )
                 processed += 1
         print(f"recovered={len(recovered)} processed={processed} failures={failures}")
         return 0 if failures == 0 else 1

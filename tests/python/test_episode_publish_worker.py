@@ -48,11 +48,23 @@ class FakeStrapi:
         row.update(data)
         return row.copy()
 
+    def get_request(self, document_id):
+        return next(row.copy() for row in self.rows if row["documentId"] == document_id)
+
+    def latest_request(self, episode_document_id):
+        matches = [row for row in self.rows if row.get("episodeDocumentId") == episode_document_id]
+        if not matches:
+            return None
+        return max(matches, key=lambda row: int(row.get("revisionNumber") or 0)).copy()
+
 
 class FakeConnection:
-    def __init__(self):
+    def __init__(self, *, existing_episode=False, owners=None):
         self.sql = ""
         self.params = None
+        self.queries = []
+        self.existing_episode = existing_episode
+        self.owners = list(owners or [])
 
     def transaction(self):
         return contextlib.nullcontext()
@@ -60,17 +72,34 @@ class FakeConnection:
     def execute(self, sql, params=()):
         self.sql = " ".join(sql.split()).lower()
         self.params = params
+        self.queries.append((self.sql, params))
         return self
 
     def fetchone(self):
-        return {"track_id": self.params[0]}
+        if "select track_id from episodes" in self.sql:
+            return {"track_id": self.params[0]} if self.existing_episode else None
+        if "from episode_processing_ownership" in self.sql:
+            track_id, document_id = self.params
+            return next((row for row in self.owners if row["track_id"] == track_id and row["episode_document_id"] == document_id), None)
+        if "returning track_id" in self.sql:
+            return {"track_id": self.params[0]}
+        return None
+
+    def fetchall(self):
+        if "from episode_processing_ownership" not in self.sql:
+            return []
+        track_id, document_id = self.params
+        return [
+            row for row in self.owners
+            if row["track_id"] == track_id or row["episode_document_id"] == document_id
+        ]
 
 
 class EpisodePublishWorkerTests(unittest.TestCase):
     def test_supported_track_ids_include_sermonaudio_and_safe_cms_ids(self):
         for value in ["1003386838", "sa_99151132260", "wp-sermon:14759", "cms_sunday_20260722"]:
             self.assertEqual(WORKER.validate_track_id(value), value)
-        for value in ["", "../secret", "sa_bad", "cms_../secret", "track with spaces"]:
+        for value in ["", "../secret", "sa_bad", "cms_../secret", "track with spaces", "9" * 101]:
             with self.assertRaises(ValueError):
                 WORKER.validate_track_id(value)
 
@@ -111,6 +140,64 @@ class EpisodePublishWorkerTests(unittest.TestCase):
         claimed = WORKER.claim_request(client, now=now, worker_id="farm:1", max_attempts=6)
         self.assertEqual(claimed["documentId"], "eligible")
         self.assertEqual(client.rows[0]["status"], "failed")
+
+    def test_newer_publication_stops_and_never_requeues_the_running_old_revision(self):
+        now = dt.datetime(2026, 7, 22, 16, 0, tzinfo=dt.UTC)
+        old = {
+            "documentId": "request-old",
+            "episodeDocumentId": "episode-doc",
+            "requestKey": "episode-doc:revision:1",
+            "revisionNumber": 1,
+            "status": "running",
+            "attemptCount": 1,
+            "workerId": "farm:1",
+        }
+        client = FakeStrapi([
+            old.copy(),
+            {
+                "documentId": "request-new",
+                "episodeDocumentId": "episode-doc",
+                "requestKey": "episode-doc:revision:2",
+                "revisionNumber": 2,
+                "status": "queued",
+                "attemptCount": 0,
+                "workerId": "",
+            },
+        ])
+
+        self.assertFalse(WORKER.mark_failed(client, old, RuntimeError("old failed"), now=now, max_attempts=6))
+        self.assertEqual(client.rows[0]["status"], "superseded")
+        self.assertEqual(client.rows[1]["status"], "queued")
+        self.assertNotIn("nextAttemptAt", client.rows[0])
+
+    def test_old_revision_cannot_complete_after_a_newer_publication(self):
+        now = dt.datetime(2026, 7, 22, 16, 0, tzinfo=dt.UTC)
+        old = {
+            "documentId": "request-old",
+            "episodeDocumentId": "episode-doc",
+            "requestKey": "episode-doc:revision:1",
+            "revisionNumber": 1,
+            "status": "running",
+            "attemptCount": 1,
+            "workerId": "farm:1",
+        }
+        client = FakeStrapi([
+            old.copy(),
+            {
+                "documentId": "request-new",
+                "episodeDocumentId": "episode-doc",
+                "requestKey": "episode-doc:revision:2",
+                "revisionNumber": 2,
+                "status": "queued",
+                "attemptCount": 0,
+                "workerId": "",
+            },
+        ])
+
+        with self.assertRaises(WORKER.RequestNoLongerCurrent):
+            WORKER.mark_completed(client, old, {"stale": True}, now=now)
+        self.assertEqual(client.rows[0]["status"], "superseded")
+        self.assertNotEqual(client.rows[0].get("result"), {"stale": True})
 
     def test_duplicate_publication_with_matching_complete_provenance_is_a_noop(self):
         decision = WORKER.processing_decision(
@@ -179,18 +266,64 @@ class EpisodePublishWorkerTests(unittest.TestCase):
 
     def test_operational_upsert_never_replaces_richer_values_with_blanks(self):
         connection = FakeConnection()
-        track_id = WORKER.upsert_operational_episode(connection, {
-            "trackId": "sa_42",
-            "title": "Published title",
-            "programDate": "",
-            "publishDate": "",
-            "summary": "",
-            "description": "",
-        })
+        track_id = WORKER.upsert_operational_episode(
+            connection,
+            {"documentId": "request-1", "episodeDocumentId": "episode-doc-1"},
+            {
+                "trackId": "sa_42",
+                "title": "Published title",
+                "programDate": "",
+                "publishDate": "",
+                "summary": "",
+                "description": "",
+            },
+        )
         self.assertEqual(track_id, "sa_42")
         self.assertIn("coalesce(nullif(excluded.publish_date, ''), episodes.publish_date)", connection.sql)
         self.assertIn("coalesce(nullif(excluded.detail, ''), episodes.detail)", connection.sql)
         self.assertIn("coalesce(nullif(episodes.source_file, ''), excluded.source_file)", connection.sql)
+        ownership_insert = next(sql for sql, _params in connection.queries if "insert into episode_processing_ownership" in sql)
+        episode_upsert = next(sql for sql, _params in connection.queries if "insert into episodes" in sql)
+        self.assertLess(connection.queries.index(next(item for item in connection.queries if item[0] == ownership_insert)), connection.queries.index(next(item for item in connection.queries if item[0] == episode_upsert)))
+
+    def test_existing_track_cannot_be_claimed_by_a_different_strapi_episode(self):
+        connection = FakeConnection(
+            existing_episode=True,
+            owners=[{
+                "track_id": "sa_42",
+                "episode_document_id": "original-doc",
+                "source_fingerprint": "",
+            }],
+        )
+        with self.assertRaisesRegex(ValueError, "permanently owned"):
+            WORKER.upsert_operational_episode(
+                connection,
+                {"documentId": "request-2", "episodeDocumentId": "replacement-doc"},
+                {"trackId": "sa_42", "title": "Replacement"},
+            )
+        self.assertFalse(any("insert into episodes" in sql for sql, _params in connection.queries))
+
+    def test_unowned_existing_track_requires_a_trusted_cutover_fingerprint(self):
+        request = {"documentId": "request-1", "episodeDocumentId": "imported-doc"}
+        with self.assertRaisesRegex(ValueError, "explicit baseline reconciliation"):
+            WORKER.upsert_operational_episode(
+                FakeConnection(existing_episode=True),
+                request,
+                {"trackId": "wp-sermon:14759", "title": "Imported"},
+            )
+        connection = FakeConnection(existing_episode=True)
+        self.assertEqual(
+            WORKER.upsert_operational_episode(
+                connection,
+                request,
+                {
+                    "trackId": "wp-sermon:14759",
+                    "title": "Imported",
+                    "sourceFingerprint": "a" * 64,
+                },
+            ),
+            "wp-sermon:14759",
+        )
 
     def test_remote_or_missing_audio_fails_with_actionable_error(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -256,6 +389,8 @@ class EpisodePublishWorkerTests(unittest.TestCase):
             )
         command = run.call_args.args[0]
         self.assertIn("--retranscribe", command)
+        limit_index = command.index("--mistral-max-file-mb")
+        self.assertEqual(command[limit_index + 1], "250")
         self.assertTrue(result["retranscribed"])
 
     def test_worker_errors_are_bounded_and_secret_values_are_redacted(self):

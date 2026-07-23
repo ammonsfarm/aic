@@ -211,6 +211,22 @@ function boundedText(value: unknown, maximum: number) {
   return typeof value === 'string' ? value.trim().slice(0, maximum) : '';
 }
 
+function operationalTrackId(value: unknown) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  const trackId = value.trim();
+  return trackId.length <= 100 && operationalTrackIdPattern.test(trackId) ? trackId : '';
+}
+
+function cutoverSourceFingerprint(value: unknown) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  const fingerprint = value.trim();
+  return /^[0-9a-f]{64}$/.test(fingerprint) ? fingerprint : '';
+}
+
 function mediaPayload(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object') {
     return null;
@@ -241,15 +257,15 @@ async function enqueueEpisodeProcessing(
   actorInput: Actor | undefined,
 ) {
   const actor = requireActor(actorInput);
-  const trackId = boundedText(episode.trackId, 100);
-  if (!operationalTrackIdPattern.test(trackId)) {
+  const trackId = operationalTrackId(episode.trackId);
+  if (!trackId) {
     throw new Error('Episode publication requires a valid permanent Track ID.');
   }
 
   const superseded = await documents(processingRequestUid).findMany({
     filters: {
       episodeDocumentId: documentId,
-      status: { $in: ['queued', 'failed'] },
+      status: { $in: ['queued', 'running', 'failed'] },
     },
     limit: 100,
   });
@@ -287,6 +303,7 @@ async function enqueueEpisodeProcessing(
         description: boundedText(episode.description, 100_000),
         externalAudioUrl: boundedText(episode.externalAudioUrl, 2_000),
         audio: mediaPayload(episode.audio),
+        sourceFingerprint: cutoverSourceFingerprint(episode.sourceFingerprint),
         sourceUpdatedAt: boundedText(episode.updatedAt, 80),
       },
       result: {},
@@ -399,7 +416,10 @@ const editorialWorkflowController = {
         return;
       }
       if (entityType === 'episode' && Object.prototype.hasOwnProperty.call(data, 'trackId')) {
-        const requestedTrackId = boundedText(data.trackId, 100);
+        const requestedTrackId = operationalTrackId(data.trackId);
+        if (!requestedTrackId) {
+          return ctx.badRequest('Episode Track ID is invalid or longer than 100 characters.');
+        }
         if (requestedTrackId !== current.trackId && await hasPermanentEpisodeIdentity(documentId, current)) {
           return ctx.badRequest('Track ID cannot change after an episode has been published.');
         }
@@ -480,7 +500,7 @@ const editorialWorkflowController = {
         if (current.archivedAt) {
           return ctx.badRequest('Archived content must be restored before it can be published.');
         }
-        if (entityType === 'episode' && !operationalTrackIdPattern.test(boundedText(current.trackId, 100))) {
+        if (entityType === 'episode' && !operationalTrackId(current.trackId)) {
           return ctx.badRequest('Episode publication requires a valid permanent Track ID.');
         }
         const result = await documents(model.uid).publish({ documentId, populate: editorialPopulate(model) });

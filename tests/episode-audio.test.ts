@@ -15,7 +15,7 @@ describe("public episode audio boundary", () => {
     expect(isPublicEpisodeTrackId("wp-sermon:14759")).toBe(true);
     expect(isPublicEpisodeTrackId(decodeURIComponent("wp-sermon%3A14759"))).toBe(true);
     expect(isPublicEpisodeTrackId("cms_sunday_20260722")).toBe(true);
-    for (const value of ["../secret", "sa_bad", "cms_../secret", "wp-sermon:bad", "100.mp3", "a/b", ""]) expect(isPublicEpisodeTrackId(value)).toBe(false);
+    for (const value of ["../secret", "sa_bad", "cms_../secret", "wp-sermon:bad", "100.mp3", "a/b", "", "9".repeat(101)]) expect(isPublicEpisodeTrackId(value)).toBe(false);
   });
 
   it("parses bounded single byte ranges", () => {

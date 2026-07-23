@@ -52,6 +52,7 @@ test("episode identity is validated while pipeline state lives in the durable ou
   const episode = await schema("episode");
   assert.equal(episode.attributes.trackId.required, true);
   assert.equal(episode.attributes.trackId.unique, true);
+  assert.equal(episode.attributes.trackId.maxLength, 100);
   assert.match("sa_99151132260", new RegExp(episode.attributes.trackId.regex));
   assert.match("cms_sunday_20260722", new RegExp(episode.attributes.trackId.regex));
   for (const manualState of ["transcriptStatus", "intelligenceStatus", "vectorStatus"]) {
@@ -124,6 +125,9 @@ test("editorial workflow exposes create, update, transition, and revision reads"
   assert.match(controller, /hasPermanentEpisodeIdentity/);
   assert.match(controller, /data\.trackId = current\.trackId/);
   assert.match(controller, /requestKey: `\$\{documentId\}:revision:\$\{revisionNumber\}`/);
+  assert.match(controller, /status: \{ \$in: \['queued', 'running', 'failed'\] \}/);
+  assert.match(controller, /sourceFingerprint: cutoverSourceFingerprint\(episode\.sourceFingerprint\)/);
+  assert.match(controller, /trackId\.length <= 100/);
   assert.match(controller, /await recordAction[\s\S]*await enqueueEpisodeProcessing/);
   assert.doesNotMatch(controller, /DB_HOST|DB_PASSWORD|insert into episodes/i);
   const snapshot = await text("src/api/editorial-workflow/controllers/editorial-snapshot.ts");

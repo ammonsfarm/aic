@@ -16,6 +16,7 @@
       "type": "string",
       "required": true,
       "unique": true,
+      "maxLength": 100,
       "regex": "^(?:[0-9]+|sa_[0-9]+|wp-sermon:[0-9]+|cms_[a-z0-9][a-z0-9_-]{0,62})$"
     },
     "legacyId": { "type": "string", "unique": true },

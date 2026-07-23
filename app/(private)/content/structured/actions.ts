@@ -170,8 +170,8 @@ async function structuredPayload(
 
   if (key === "episodes") {
     const trackId = formString(formData, "trackId");
-    if (!EPISODE_TRACK_ID_PATTERN.test(trackId)) {
-      throw new Error("Track ID must be numeric, sa_<number>, wp-sermon:<number>, or a safe cms_<name>.");
+    if (trackId.length > 100 || !EPISODE_TRACK_ID_PATTERN.test(trackId)) {
+      throw new Error("Track ID must be at most 100 characters and use a numeric, sa_<number>, wp-sermon:<number>, or safe cms_<name> value.");
     }
   }
 

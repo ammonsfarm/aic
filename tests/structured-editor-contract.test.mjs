@@ -210,7 +210,7 @@ test("episode publication uses a durable outbox and read-only processing status"
   assert.match(workflow, /processingRequestUid/);
   assert.match(workflow, /requestKey: `\$\{documentId\}:revision:\$\{revisionNumber\}`/);
   assert.match(workflow, /status: 'queued'/);
-  assert.match(workflow, /status: \{ \$in: \['queued', 'failed'\] \}/);
+  assert.match(workflow, /status: \{ \$in: \['queued', 'running', 'failed'\] \}/);
   assert.match(workflow, /status: 'superseded'/);
   assert.match(workflow, /action === 'retry-processing'/);
   assert.match(workflow, /A processing retry note is required/);
@@ -235,9 +235,16 @@ test("episode publication uses a durable outbox and read-only processing status"
   assert.match(deploy, /install-episode-publish-worker\.sh/);
   const worker = await source("scripts/process_episode_publish_requests.py");
   assert.match(worker, /autocommit=True/);
+  assert.match(worker, /episode_processing_ownership/);
   assert.match(worker, /episode_processing_provenance/);
+  assert.match(worker, /ensure_request_current/);
   assert.match(worker, /matching_complete_provenance/);
+  assert.match(worker, /--mistral-max-file-mb/);
   assert.match(worker, /--retranscribe/);
+  const migration = await source("postgres/migrations/022_episode_processing_provenance.sql");
+  assert.match(migration, /create table if not exists episode_processing_ownership/);
+  assert.match(migration, /episode_document_id text not null unique/);
+  assert.match(migration, /references episode_processing_ownership\(track_id, episode_document_id\)/);
   await stat(resolve(root, "systemd/aic-episode-publish-worker.service"));
   await stat(resolve(root, "systemd/aic-episode-publish-worker.timer"));
 });
