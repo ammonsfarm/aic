@@ -207,11 +207,31 @@ test("scheduled publication is bounded, versioned, and timer driven", async () =
   assert.match(worker, /system:scheduled-publication/);
   assert.match(worker, /IDEMPOTENT_SKIP_CODES/);
   assert.match(worker, /UNCLASSIFIED_HTTP_ERROR/);
+  assert.match(worker, /CANONICAL_AIC_ENV = "\/mnt\/storage\/aic\/\.env"/);
+  assert.match(worker, /canonicalValues\.STRAPI_REVALIDATE_SECRET/);
+  assert.doesNotMatch(worker, /process\.env\.STRAPI_(?:URL|MANAGEMENT_URL|API_TOKEN|MANAGEMENT_TOKEN|REVALIDATE_SECRET)/);
   assert.doesNotMatch(worker, /DB_HOST|DB_PASSWORD|postgres/i);
+
+  const invalidation = await source("scripts/public_cache_invalidation.mjs");
+  assert.match(invalidation, /http:\/\/127\.0\.0\.1:8087\/api\/revalidate\/strapi/);
+  assert.doesNotMatch(invalidation, /STRAPI_REVALIDATE_URL|process\.env/);
+  assert.match(invalidation, /event: "entry\.publish"/);
+  assert.match(invalidation, /payload\?\.revalidated !== true/);
+  assert.match(invalidation, /handle\.sync\(\)/);
+  assert.match(invalidation, /syncDirectory\(directory\)/);
+  assert.match(invalidation, /O_NOFOLLOW/);
+  assert.match(invalidation, /\/usr\/bin\/flock --exclusive 3/);
+  const markIndex = worker.indexOf("markPublicCacheInvalidationPending");
+  const publishRequestIndex = worker.indexOf("await jsonRequest(", worker.indexOf("for (const entry of entries"));
+  assert.ok(markIndex >= 0 && publishRequestIndex > markIndex);
 
   await stat(resolve(root, "systemd/aic-scheduled-publication-worker.service"));
   await stat(resolve(root, "systemd/aic-scheduled-publication-worker.timer"));
-  assert.match(await source("systemd/aic-scheduled-publication-worker.service"), /TimeoutStartSec=10m/);
+  const service = await source("systemd/aic-scheduled-publication-worker.service");
+  assert.match(service, /TimeoutStartSec=10m/);
+  assert.match(service, /StateDirectory=aic-scheduled-publication/);
+  assert.match(service, /StateDirectoryMode=0700/);
+  assert.match(service, /ReadWritePaths=\/var\/lib\/aic-scheduled-publication/);
   assert.match(await source("scripts/deploy-farm-web.sh"), /install-scheduled-publication-worker\.sh/);
   assert.doesNotMatch(await source("scripts/deploy-farm-web.sh"), /restore-drill|RUN_STRAPI_BACKUP_DRILL/);
 });

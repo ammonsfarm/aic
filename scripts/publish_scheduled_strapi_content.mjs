@@ -1,7 +1,17 @@
 #!/usr/bin/env node
 
 import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+
+import {
+  assertPublicCacheInvalidationSecret,
+  flushPendingPublicCacheInvalidation,
+  markPublicCacheInvalidationPending,
+  SCHEDULED_PUBLICATION_INVALIDATION_MARKER,
+} from "./public_cache_invalidation.mjs";
+
+const CANONICAL_AIC_ENV = "/mnt/storage/aic/.env";
 
 const ENTITY_COLLECTIONS = [
   { entityType: "page", collection: "pages" },
@@ -26,15 +36,19 @@ function unquote(value) {
 
 export async function loadEnvFile(path) {
   const contents = await readFile(path, "utf8");
+  const values = {};
   for (const rawLine of contents.split(/\r?\n/)) {
     const line = rawLine.trim().replace(/^export\s+/, "");
     if (!line || line.startsWith("#")) continue;
     const separator = line.indexOf("=");
     if (separator < 1) continue;
     const key = line.slice(0, separator).trim();
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) || process.env[key] !== undefined) continue;
-    process.env[key] = unquote(line.slice(separator + 1));
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+    if (Object.hasOwn(values, key)) throw new Error(`Canonical environment contains duplicate ${key}.`);
+    const value = unquote(line.slice(separator + 1));
+    values[key] = value;
   }
+  return values;
 }
 
 export function dueCollectionPath(collection, now, pageSize) {
@@ -107,6 +121,7 @@ export async function runScheduledPublications({
   limit = 25,
   now = new Date().toISOString(),
   fetchImpl = fetch,
+  beforePublish = async () => undefined,
 }) {
   const safeLimit = boundedLimit(limit);
   const origin = baseUrl.replace(/\/+$/, "");
@@ -134,6 +149,7 @@ export async function runScheduledPublications({
       }
       summary.considered += 1;
       try {
+        await beforePublish({ entityType, documentId });
         await jsonRequest(
           fetchImpl,
           `${origin}/api/editorial/${entityType}/${encodeURIComponent(documentId)}/publish-scheduled`,
@@ -165,6 +181,36 @@ export async function runScheduledPublications({
   return summary;
 }
 
+export async function runScheduledPublicationCycle({
+  revalidationSecret,
+  invalidationMarkerPath = SCHEDULED_PUBLICATION_INVALIDATION_MARKER,
+  fetchImpl = fetch,
+  ...publicationOptions
+}) {
+  assertPublicCacheInvalidationSecret(revalidationSecret);
+  await flushPendingPublicCacheInvalidation({
+    markerPath: invalidationMarkerPath,
+    secret: revalidationSecret,
+    fetchImpl,
+  });
+
+  try {
+    return await runScheduledPublications({
+      ...publicationOptions,
+      fetchImpl,
+      beforePublish: async () => {
+        await markPublicCacheInvalidationPending(invalidationMarkerPath, "scheduled-publication");
+      },
+    });
+  } finally {
+    await flushPendingPublicCacheInvalidation({
+      markerPath: invalidationMarkerPath,
+      secret: revalidationSecret,
+      fetchImpl,
+    });
+  }
+}
+
 function parseArguments(argv) {
   const options = { envFile: "/mnt/storage/aic/.env", limit: 25 };
   for (let index = 0; index < argv.length; index += 1) {
@@ -185,15 +231,19 @@ async function main() {
     console.log("Usage: publish_scheduled_strapi_content.mjs [--env-file PATH] [--limit 1..100]");
     return;
   }
-  await loadEnvFile(options.envFile);
-  const summary = await runScheduledPublications({
-    baseUrl: process.env.STRAPI_MANAGEMENT_URL?.trim() || process.env.STRAPI_URL?.trim() || "",
+  if (resolve(options.envFile) !== CANONICAL_AIC_ENV) {
+    throw new Error(`Scheduled publication requires the canonical environment at ${CANONICAL_AIC_ENV}.`);
+  }
+  const canonicalValues = await loadEnvFile(options.envFile);
+  const summary = await runScheduledPublicationCycle({
+    baseUrl: canonicalValues.STRAPI_MANAGEMENT_URL?.trim() || canonicalValues.STRAPI_URL?.trim() || "",
     token:
-      process.env.STRAPI_API_TOKEN_TEMP_WRITE?.trim() ||
-      process.env.STRAPI_MANAGEMENT_TOKEN?.trim() ||
-      process.env.STRAPI_API_TOKEN?.trim() ||
+      canonicalValues.STRAPI_API_TOKEN_TEMP_WRITE?.trim() ||
+      canonicalValues.STRAPI_MANAGEMENT_TOKEN?.trim() ||
+      canonicalValues.STRAPI_API_TOKEN?.trim() ||
       "",
-    actorEmail: process.env.SCHEDULED_PUBLICATION_ACTOR_EMAIL?.trim() || "scheduled-publication@pastorwood.local",
+    actorEmail: canonicalValues.SCHEDULED_PUBLICATION_ACTOR_EMAIL?.trim() || "scheduled-publication@pastorwood.local",
+    revalidationSecret: canonicalValues.STRAPI_REVALIDATE_SECRET?.trim() || "",
     limit: options.limit,
   });
   console.log(JSON.stringify({ worker: "scheduled-publication", ...summary }));

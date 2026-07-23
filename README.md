@@ -31,6 +31,8 @@ The canonical `/mnt/storage/aic/.env` is authoritative for public launch state. 
 
 After cutover, public Strapi reads use a 1.5-second timeout and a process-local 30-second outage circuit by default (`STRAPI_PUBLIC_FETCH_TIMEOUT_MS` and `STRAPI_PUBLIC_CIRCUIT_COOLDOWN_MS`). One unavailable public probe sends subsequent public readers directly to continuity data until a single recovery probe succeeds. Protected content-management requests do not use this circuit, and successful empty published responses remain authoritative.
 
+Scheduled and reviewed-cutover publications durably mark cache invalidation before changing public state, then call only the signed local Next route on port `8087`. Failed or interrupted invalidation remains pending and is retried before later publication work. See `docs/strapi-cache-revalidation.md` and `docs/editorial-scheduling.md`.
+
 Giving and donor-account links also fail closed. `PASTORWOOD_DONATION_URL` and `PASTORWOOD_DONOR_DASHBOARD_URL` must point to separately allowlisted external HTTPS hosts. A `pastorwood.org` URL is a self-link after cutover and is never treated as a payment or account provider.
 
 ## Protected episode audio

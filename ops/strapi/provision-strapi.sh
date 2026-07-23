@@ -42,6 +42,7 @@ else
   ADMIN_JWT_SECRET="$(random_hex 32)"
   TRANSFER_TOKEN_SALT="$(random_hex 32)"
   ENCRYPTION_KEY="$(random_hex 16)"
+  STRAPI_REVALIDATE_SECRET="$(random_hex 32)"
 
   temporary_env="$(mktemp /etc/aic/.strapi.env.XXXXXX)"
   cleanup_env() {
@@ -58,6 +59,7 @@ else
     printf 'ADMIN_JWT_SECRET=%s\n' "${ADMIN_JWT_SECRET}"
     printf 'TRANSFER_TOKEN_SALT=%s\n' "${TRANSFER_TOKEN_SALT}"
     printf 'ENCRYPTION_KEY=%s\n' "${ENCRYPTION_KEY}"
+    printf 'STRAPI_REVALIDATE_SECRET=%s\n' "${STRAPI_REVALIDATE_SECRET}"
     printf 'UPLOAD_MAX_FILE_SIZE=268435456\n'
     printf 'FLAG_NPS=false\n'
     printf 'FLAG_PROMOTE_EE=false\n'
@@ -69,6 +71,29 @@ else
 
   install -o root -g root -m 0600 "${temporary_env}" "${env_file}"
   rm -f -- "${temporary_env}"
+  trap - EXIT
+fi
+
+revalidation_secret_count="$(grep -Ec '^STRAPI_REVALIDATE_SECRET=' "${env_file}" || true)"
+if [[ "${revalidation_secret_count}" -gt 1 ]]; then
+  echo "Existing ${env_file} contains duplicate cache-revalidation secrets." >&2
+  exit 1
+fi
+if [[ "${revalidation_secret_count}" == "0" ]]; then
+  STRAPI_REVALIDATE_SECRET="$(random_hex 32)"
+  temporary_env="$(mktemp /etc/aic/.strapi.env.XXXXXX)"
+  cleanup_env() {
+    rm -f -- "${temporary_env:-}"
+  }
+  trap cleanup_env EXIT
+  {
+    cat "${env_file}"
+    printf '\nSTRAPI_REVALIDATE_SECRET=%s\n' "${STRAPI_REVALIDATE_SECRET}"
+  } > "${temporary_env}"
+  chown root:root "${temporary_env}"
+  chmod 0600 "${temporary_env}"
+  mv -f -- "${temporary_env}" "${env_file}"
+  temporary_env=""
   trap - EXIT
 fi
 
@@ -86,12 +111,14 @@ source "${env_file}"
 : "${ADMIN_JWT_SECRET:?ADMIN_JWT_SECRET is required}"
 : "${TRANSFER_TOKEN_SALT:?TRANSFER_TOKEN_SALT is required}"
 : "${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}"
+: "${STRAPI_REVALIDATE_SECRET:?STRAPI_REVALIDATE_SECRET is required}"
 
 if [[ ! "${APP_KEYS}" =~ ^[0-9a-f]{64},[0-9a-f]{64},[0-9a-f]{64},[0-9a-f]{64}$ ||
       ! "${API_TOKEN_SALT}" =~ ^[0-9a-f]{64}$ ||
       ! "${ADMIN_JWT_SECRET}" =~ ^[0-9a-f]{64}$ ||
       ! "${TRANSFER_TOKEN_SALT}" =~ ^[0-9a-f]{64}$ ||
-      ! "${ENCRYPTION_KEY}" =~ ^[0-9a-f]{32}$ ]]; then
+      ! "${ENCRYPTION_KEY}" =~ ^[0-9a-f]{32}$ ||
+      ! "${STRAPI_REVALIDATE_SECRET}" =~ ^[0-9a-f]{64}$ ]]; then
   echo "Existing Strapi application secrets do not match the generated secret format." >&2
   exit 1
 fi

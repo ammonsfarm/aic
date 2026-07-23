@@ -20,6 +20,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import unicodedata
 import urllib.error
 import urllib.parse
@@ -118,6 +119,8 @@ RESERVED_REDIRECT_PREFIXES = (
 APPLY_CONFIRMATION = "APPLY_PASTORWOOD_PUBLIC_CUTOVER"
 PUBLISH_REVIEWED_CONFIRMATION = "PUBLISH_REVIEWED_PASTORWOOD_CUTOVER"
 WORDPRESS_REFRESH_CONFIRMATION = "REFRESH_FROM_LIVE_WORDPRESS_DATABASE"
+PUBLIC_CACHE_INVALIDATION_URL = "http://127.0.0.1:8087/api/revalidate/strapi"
+PUBLIC_CACHE_INVALIDATION_SOURCE = "pastorwood-cutover"
 KNOWN_SHORTCODE_PATTERN = re.compile(
     r"\[/?(?:"
     r"et_pb_[A-Za-z0-9_:-]+|vc_[A-Za-z0-9_:-]+|give(?:_[A-Za-z0-9_:-]+)?|"
@@ -2931,9 +2934,71 @@ def media_manifest_entry(record: MediaRecord) -> dict[str, Any]:
 
 def write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.tmp")
-    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    temporary.replace(path)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=path.parent,
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.replace(path)
+        directory_descriptor = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def canonical_cache_revalidation_secret(env_values: dict[str, str]) -> str:
+    secret = text(env_values.get("STRAPI_REVALIDATE_SECRET"))
+    if not re.fullmatch(r"[a-f0-9]{64}", secret):
+        raise RuntimeError("Canonical AIC environment is missing the cache-revalidation secret")
+    return secret
+
+
+def request_public_cache_invalidation(
+    secret: str,
+    source: str = PUBLIC_CACHE_INVALIDATION_SOURCE,
+    *,
+    urlopen: Any = None,
+) -> None:
+    if not re.fullmatch(r"[a-f0-9]{64}", secret):
+        raise RuntimeError("Public cache invalidation secret is not configured")
+    if not re.fullmatch(r"[a-z0-9-]{1,64}", source):
+        raise RuntimeError("Public cache invalidation source is invalid")
+    body = json.dumps({"event": "entry.publish", "source": source}, separators=(",", ":")).encode("utf-8")
+    request = urllib.request.Request(
+        PUBLIC_CACHE_INVALIDATION_URL,
+        data=body,
+        method="POST",
+        headers={
+            "Accept": "application/json",
+            "Authorization": f"Bearer {secret}",
+            "Content-Type": "application/json",
+        },
+    )
+    opener = urlopen or urllib.request.urlopen
+    try:
+        with opener(request, timeout=10) as response:
+            status_value = getattr(response, "status", None)
+            status = int(status_value if status_value is not None else response.getcode())
+            response_body = response.read(65_537)
+    except (OSError, TimeoutError, urllib.error.URLError, urllib.error.HTTPError) as error:
+        raise RuntimeError("Public cache invalidation route is unavailable") from error
+    if not 200 <= status < 300 or len(response_body) > 65_536:
+        raise RuntimeError(f"Public cache invalidation was not confirmed (HTTP {status})")
+    try:
+        payload = json.loads(response_body)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise RuntimeError("Public cache invalidation route returned an invalid response") from error
+    if not isinstance(payload, dict) or payload.get("revalidated") is not True:
+        raise RuntimeError(f"Public cache invalidation was not confirmed (HTTP {status})")
 
 
 class StrapiClient:
@@ -3540,9 +3605,9 @@ def load_publication_manifest(
     plan_fingerprint: str,
     mutation_manifest_sha256: str,
     public_media_verification: dict[str, Any],
-) -> dict[str, dict[str, Any]]:
+) -> tuple[dict[str, dict[str, Any]], str]:
     if not path.exists():
-        return {}
+        return {}, "complete"
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
@@ -3564,7 +3629,18 @@ def load_publication_manifest(
         if not key or key in records or text(action.get("action")) not in {"published", "activated"}:
             raise RuntimeError("Cutover publication evidence contains an invalid or duplicate action")
         records[key] = dict(action)
-    return records
+    actions_fingerprint = stable_fingerprint([records[key] for key in sorted(records)])
+    invalidation = value.get("cacheInvalidation")
+    if invalidation is None:
+        return records, "pending" if records else "complete"
+    if (
+        not isinstance(invalidation, dict)
+        or invalidation.get("state") not in {"pending", "complete"}
+        or invalidation.get("actionsFingerprint") != actions_fingerprint
+        or not text(invalidation.get("updatedAt"))
+    ):
+        raise RuntimeError("Cutover publication cache-invalidation evidence is invalid")
+    return records, text(invalidation.get("state"))
 
 
 def write_publication_manifest(
@@ -3574,15 +3650,24 @@ def write_publication_manifest(
     public_media_verification: dict[str, Any],
     actions: dict[str, dict[str, Any]],
     exclusions: list[dict[str, str]],
+    cache_invalidation_state: str,
 ) -> None:
+    if cache_invalidation_state not in {"pending", "complete"}:
+        raise RuntimeError("Cutover publication cache-invalidation state is invalid")
+    ordered_actions = [actions[key] for key in sorted(actions)]
     write_json(path, {
         "version": 1,
         "planFingerprint": plan_fingerprint,
         "mutationManifestSha256": mutation_manifest_sha256,
         "publicMediaVerification": public_media_verification,
         "generatedAt": datetime.now(timezone.utc).isoformat(),
-        "actions": [actions[key] for key in sorted(actions)],
+        "actions": ordered_actions,
         "exclusions": exclusions,
+        "cacheInvalidation": {
+            "state": cache_invalidation_state,
+            "actionsFingerprint": stable_fingerprint(ordered_actions),
+            "updatedAt": datetime.now(timezone.utc).isoformat(),
+        },
     })
 
 
@@ -3645,7 +3730,7 @@ def publish_reviewed_plan(
         mutation_records,
         args.public_media_root,
     )
-    publication_actions = load_publication_manifest(
+    publication_actions, cache_invalidation_state = load_publication_manifest(
         args.publication_manifest,
         plan_fingerprint,
         mutation_manifest_sha256,
@@ -3663,14 +3748,40 @@ def publish_reviewed_plan(
         for key, entry in sorted(expected_entries.items())
         if entry["action"] == "exclude"
     ]
-    write_publication_manifest(
-        args.publication_manifest,
-        plan_fingerprint,
-        mutation_manifest_sha256,
-        public_media_verification,
-        publication_actions,
-        exclusions,
-    )
+    revalidation_secret = canonical_cache_revalidation_secret(payloads["env"])
+
+    def persist_publication_manifest() -> None:
+        write_publication_manifest(
+            args.publication_manifest,
+            plan_fingerprint,
+            mutation_manifest_sha256,
+            public_media_verification,
+            publication_actions,
+            exclusions,
+            cache_invalidation_state,
+        )
+
+    def mark_cache_invalidation_pending() -> None:
+        nonlocal cache_invalidation_state
+        cache_invalidation_state = "pending"
+        persist_publication_manifest()
+
+    def flush_cache_invalidation() -> None:
+        nonlocal cache_invalidation_state
+        if cache_invalidation_state != "pending":
+            return
+        request_public_cache_invalidation(revalidation_secret)
+        cache_invalidation_state = "complete"
+        persist_publication_manifest()
+
+    persist_publication_manifest()
+    if cache_invalidation_state == "pending":
+        try:
+            flush_cache_invalidation()
+        except RuntimeError as error:
+            raise RuntimeError(
+                "Public cache invalidation remains pending; refusing new reviewed publication"
+            ) from error
 
     client = canonical_strapi_client(payloads["env"])
     by_collection: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -3756,6 +3867,7 @@ def publish_reviewed_plan(
     for entry in publish_entries:
         key = text(entry["key"])
         current = current_by_key[key]
+        mark_cache_invalidation_pending()
         after = client.publish_reviewed(
             text(entry["entityType"]),
             text(current.get("documentId")),
@@ -3771,14 +3883,7 @@ def publish_reviewed_plan(
             "afterUpdatedAt": text(after.get("updatedAt")),
             "recordedAt": datetime.now(timezone.utc).isoformat(),
         }
-        write_publication_manifest(
-            args.publication_manifest,
-            plan_fingerprint,
-            mutation_manifest_sha256,
-            public_media_verification,
-            publication_actions,
-            exclusions,
-        )
+        persist_publication_manifest()
 
     expected_publish_keys = {key for key, entry in expected_entries.items() if entry["action"] == "publish"}
     if not expected_publish_keys.issubset(publication_actions):
@@ -3792,6 +3897,7 @@ def publish_reviewed_plan(
     for entry in activate_entries:
         key = text(entry["key"])
         current = current_by_key[key]
+        mark_cache_invalidation_pending()
         after = client.activate_reviewed_redirect(
             text(current.get("documentId")),
             text(current.get("updatedAt")),
@@ -3806,14 +3912,15 @@ def publish_reviewed_plan(
             "afterUpdatedAt": text(after.get("updatedAt")),
             "recordedAt": datetime.now(timezone.utc).isoformat(),
         }
-        write_publication_manifest(
-            args.publication_manifest,
-            plan_fingerprint,
-            mutation_manifest_sha256,
-            public_media_verification,
-            publication_actions,
-            exclusions,
-        )
+        persist_publication_manifest()
+
+    if cache_invalidation_state == "pending":
+        try:
+            flush_cache_invalidation()
+        except RuntimeError as error:
+            raise RuntimeError(
+                "Reviewed publication was recorded; public cache invalidation remains pending"
+            ) from error
 
     return {
         "publicationManifest": str(args.publication_manifest),

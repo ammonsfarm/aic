@@ -10,11 +10,13 @@ Pages, posts, and episodes can be assigned a UTC publication time in the custom 
 - Manual publication clears a pending schedule.
 - Archived content and future schedules are rejected.
 - Scheduled episode publication uses the existing durable episode-processing outbox after the publication revision is recorded.
+- Before each publication request, the worker durably records pending public-cache invalidation. It clears that evidence only after the exact local signed route confirms a 2xx JSON response with `revalidated: true`.
+- A timer run retries a pending or crash-claimed invalidation before querying for new work. Concurrent flushers are serialized, and a newer marker created during a request is not deleted with the older claim.
 - A run considers at most 25 entries by default and never more than 100.
 
 ## Service
 
-`aic-scheduled-publication-worker.timer` runs `scripts/publish_scheduled_strapi_content.mjs` as `ammonsfarm`. The service reads `/mnt/storage/aic/.env` and requires the same private Strapi URL and scoped management token as the content manager. `SCHEDULED_PUBLICATION_ACTOR_EMAIL` is optional; its default is the non-human audit identity `scheduled-publication@pastorwood.local`.
+`aic-scheduled-publication-worker.timer` runs `scripts/publish_scheduled_strapi_content.mjs` as `ammonsfarm`. The service reads URL, token, actor, and revalidation secret values directly from `/mnt/storage/aic/.env`; inherited process values cannot override that file. It requires the same private Strapi URL and scoped management token as the content manager. `SCHEDULED_PUBLICATION_ACTOR_EMAIL` is optional; its default is the non-human audit identity `scheduled-publication@pastorwood.local`. Its private systemd state directory is `/var/lib/aic-scheduled-publication`.
 
 Install or refresh the timer with:
 
@@ -30,4 +32,5 @@ Installation and activation happen only during an approved deployment. Building 
 2. Edit the draft in a second session; confirm an older save or publication attempt is rejected.
 3. Confirm the timer publishes the due draft once and clears its scheduled time.
 4. Confirm a scheduled episode creates exactly one durable processing request.
-5. Review the editorial revision and event attribution for the scheduled-publication service actor.
+5. Confirm the local signed revalidation route succeeds and no `cache-revalidation-pending.json` or `.inflight` marker remains.
+6. Review the editorial revision and event attribution for the scheduled-publication service actor.

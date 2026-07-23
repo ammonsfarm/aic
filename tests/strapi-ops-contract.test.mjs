@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import test from "node:test";
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -178,6 +178,10 @@ test("provisioning keeps application secrets separate and creates only the share
   assert.match(provision, /ensure-strapi-schema\.sh/);
   assert.match(provision, /install -o root -g root -m 0600 "\$\{env_file\}" "\$\{secrets_backup\}\/strapi\.env"/);
   assert.match(provision, /sha256sum --check SHA256SUMS/);
+  assert.match(provision, /STRAPI_REVALIDATE_SECRET="\$\(random_hex 32\)"/);
+  assert.match(provision, /grep -Ec '\^STRAPI_REVALIDATE_SECRET='/);
+  assert.match(provision, /! "\$\{STRAPI_REVALIDATE_SECRET\}" =~ \^\[0-9a-f\]\{64\}\$/);
+  assert.match(provision, /mv -f -- "\$\{temporary_env\}" "\$\{env_file\}"/);
   assert.doesNotMatch(provision, /farm-postgres|CREATE DATABASE|CREATE ROLE|database_role=/);
   assert.doesNotMatch(provision, /printf 'DATABASE_|DATABASE_PASSWORD=.*random_hex/);
   assert.doesNotMatch(provision, /^"\$\{ops_root\}\/with-aic-db-env\.sh"/m);
@@ -296,6 +300,106 @@ test("managed Strapi token is scoped, runtime-only, and replaces broad defaults"
   assert.match(unit, /Environment=HOST=127\.0\.0\.1/);
 });
 
+test("Strapi environment synchronization serializes the full atomic rewrite", async () => {
+  const sandbox = mkdtempSync(join(tmpdir(), "aic-strapi-env-sync-test-"));
+  const aicEnv = join(sandbox, ".env");
+  const firstTokenFile = join(sandbox, "first-token");
+  const secondTokenFile = join(sandbox, "second-token");
+  const strapiEnv = join(sandbox, "strapi.env");
+  const lockFile = join(sandbox, "sync.lock");
+  const readyFile = join(sandbox, "first-lock-acquired");
+  const releaseFile = join(sandbox, "release-first");
+  const script = join(opsRoot, "sync-aic-strapi-env.sh");
+  const firstToken = "a".repeat(256);
+  const secondToken = "b".repeat(256);
+  const databaseLines = [
+    "DB_HOST=192.168.1.106",
+    "DB_PORT=5432",
+    "DB_NAME=aic_contract",
+    "DB_USER=aic_contract_user",
+    "DB_PASSWORD=contract-password",
+  ];
+
+  const launch = (tokenFile, coordination = false) => {
+    const child = spawn("bash", [script], {
+      env: {
+        ...process.env,
+        NODE_ENV: "test",
+        AIC_STRAPI_ENV_SYNC_TEST_MODE: "1",
+        AIC_STRAPI_ENV_SYNC_TEST_ROOT: sandbox,
+        AIC_ENV_FILE: aicEnv,
+        AIC_API_TOKEN_FILE: tokenFile,
+        STRAPI_ENV_FILE: strapiEnv,
+        AIC_STRAPI_ENV_SYNC_LOCK_FILE: lockFile,
+        ...(coordination
+          ? {
+              AIC_STRAPI_ENV_SYNC_TEST_READY_FILE: readyFile,
+              AIC_STRAPI_ENV_SYNC_TEST_RELEASE_FILE: releaseFile,
+            }
+          : {}),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    const completed = new Promise((resolve, reject) => {
+      child.once("error", reject);
+      child.once("exit", (code) => resolve({ code, stdout, stderr }));
+    });
+    return { child, completed };
+  };
+
+  try {
+    writeFileSync(aicEnv, `${[...databaseLines, "UNCHANGED_SETTING=preserved", ""].join("\n")}`, { mode: 0o600 });
+    writeFileSync(firstTokenFile, `${firstToken}\n`, { mode: 0o600 });
+    writeFileSync(secondTokenFile, `${secondToken}\n`, { mode: 0o600 });
+    writeFileSync(strapiEnv, `STRAPI_REVALIDATE_SECRET=${"c".repeat(64)}\n`, { mode: 0o600 });
+
+    const first = launch(firstTokenFile, true);
+    for (let attempt = 0; attempt < 300 && !existsSync(readyFile); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.equal(existsSync(readyFile), true, "first synchronization never acquired its lock");
+
+    const second = launch(secondTokenFile);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(second.child.exitCode, null, "second synchronization did not wait for the first lock holder");
+    assert.doesNotMatch(readFileSync(aicEnv, "utf8"), /^STRAPI_API_TOKEN=/m);
+
+    writeFileSync(releaseFile, "release\n", { mode: 0o600 });
+    const [firstResult, secondResult] = await Promise.all([first.completed, second.completed]);
+    assert.equal(firstResult.code, 0, firstResult.stderr);
+    assert.equal(secondResult.code, 0, secondResult.stderr);
+
+    const finalEnv = readFileSync(aicEnv, "utf8");
+    assert.match(finalEnv, new RegExp(`^STRAPI_API_TOKEN=${secondToken}$`, "m"));
+    assert.doesNotMatch(finalEnv, new RegExp(`^STRAPI_API_TOKEN=${firstToken}$`, "m"));
+    assert.match(finalEnv, /^STRAPI_REVALIDATE_SECRET=[a-f0-9]{64}$/m);
+    assert.match(finalEnv, /^UNCHANGED_SETTING=preserved$/m);
+    assert.deepEqual(
+      finalEnv.split(/\r?\n/).filter((line) => /^DB_(HOST|PORT|NAME|USER|PASSWORD)=/.test(line)),
+      databaseLines,
+    );
+    for (const result of [firstResult, secondResult]) {
+      assert.equal(result.stdout.includes(firstToken) || result.stdout.includes(secondToken), false);
+      assert.equal(result.stderr.includes(firstToken) || result.stderr.includes(secondToken), false);
+    }
+
+    const syncSource = source("ops/strapi/sync-aic-strapi-env.sh");
+    const lockIndex = syncSource.indexOf("flock -x 9");
+    const snapshotIndex = syncSource.indexOf('snapshot_database_lines "${aic_env}" "${db_before}"');
+    const moveIndex = syncSource.indexOf('mv -f -- "${temporary_env}" "${aic_env}"');
+    assert.ok(lockIndex >= 0 && snapshotIndex > lockIndex && moveIndex > snapshotIndex);
+    assert.match(syncSource, /lock_uid=0\n\s*lock_gid=0/);
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true });
+  }
+});
+
 test("backup verification checks archives, listings, and checksums without a database restore", () => {
   const verify = source("ops/strapi/verify-strapi-backup.sh");
   assert.match(verify, /sha256sum --check SHA256SUMS/);
@@ -367,6 +471,8 @@ test("PastorWood cutover defaults to the pinned snapshot, imports drafts, and se
   const mediaRehashIndex = publication.indexOf("verify_phase1_public_media_evidence(");
   const clientIndex = publication.indexOf('canonical_strapi_client(payloads["env"])');
   const publishIndex = publication.indexOf("client.publish_reviewed(");
+  const firstPendingIndex = publication.indexOf("mark_cache_invalidation_pending()", publication.indexOf("publish_entries ="));
+  const initialFlushIndex = publication.indexOf('if cache_invalidation_state == "pending":');
   assert.match(cutover, /DEFAULT_WORDPRESS_SNAPSHOT/);
   assert.match(cutover, /default="verified-snapshot"/);
   assert.match(cutover, /pastorwood-reviewed-media-dispositions\.json/);
@@ -381,10 +487,19 @@ test("PastorWood cutover defaults to the pinned snapshot, imports drafts, and se
   assert.match(cutover, /\/api\/editorial\/\{entity_type\}/);
   assert.match(cutover, /\{\*\*redirect, "active": False\}/);
   assert.match(cutover, /mutationManifestSha256/);
+  assert.match(cutover, /PUBLIC_CACHE_INVALIDATION_URL = "http:\/\/127\.0\.0\.1:8087\/api\/revalidate\/strapi"/);
+  assert.match(cutover, /"event": "entry\.publish", "source": source/);
+  assert.match(cutover, /payload\.get\("revalidated"\) is not True/);
+  assert.match(cutover, /"cacheInvalidation": \{/);
+  assert.match(cutover, /"actionsFingerprint": stable_fingerprint\(ordered_actions\)/);
+  assert.match(cutover, /os\.fsync\(handle\.fileno\(\)\)/);
+  assert.match(cutover, /os\.fsync\(directory_descriptor\)/);
   assert.match(cutover, /Redirect activation refuses a partial reviewed publication phase/);
   assert.ok(publicationStart >= 0 && publicationEnd > publicationStart);
   assert.ok(reviewedSealIndex >= 0 && exactManifestIndex > reviewedSealIndex && mediaRehashIndex > exactManifestIndex);
   assert.ok(clientIndex > mediaRehashIndex && publishIndex > clientIndex);
+  assert.ok(initialFlushIndex >= 0 && initialFlushIndex < clientIndex);
+  assert.ok(firstPendingIndex >= 0 && firstPendingIndex < publishIndex);
   assert.match(publication, /publicMediaVerification/);
   assert.doesNotMatch(publication, /copy_public_media\(/);
   assert.doesNotMatch(cutover, /status_query = "\?status=published"/);

@@ -1,6 +1,7 @@
 import importlib.util
 import hashlib
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -17,6 +18,110 @@ SPEC.loader.exec_module(MODULE)
 
 
 class CutoverIdentityTests(unittest.TestCase):
+    def test_cache_invalidation_uses_only_the_canonical_loopback_and_generic_payload(self):
+        captured = {}
+
+        class Response:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, limit):
+                self.limit = limit
+                return b'{"revalidated":true}'
+
+        def opener(request, timeout):
+            captured["url"] = request.full_url
+            captured["authorization"] = request.get_header("Authorization")
+            captured["payload"] = json.loads(request.data)
+            captured["timeout"] = timeout
+            return Response()
+
+        previous = os.environ.get("STRAPI_REVALIDATE_URL")
+        os.environ["STRAPI_REVALIDATE_URL"] = "https://attacker.invalid/collect"
+        try:
+            MODULE.request_public_cache_invalidation("a" * 64, urlopen=opener)
+        finally:
+            if previous is None:
+                os.environ.pop("STRAPI_REVALIDATE_URL", None)
+            else:
+                os.environ["STRAPI_REVALIDATE_URL"] = previous
+
+        self.assertEqual(captured, {
+            "url": "http://127.0.0.1:8087/api/revalidate/strapi",
+            "authorization": f"Bearer {'a' * 64}",
+            "payload": {"event": "entry.publish", "source": "pastorwood-cutover"},
+            "timeout": 10,
+        })
+
+    def test_publication_manifest_binds_pending_invalidation_to_exact_actions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "publications.json"
+            actions = {
+                "post:7": {
+                    "key": "post:7",
+                    "kind": "post",
+                    "identity": "7",
+                    "action": "published",
+                    "documentId": "post-document",
+                },
+            }
+            verification = {"files": 2, "sha256": "b" * 64}
+            MODULE.write_publication_manifest(
+                path,
+                "plan-fingerprint",
+                "c" * 64,
+                verification,
+                actions,
+                [],
+                "pending",
+            )
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["cacheInvalidation"]["state"], "pending")
+            self.assertEqual(
+                payload["cacheInvalidation"]["actionsFingerprint"],
+                MODULE.stable_fingerprint([actions["post:7"]]),
+            )
+            loaded_actions, state = MODULE.load_publication_manifest(
+                path,
+                "plan-fingerprint",
+                "c" * 64,
+                verification,
+            )
+            self.assertEqual(loaded_actions, actions)
+            self.assertEqual(state, "pending")
+
+            payload["actions"][0]["documentId"] = "tampered-document"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "cache-invalidation evidence"):
+                MODULE.load_publication_manifest(path, "plan-fingerprint", "c" * 64, verification)
+
+    def test_legacy_publication_evidence_is_pending_until_explicitly_invalidated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "publications.json"
+            verification = {"files": 0}
+            path.write_text(json.dumps({
+                "version": 1,
+                "planFingerprint": "plan-fingerprint",
+                "mutationManifestSha256": "d" * 64,
+                "publicMediaVerification": verification,
+                "actions": [{"key": "page:home", "action": "published"}],
+                "exclusions": [],
+            }), encoding="utf-8")
+
+            actions, state = MODULE.load_publication_manifest(
+                path,
+                "plan-fingerprint",
+                "d" * 64,
+                verification,
+            )
+            self.assertEqual(set(actions), {"page:home"})
+            self.assertEqual(state, "pending")
+
     def test_verified_snapshot_is_the_default_and_live_wordpress_is_explicit(self):
         args = MODULE.parse_args([])
         self.assertEqual(args.wordpress_source, "verified-snapshot")

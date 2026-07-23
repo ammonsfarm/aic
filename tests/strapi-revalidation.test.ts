@@ -45,4 +45,24 @@ describe("Strapi public cache invalidation", () => {
     expect(cacheMocks.revalidatePath).toHaveBeenCalledWith("/writings/[slug]", "page");
     expect(cacheMocks.revalidatePath).toHaveBeenCalledWith("/radio/[[...slug]]", "page");
   });
+
+  it("accepts the generic signed publication event used by local publication workers", async () => {
+    const request = new NextRequest("http://127.0.0.1:8087/api/revalidate/strapi", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer test-revalidate-secret",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ event: "entry.publish", source: "scheduled-publication" }),
+    });
+
+    const response = await POST(request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.revalidated).toBe(true);
+    expect(cacheMocks.revalidateTag).toHaveBeenCalledWith("strapi:pages", { expire: 0 });
+    expect(cacheMocks.revalidateTag).toHaveBeenCalledWith("strapi-structured-redirects", { expire: 0 });
+    expect(cacheMocks.revalidatePath).toHaveBeenCalledWith("/sitemap.xml", "page");
+  });
 });
