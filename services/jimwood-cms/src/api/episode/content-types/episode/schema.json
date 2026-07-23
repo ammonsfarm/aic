@@ -5,14 +5,19 @@
     "singularName": "episode",
     "pluralName": "episodes",
     "displayName": "Radio Episode",
-    "description": "Public audio episode metadata and processing state"
+    "description": "Public audio episode metadata with derived processing state"
   },
   "options": { "draftAndPublish": true },
   "pluginOptions": {},
   "attributes": {
     "title": { "type": "string", "required": true },
     "slug": { "type": "uid", "targetField": "title", "required": true },
-    "trackId": { "type": "string", "unique": true },
+    "trackId": {
+      "type": "string",
+      "required": true,
+      "unique": true,
+      "regex": "^(?:[0-9]+|sa_[0-9]+|wp-sermon:[0-9]+|cms_[a-z0-9][a-z0-9_-]{0,62})$"
+    },
     "legacyId": { "type": "string", "unique": true },
     "wpSermonId": { "type": "string" },
     "episodeNumber": { "type": "integer", "min": 1 },
@@ -25,21 +30,6 @@
     "featuredImage": { "type": "media", "multiple": false, "allowedTypes": ["images"] },
     "guests": { "type": "relation", "relation": "manyToMany", "target": "api::person.person" },
     "scriptureReferences": { "type": "component", "repeatable": true, "component": "content.scripture-reference" },
-    "transcriptStatus": {
-      "type": "enumeration",
-      "enum": ["not-requested", "queued", "running", "completed", "failed", "skipped"],
-      "default": "not-requested"
-    },
-    "intelligenceStatus": {
-      "type": "enumeration",
-      "enum": ["not-requested", "queued", "running", "completed", "failed", "skipped"],
-      "default": "not-requested"
-    },
-    "vectorStatus": {
-      "type": "enumeration",
-      "enum": ["not-requested", "queued", "running", "completed", "failed", "skipped"],
-      "default": "not-requested"
-    },
     "publishDate": { "type": "datetime" },
     "scheduledFor": { "type": "datetime" },
     "legacyUrl": { "type": "string" },

@@ -597,10 +597,77 @@ export interface ApiEndorsementEndorsement extends Struct.CollectionTypeSchema {
   };
 }
 
+export interface ApiEpisodeProcessingRequestEpisodeProcessingRequest
+  extends Struct.CollectionTypeSchema {
+  collectionName: 'pastorwood_episode_processing_requests';
+  info: {
+    description: 'Durable outbox rows created atomically with editorial episode publication';
+    displayName: 'Episode Processing Request';
+    pluralName: 'episode-processing-requests';
+    singularName: 'episode-processing-request';
+  };
+  options: {
+    draftAndPublish: false;
+  };
+  attributes: {
+    attemptCount: Schema.Attribute.Integer &
+      Schema.Attribute.Required &
+      Schema.Attribute.SetMinMax<
+        {
+          min: 0;
+        },
+        number
+      > &
+      Schema.Attribute.DefaultTo<0>;
+    claimedAt: Schema.Attribute.DateTime;
+    completedAt: Schema.Attribute.DateTime;
+    createdAt: Schema.Attribute.DateTime;
+    createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    episodeDocumentId: Schema.Attribute.String & Schema.Attribute.Required;
+    forceReprocess: Schema.Attribute.Boolean &
+      Schema.Attribute.Required &
+      Schema.Attribute.DefaultTo<false>;
+    lastError: Schema.Attribute.Text;
+    locale: Schema.Attribute.String & Schema.Attribute.Private;
+    localizations: Schema.Attribute.Relation<
+      'oneToMany',
+      'api::episode-processing-request.episode-processing-request'
+    > &
+      Schema.Attribute.Private;
+    nextAttemptAt: Schema.Attribute.DateTime & Schema.Attribute.Required;
+    payload: Schema.Attribute.JSON & Schema.Attribute.Required;
+    publishedAt: Schema.Attribute.DateTime;
+    requestedBy: Schema.Attribute.Email & Schema.Attribute.Required;
+    requestKey: Schema.Attribute.String &
+      Schema.Attribute.Required &
+      Schema.Attribute.Unique;
+    result: Schema.Attribute.JSON;
+    revisionNumber: Schema.Attribute.Integer &
+      Schema.Attribute.Required &
+      Schema.Attribute.SetMinMax<
+        {
+          min: 1;
+        },
+        number
+      >;
+    status: Schema.Attribute.Enumeration<
+      ['queued', 'running', 'completed', 'failed', 'superseded']
+    > &
+      Schema.Attribute.Required &
+      Schema.Attribute.DefaultTo<'queued'>;
+    trackId: Schema.Attribute.String & Schema.Attribute.Required;
+    updatedAt: Schema.Attribute.DateTime;
+    updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
+      Schema.Attribute.Private;
+    workerId: Schema.Attribute.String;
+  };
+}
+
 export interface ApiEpisodeEpisode extends Struct.CollectionTypeSchema {
   collectionName: 'pastorwood_episodes';
   info: {
-    description: 'Public audio episode metadata and processing state';
+    description: 'Public audio episode metadata with derived processing state';
     displayName: 'Radio Episode';
     pluralName: 'episodes';
     singularName: 'episode';
@@ -634,10 +701,6 @@ export interface ApiEpisodeEpisode extends Struct.CollectionTypeSchema {
     externalAudioUrl: Schema.Attribute.String;
     featuredImage: Schema.Attribute.Media<'images'>;
     guests: Schema.Attribute.Relation<'manyToMany', 'api::person.person'>;
-    intelligenceStatus: Schema.Attribute.Enumeration<
-      ['not-requested', 'queued', 'running', 'completed', 'failed', 'skipped']
-    > &
-      Schema.Attribute.DefaultTo<'not-requested'>;
     legacyId: Schema.Attribute.String & Schema.Attribute.Unique;
     legacyUrl: Schema.Attribute.String;
     locale: Schema.Attribute.String & Schema.Attribute.Private;
@@ -659,18 +722,12 @@ export interface ApiEpisodeEpisode extends Struct.CollectionTypeSchema {
     sourceFingerprint: Schema.Attribute.String;
     summary: Schema.Attribute.Text;
     title: Schema.Attribute.String & Schema.Attribute.Required;
-    trackId: Schema.Attribute.String & Schema.Attribute.Unique;
-    transcriptStatus: Schema.Attribute.Enumeration<
-      ['not-requested', 'queued', 'running', 'completed', 'failed', 'skipped']
-    > &
-      Schema.Attribute.DefaultTo<'not-requested'>;
+    trackId: Schema.Attribute.String &
+      Schema.Attribute.Required &
+      Schema.Attribute.Unique;
     updatedAt: Schema.Attribute.DateTime;
     updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
       Schema.Attribute.Private;
-    vectorStatus: Schema.Attribute.Enumeration<
-      ['not-requested', 'queued', 'running', 'completed', 'failed', 'skipped']
-    > &
-      Schema.Attribute.DefaultTo<'not-requested'>;
     wpSermonId: Schema.Attribute.String;
   };
 }
@@ -1347,6 +1404,7 @@ declare module '@strapi/strapi' {
       'api::editorial-event.editorial-event': ApiEditorialEventEditorialEvent;
       'api::editorial-revision.editorial-revision': ApiEditorialRevisionEditorialRevision;
       'api::endorsement.endorsement': ApiEndorsementEndorsement;
+      'api::episode-processing-request.episode-processing-request': ApiEpisodeProcessingRequestEpisodeProcessingRequest;
       'api::episode.episode': ApiEpisodeEpisode;
       'api::media-asset.media-asset': ApiMediaAssetMediaAsset;
       'api::page.page': ApiPagePage;

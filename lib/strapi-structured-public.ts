@@ -239,7 +239,7 @@ function publishedEpisode(entry: PublicEntry): PublishedEpisode {
     programDate: text(entry.programDate) || null,
     summary: text(entry.summary),
     description: text(entry.description),
-    audioUrl: text(entry.externalAudioUrl) || absoluteMediaUrl(entry.audio),
+    audioUrl: absoluteMediaUrl(entry.audio) || text(entry.externalAudioUrl),
     durationSeconds: entry.durationSeconds === null || entry.durationSeconds === undefined ? null : number(entry.durationSeconds),
   };
 }

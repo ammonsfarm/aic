@@ -73,3 +73,7 @@ sudo systemctl status aic-transcript-edit-worker.service
 ```
 
 The timer runs every two minutes and processes up to twenty-five queued edits per run.
+
+## Strapi episode publication queue
+
+Publishing an episode through the private AIC content manager records a durable Strapi outbox row in the same editorial transaction. `aic-episode-publish-worker.timer` bridges that row into the operational `episodes` table and the existing per-track transcript, intelligence, and vector pipeline with bounded retries, stale-claim recovery, and SHA-256 audio provenance so duplicate publications are cheap while changed audio is retranscribed. Processing state is derived and read-only in the editor; it is not an editable episode field. See `docs/episode-publication-pipeline.md` for the source-of-truth and audio-staging contract.

@@ -6,7 +6,7 @@ const execFileAsync = promisify(execFile);
 export const PUBLIC_EPISODE_AUDIO_CACHE_CONTROL = "private, no-store";
 
 export function isPublicEpisodeTrackId(value: string) {
-  return /^(?:\d+|sa_\d+)$/.test(value);
+  return /^(?:\d+|sa_\d+|wp-sermon:\d+|cms_[a-z0-9][a-z0-9_-]{0,62})$/.test(value);
 }
 
 function mcBin() {

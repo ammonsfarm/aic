@@ -4,13 +4,16 @@ import { notFound } from "next/navigation";
 import { StructuredContentForm } from "@/components/structured-content-form";
 import {
   getStructuredEntry,
+  getLatestEpisodeProcessingRequest,
   listStructuredRevisions,
+  type EpisodeProcessingRequest,
   type StructuredEntry,
   type StructuredRevision,
 } from "@/lib/strapi-structured-management";
 import { getStructuredCollection, type StructuredCollectionKey } from "@/lib/structured-content-config";
 import {
   deleteStructuredEntryAction,
+  retryEpisodeProcessingAction,
   rollbackStructuredEntryAction,
   saveStructuredEntryAction,
   transitionStructuredEntryAction,
@@ -39,6 +42,7 @@ function notice(query: Record<string, string | undefined>) {
   if (query.archive) return "Content archived and removed from public listings.";
   if (query.restore) return "Content restored as a private draft.";
   if (query.rolledBack) return "The selected revision was restored as a new draft.";
+  if (query.processingRetry) return "Episode processing was queued for another bounded attempt.";
   return "";
 }
 
@@ -59,6 +63,8 @@ export async function StructuredEntryEditorView({
   let entry: StructuredEntry | null = null;
   let revisions: StructuredRevision[] = [];
   let revisionsError = "";
+  let processing: EpisodeProcessingRequest | null = null;
+  let processingError = "";
   try {
     entry = await getStructuredEntry(definition.key, documentId);
     if (entry) {
@@ -67,6 +73,14 @@ export async function StructuredEntryEditorView({
       } catch (cause) {
         console.error("Structured revisions lookup failed", cause);
         revisionsError = cause instanceof Error ? cause.message : "Revision history could not be loaded.";
+      }
+      if (definition.entityType === "episode") {
+        try {
+          processing = await getLatestEpisodeProcessingRequest(documentId);
+        } catch (cause) {
+          console.error("Episode processing lookup failed", cause);
+          processingError = cause instanceof Error ? cause.message : "Episode processing status could not be loaded.";
+        }
       }
     }
   } catch (cause) {
@@ -121,6 +135,47 @@ export async function StructuredEntryEditorView({
         </div>
         <StructuredContentForm definition={definition} entry={entry} action={saveAction} />
       </section>
+
+      {definition.entityType === "episode" ? (
+        <section className="data-card">
+          <div className="data-card__header">
+            <div><p className="eyebrow">Podcast pipeline</p><h2>Publication processing</h2></div>
+          </div>
+          {processingError ? <div className="editor-form"><p role="alert">{processingError}</p></div> : null}
+          {!processing && !processingError ? (
+            <div className="editor-form">
+              <p className="muted-copy">No processing request exists yet. Publishing creates one in the same durable editorial transaction.</p>
+            </div>
+          ) : null}
+          {processing ? (
+            <div className="editor-form">
+              <div className="status-list" aria-label="Episode processing state">
+                <span><strong>{processing.status}</strong>Pipeline state</span>
+                <span><strong>{processing.attemptCount}</strong>Attempts</span>
+                <span><strong>{processing.trackId}</strong>Track ID</span>
+                <span><strong>Revision {processing.revisionNumber}</strong>Publication source</span>
+              </div>
+              {processing.status === "queued" ? <p role="status">Queued for the background podcast worker.</p> : null}
+              {processing.status === "running" ? <p role="status">The transcript, intelligence, and vector pipeline is running.</p> : null}
+              {processing.status === "completed" ? <p role="status">Operational episode metadata and processing coverage were verified.</p> : null}
+              {processing.status === "failed" ? <p role="alert">Processing reached its bounded retry limit and needs review.</p> : null}
+              {processing.status === "superseded" ? <p role="status">A newer publication revision replaced this request.</p> : null}
+              {processing.lastError ? <p role="alert"><strong>Latest error:</strong> {processing.lastError}</p> : null}
+              {processing.status === "failed" || processing.status === "completed" ? (
+                <form className="editor-grid editor-grid--two" action={retryEpisodeProcessingAction.bind(null, documentId)}>
+                  <label>
+                    <span>Retry note</span>
+                    <input name="processingRetryNote" required placeholder="Why should this episode be processed again?" />
+                  </label>
+                  <div className="editor-form__actions">
+                    <button className="button button--ghost" type="submit">Queue processing retry</button>
+                  </div>
+                </form>
+              ) : null}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       <section className="data-card">
         <div className="data-card__header">

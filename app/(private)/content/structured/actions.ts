@@ -7,6 +7,7 @@ import {
   createStructuredEntry,
   getStructuredEntry,
   rollbackStructuredEntry,
+  retryEpisodeProcessing,
   transitionStructuredEntry,
   updateStructuredEntry,
   uploadStructuredFile,
@@ -36,7 +37,9 @@ import {
 } from "@/lib/strapi-cache-tags";
 
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"]);
+const ALLOWED_EPISODE_AUDIO_TYPES = new Set(["audio/mpeg", "audio/mp3", "audio/mpeg3", "audio/x-mpeg-3"]);
 const BLOCKED_ACTIVE_CONTENT_TYPES = new Set(["image/svg+xml", "text/html", "application/xhtml+xml", "application/xml", "text/xml", "text/javascript", "application/javascript"]);
+const EPISODE_TRACK_ID_PATTERN = /^(?:\d+|sa_\d+|wp-sermon:\d+|cms_[a-z0-9][a-z0-9_-]{0,62})$/;
 
 function formString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -137,6 +140,9 @@ function validateFile(field: StructuredFieldDefinition, file: File) {
   if (isImage && !ALLOWED_IMAGE_TYPES.has(type)) {
     throw new Error(`${field.label} must be JPEG, PNG, WebP, GIF, or AVIF.`);
   }
+  if (field.name === "audioFile" && (!ALLOWED_EPISODE_AUDIO_TYPES.has(type) || !file.name.toLowerCase().endsWith(".mp3"))) {
+    throw new Error(`${field.label} must be an MP3 file.`);
+  }
 
   if (file.size > limit) {
     throw new Error(
@@ -160,6 +166,13 @@ async function structuredPayload(
   const definition = getStructuredCollection(key);
   if (!definition) {
     throw new Error("Unsupported structured content type.");
+  }
+
+  if (key === "episodes") {
+    const trackId = formString(formData, "trackId");
+    if (!EPISODE_TRACK_ID_PATTERN.test(trackId)) {
+      throw new Error("Track ID must be numeric, sa_<number>, wp-sermon:<number>, or a safe cms_<name>.");
+    }
   }
 
   const data: Record<string, unknown> = {};
@@ -292,6 +305,13 @@ export async function transitionStructuredEntryAction(
   revalidateStructuredPaths(key, documentId);
   const definition = getStructuredCollection(key);
   redirect(`${definition?.editorPath || `/content/structured/${key}`}/${documentId}?${action}=1`);
+}
+
+export async function retryEpisodeProcessingAction(documentId: string, formData: FormData) {
+  const user = await requireContentManagerApiUser();
+  await retryEpisodeProcessing(documentId, user, formString(formData, "processingRetryNote"));
+  revalidateStructuredPaths("episodes", documentId);
+  redirect(`/content/podcast/${documentId}?processingRetry=1`);
 }
 
 export async function rollbackStructuredEntryAction(

@@ -9,10 +9,13 @@ describe("public episode audio boundary", () => {
     expect(PUBLIC_EPISODE_AUDIO_CACHE_CONTROL).toBe("private, no-store");
   });
 
-  it("accepts only canonical numeric and SermonAudio track IDs", () => {
+  it("accepts canonical numeric, SermonAudio, imported sermon, and safe CMS track IDs", () => {
     expect(isPublicEpisodeTrackId("1003386838")).toBe(true);
     expect(isPublicEpisodeTrackId("sa_99151132260")).toBe(true);
-    for (const value of ["../secret", "sa_bad", "100.mp3", "a/b", ""]) expect(isPublicEpisodeTrackId(value)).toBe(false);
+    expect(isPublicEpisodeTrackId("wp-sermon:14759")).toBe(true);
+    expect(isPublicEpisodeTrackId(decodeURIComponent("wp-sermon%3A14759"))).toBe(true);
+    expect(isPublicEpisodeTrackId("cms_sunday_20260722")).toBe(true);
+    for (const value of ["../secret", "sa_bad", "cms_../secret", "wp-sermon:bad", "100.mp3", "a/b", ""]) expect(isPublicEpisodeTrackId(value)).toBe(false);
   });
 
   it("parses bounded single byte ranges", () => {

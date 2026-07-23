@@ -72,9 +72,12 @@ const entityModels = {
 
 type EntityType = keyof typeof entityModels;
 type EditorialAction = 'baseline' | 'create' | 'save' | 'publish' | 'unpublish' | 'archive' | 'restore' | 'rollback' | 'delete' | 'upload';
+type WorkflowAction = EditorialAction | 'retry-processing';
 
 const revisionUid = 'api::editorial-revision.editorial-revision';
 const eventUid = 'api::editorial-event.editorial-event';
+const processingRequestUid = 'api::episode-processing-request.episode-processing-request';
+const operationalTrackIdPattern = /^(?:[0-9]+|sa_[0-9]+|wp-sermon:[0-9]+|cms_[a-z0-9][a-z0-9_-]{0,62})$/;
 
 function modelFor(value: string | undefined) {
   if (!value || !(value in entityModels)) {
@@ -200,6 +203,118 @@ async function recordAction(
       source: 'aic-content-manager',
     },
   });
+
+  return nextRevision;
+}
+
+function boundedText(value: unknown, maximum: number) {
+  return typeof value === 'string' ? value.trim().slice(0, maximum) : '';
+}
+
+function mediaPayload(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  if (record.data && typeof record.data === 'object') {
+    return mediaPayload(record.data);
+  }
+  if (record.attributes && typeof record.attributes === 'object') {
+    return mediaPayload({ ...(record.attributes as Record<string, unknown>), ...record });
+  }
+  const url = boundedText(record.url, 2_000);
+  if (!url) {
+    return null;
+  }
+  return {
+    url,
+    name: boundedText(record.name, 500),
+    mime: boundedText(record.mime, 200),
+    size: typeof record.size === 'number' ? record.size : null,
+  };
+}
+
+async function enqueueEpisodeProcessing(
+  documentId: string,
+  episode: DocumentRecord,
+  revisionNumber: number,
+  actorInput: Actor | undefined,
+) {
+  const actor = requireActor(actorInput);
+  const trackId = boundedText(episode.trackId, 100);
+  if (!operationalTrackIdPattern.test(trackId)) {
+    throw new Error('Episode publication requires a valid permanent Track ID.');
+  }
+
+  const superseded = await documents(processingRequestUid).findMany({
+    filters: {
+      episodeDocumentId: documentId,
+      status: { $in: ['queued', 'failed'] },
+    },
+    limit: 100,
+  });
+  for (const request of superseded) {
+    await documents(processingRequestUid).update({
+      documentId: request.documentId,
+      data: {
+        status: 'superseded',
+        claimedAt: null,
+        workerId: '',
+        completedAt: new Date().toISOString(),
+        lastError: `Superseded by publication revision ${revisionNumber}.`,
+      },
+    });
+  }
+
+  await documents(processingRequestUid).create({
+    data: {
+      requestKey: `${documentId}:revision:${revisionNumber}`,
+      episodeDocumentId: documentId,
+      trackId,
+      revisionNumber,
+      status: 'queued',
+      attemptCount: 0,
+      forceReprocess: false,
+      nextAttemptAt: new Date().toISOString(),
+      workerId: '',
+      lastError: '',
+      payload: {
+        trackId,
+        title: boundedText(episode.title, 1_000),
+        programDate: boundedText(episode.programDate, 40),
+        publishDate: boundedText(episode.publishDate, 80),
+        summary: boundedText(episode.summary, 20_000),
+        description: boundedText(episode.description, 100_000),
+        externalAudioUrl: boundedText(episode.externalAudioUrl, 2_000),
+        audio: mediaPayload(episode.audio),
+        sourceUpdatedAt: boundedText(episode.updatedAt, 80),
+      },
+      result: {},
+      requestedBy: actor.email,
+    },
+  });
+}
+
+async function hasPermanentEpisodeIdentity(documentId: string, episode: DocumentRecord) {
+  if (boundedText(episode.sourceFingerprint, 500)) {
+    return true;
+  }
+  const published = await documents(entityModels.episode.uid).findOne({ documentId, status: 'published' });
+  if (published) {
+    return true;
+  }
+  const requests = await documents(processingRequestUid).findMany({
+    filters: { episodeDocumentId: documentId },
+    limit: 1,
+  });
+  if (requests.length > 0) {
+    return true;
+  }
+  const publicationRevisions = await documents(revisionUid).findMany({
+    filters: { entityType: 'episode', entityDocumentId: documentId, action: 'publish' },
+    limit: 1,
+  });
+  return publicationRevisions.length > 0;
 }
 
 function requestBody(ctx: EditorialContext): WorkflowBody {
@@ -267,27 +382,32 @@ const editorialWorkflowController = {
     if (!documentId || !input.data || typeof input.data !== 'object') {
       return ctx.badRequest('Document id and content data are required.');
     }
+    const data = input.data;
 
     return withEditorialTransaction(entityType, documentId, async () => {
-      if (entityType === 'page' || entityType === 'site-setting') {
-        const current = await findDraft(model, documentId);
-        if (!current) {
-          return ctx.notFound('Content item was not found.');
+      const current = await findDraft(model, documentId);
+      if (!current) {
+        return ctx.notFound('Content item was not found.');
+      }
+      if (entityType === 'page') {
+        const requestedPageKey = data.pageKey;
+        if (typeof requestedPageKey === 'string' && requestedPageKey !== current.pageKey) {
+          return ctx.badRequest('Page identity cannot be changed after creation.');
         }
-        if (entityType === 'page') {
-          const requestedPageKey = input.data?.pageKey;
-          if (typeof requestedPageKey === 'string' && requestedPageKey !== current.pageKey) {
-            return ctx.badRequest('Page identity cannot be changed after creation.');
-          }
-          input.data!.pageKey = current.pageKey;
-        } else if (!siteSettingsVersionMatches(ctx, current, input)) {
-          return;
+        data.pageKey = current.pageKey;
+      } else if (entityType === 'site-setting' && !siteSettingsVersionMatches(ctx, current, input)) {
+        return;
+      }
+      if (entityType === 'episode' && Object.prototype.hasOwnProperty.call(data, 'trackId')) {
+        const requestedTrackId = boundedText(data.trackId, 100);
+        if (requestedTrackId !== current.trackId && await hasPermanentEpisodeIdentity(documentId, current)) {
+          return ctx.badRequest('Track ID cannot change after an episode has been published.');
         }
       }
 
       const updated = await documents(model.uid).update({
         documentId,
-        data: input.data,
+        data,
         status: 'draft',
         populate: editorialPopulate(model),
       });
@@ -306,7 +426,7 @@ const editorialWorkflowController = {
     const input = requestBody(ctx);
     const actor = requireActor(input.actor);
     const documentId = String(ctx.params.documentId || '');
-    const action = String(ctx.params.action || '') as EditorialAction;
+    const action = String(ctx.params.action || '') as WorkflowAction;
     if (!documentId) {
       return ctx.badRequest('Document id is required.');
     }
@@ -360,10 +480,72 @@ const editorialWorkflowController = {
         if (current.archivedAt) {
           return ctx.badRequest('Archived content must be restored before it can be published.');
         }
+        if (entityType === 'episode' && !operationalTrackIdPattern.test(boundedText(current.trackId, 100))) {
+          return ctx.badRequest('Episode publication requires a valid permanent Track ID.');
+        }
         const result = await documents(model.uid).publish({ documentId, populate: editorialPopulate(model) });
         const published = result.entries?.[0] || current;
-        await recordAction(entityType, model, documentId, published, action, actor, input.note);
+        const revisionNumber = await recordAction(entityType, model, documentId, published, action, actor, input.note);
+        if (entityType === 'episode') {
+          await enqueueEpisodeProcessing(documentId, published, revisionNumber, actor);
+        }
         ctx.body = { data: published };
+        return;
+      }
+
+      if (action === 'retry-processing') {
+        if (entityType !== 'episode') {
+          return ctx.badRequest('Processing retry is only available for episodes.');
+        }
+        const requests = await documents(processingRequestUid).findMany({
+          filters: { episodeDocumentId: documentId },
+          sort: ['createdAt:desc'],
+          limit: 1,
+        });
+        const request = requests[0];
+        if (!request) {
+          return ctx.badRequest('Publish this episode before requesting processing.');
+        }
+        if (request.status === 'superseded') {
+          return ctx.badRequest('A superseded request cannot replace the newer publication request.');
+        }
+        if (request.status === 'queued' || request.status === 'running') {
+          return ctx.badRequest('Episode processing is already queued or running.');
+        }
+        const retryNote = boundedText(input.note, 2_000);
+        if (!retryNote) {
+          return ctx.badRequest('A processing retry note is required.');
+        }
+        const retried = await documents(processingRequestUid).update({
+          documentId: request.documentId,
+          data: {
+            status: 'queued',
+            attemptCount: 0,
+            forceReprocess: true,
+            nextAttemptAt: new Date().toISOString(),
+            claimedAt: null,
+            workerId: '',
+            lastError: '',
+            result: {},
+            completedAt: null,
+          },
+        });
+        const retryActor = requireActor(actor);
+        await documents(eventUid).create({
+          data: {
+            entityType,
+            entityDocumentId: documentId,
+            entityTitle: boundedText(current.title, 1_000),
+            action: 'episode_processing_retry',
+            actorId: retryActor.id,
+            actorEmail: retryActor.email,
+            actorName: retryActor.name,
+            note: retryNote,
+            detail: { processingRequestDocumentId: request.documentId },
+            source: 'aic-content-manager',
+          },
+        });
+        ctx.body = { data: retried };
         return;
       }
 
@@ -419,6 +601,9 @@ const editorialWorkflowController = {
         const data = writableSnapshot(model.uid, revision.snapshot as Record<string, unknown>);
         if (entityType === 'page') {
           data.pageKey = current.pageKey;
+        }
+        if (entityType === 'episode' && await hasPermanentEpisodeIdentity(documentId, current)) {
+          data.trackId = current.trackId;
         }
         const restored = await documents(model.uid).update({ documentId, data, status: 'draft', populate: editorialPopulate(model) });
         await recordAction(

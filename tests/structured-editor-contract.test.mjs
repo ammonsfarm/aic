@@ -205,6 +205,43 @@ test("media upload is bounded and private visibility is part of the editor contr
   assert.doesNotMatch(pageActions, /image\/svg\+xml/);
 });
 
+test("episode publication uses a durable outbox and read-only processing status", async () => {
+  const workflow = await source("services/jimwood-cms/src/api/editorial-workflow/controllers/editorial-workflow.ts");
+  assert.match(workflow, /processingRequestUid/);
+  assert.match(workflow, /requestKey: `\$\{documentId\}:revision:\$\{revisionNumber\}`/);
+  assert.match(workflow, /status: 'queued'/);
+  assert.match(workflow, /status: \{ \$in: \['queued', 'failed'\] \}/);
+  assert.match(workflow, /status: 'superseded'/);
+  assert.match(workflow, /action === 'retry-processing'/);
+  assert.match(workflow, /A processing retry note is required/);
+  assert.match(workflow, /Track ID cannot change after an episode has been published/);
+  assert.doesNotMatch(workflow, /DB_HOST|DB_PASSWORD|insert into episodes/i);
+
+  const config = await source("lib/structured-content-config.ts");
+  for (const manualState of ["transcriptStatus", "intelligenceStatus", "vectorStatus"]) {
+    assert.doesNotMatch(config, new RegExp(`name: "${manualState}"`));
+  }
+  assert.match(config, /Permanent processing identity/);
+
+  const editor = await source("app/(private)/content/structured/[collection]/[documentId]/page.tsx");
+  assert.match(editor, /Publication processing/);
+  assert.match(editor, /processing\.status === "queued"/);
+  assert.match(editor, /processing\.status === "running"/);
+  assert.match(editor, /processing\.status === "completed"/);
+  assert.match(editor, /processing\.status === "failed"/);
+  assert.match(editor, /Queue processing retry/);
+
+  const deploy = await source("scripts/deploy-farm-web.sh");
+  assert.match(deploy, /install-episode-publish-worker\.sh/);
+  const worker = await source("scripts/process_episode_publish_requests.py");
+  assert.match(worker, /autocommit=True/);
+  assert.match(worker, /episode_processing_provenance/);
+  assert.match(worker, /matching_complete_provenance/);
+  assert.match(worker, /--retranscribe/);
+  await stat(resolve(root, "systemd/aic-episode-publish-worker.service"));
+  await stat(resolve(root, "systemd/aic-episode-publish-worker.timer"));
+});
+
 test("public structured content is published-only, outage-safe, and visibility filtered", async () => {
   const adapter = await source("lib/strapi-structured-public.ts");
   assert.match(adapter, /query\.set\("status", "published"\)/);

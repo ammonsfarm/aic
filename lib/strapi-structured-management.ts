@@ -29,6 +29,22 @@ export type StructuredRevision = {
   createdAt?: string;
 };
 
+export type EpisodeProcessingRequest = {
+  documentId: string;
+  episodeDocumentId: string;
+  trackId: string;
+  revisionNumber: number;
+  status: "queued" | "running" | "completed" | "failed" | "superseded";
+  attemptCount: number;
+  nextAttemptAt?: string;
+  claimedAt?: string;
+  lastError: string;
+  result: Record<string, unknown>;
+  completedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 type StrapiEnvelope<T> = {
   data: T;
   meta?: {
@@ -435,6 +451,56 @@ export async function rollbackStructuredEntry(
     {
       method: "POST",
       body: JSON.stringify({ actor: actorFor(user), note, revisionDocumentId }),
+    },
+  );
+}
+
+export async function getLatestEpisodeProcessingRequest(documentId: string): Promise<EpisodeProcessingRequest | null> {
+  const query = new URLSearchParams();
+  query.set("filters[episodeDocumentId][$eq]", documentId);
+  query.set("sort", "createdAt:desc");
+  query.set("pagination[pageSize]", "1");
+  const response = await strapiRequest<StrapiEnvelope<unknown[]>>(
+    `/api/episode-processing-requests?${query.toString()}`,
+  );
+  const normalized = normalizeEntry(response?.data?.[0]);
+  if (!normalized) {
+    return null;
+  }
+  const status = String(normalized.status || "");
+  if (!["queued", "running", "completed", "failed", "superseded"].includes(status)) {
+    return null;
+  }
+  return {
+    documentId: normalized.documentId,
+    episodeDocumentId: String(normalized.episodeDocumentId || ""),
+    trackId: String(normalized.trackId || ""),
+    revisionNumber: Number(normalized.revisionNumber || 0),
+    status: status as EpisodeProcessingRequest["status"],
+    attemptCount: Number(normalized.attemptCount || 0),
+    nextAttemptAt: typeof normalized.nextAttemptAt === "string" ? normalized.nextAttemptAt : undefined,
+    claimedAt: typeof normalized.claimedAt === "string" ? normalized.claimedAt : undefined,
+    lastError: String(normalized.lastError || ""),
+    result:
+      normalized.result && typeof normalized.result === "object"
+        ? normalized.result as Record<string, unknown>
+        : {},
+    completedAt: typeof normalized.completedAt === "string" ? normalized.completedAt : undefined,
+    createdAt: typeof normalized.createdAt === "string" ? normalized.createdAt : undefined,
+    updatedAt: typeof normalized.updatedAt === "string" ? normalized.updatedAt : undefined,
+  };
+}
+
+export async function retryEpisodeProcessing(
+  documentId: string,
+  user: CurrentAppUser,
+  note = "",
+) {
+  return strapiRequest<StrapiEnvelope<unknown>>(
+    `/api/editorial/episode/${encodeURIComponent(documentId)}/retry-processing`,
+    {
+      method: "POST",
+      body: JSON.stringify({ actor: actorFor(user), note }),
     },
   );
 }

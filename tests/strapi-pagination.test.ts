@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  getPublishedEpisodeByTrackId,
   getPublishedEpisodeBySlug,
   listAllPublishedEpisodes,
   listPublishedBoardMembers,
@@ -32,6 +33,23 @@ describe("published Strapi archive pagination", () => {
 
     expect(result?.trackId).toBe("3000");
     expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("looks up an encoded imported-sermon route by its permanent Track ID", async () => {
+    process.env.STRAPI_URL = "http://127.0.0.1:1337";
+    const fetchMock = vi.fn(async (input: URL | RequestInfo) => {
+      const url = new URL(String(input));
+      expect(url.searchParams.get("filters[trackId][$eq]")).toBe("wp-sermon:14759");
+      return new Response(JSON.stringify({
+        data: [{ ...episode(14759), trackId: "wp-sermon:14759" }],
+        meta: { pagination: { page: 1, pageSize: 1, pageCount: 1, total: 1 } },
+      }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getPublishedEpisodeByTrackId(decodeURIComponent("wp-sermon%3A14759"));
+
+    expect(result?.trackId).toBe("wp-sermon:14759");
   });
 
   it("walks every Strapi metadata page for sitemap generation", async () => {
@@ -77,6 +95,22 @@ describe("published Strapi archive pagination", () => {
     expect(result).toMatchObject({ page: 2, pageSize: 100, pageCount: 3, total: 300 });
     expect(result.items.map((item) => item.slug)).toEqual(["episode-101"]);
     expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("publishes the managed upload that the episode pipeline processes before a legacy external URL", async () => {
+    process.env.STRAPI_URL = "http://127.0.0.1:1337";
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      data: [{
+        ...episode(42),
+        externalAudioUrl: "https://legacy.example/old.mp3",
+        audio: { documentId: "audio-doc", url: "/uploads/new.mp3" },
+      }],
+      meta: { pagination: { page: 1, pageSize: 24, pageCount: 1, total: 1 } },
+    }), { status: 200 })));
+
+    const result = await listPublishedEpisodesPage(1, 24);
+
+    expect(result.items[0]?.audioUrl).toBe("/media/cms/audio-doc/new.mp3");
   });
 
   it("serves imported board portraits only through the verified same-origin legacy route", async () => {

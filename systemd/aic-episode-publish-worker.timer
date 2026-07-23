@@ -1,0 +1,11 @@
+[Unit]
+Description=Process durable Strapi episode publication requests
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=1min
+AccuracySec=15s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

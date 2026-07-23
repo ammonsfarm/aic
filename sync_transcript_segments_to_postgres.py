@@ -7,12 +7,14 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 from typing import Any, Iterable
 
 import psycopg
 
 
 DEFAULT_TRANSCRIPT_DIR = Path("/home/ammonsfarm/gemini-transcribe")
+TRACK_ID_PATTERN = re.compile(r"^(?:[0-9]+|sa_[0-9]+|wp-sermon:[0-9]+|cms_[a-z0-9][a-z0-9_-]{0,62})$")
 
 
 def load_env(path: Path) -> None:
@@ -84,11 +86,15 @@ def time_to_seconds(value: Any) -> float | None:
 
 def transcript_paths(transcript_dir: Path, track_ids: list[str], limit: int) -> list[Path]:
     if track_ids:
-        paths = [transcript_dir / f"{track_id}.json" for track_id in track_ids]
+        paths = [
+            transcript_dir / f"{track_id}.json"
+            for track_id in track_ids
+            if TRACK_ID_PATTERN.fullmatch(track_id)
+        ]
     else:
         paths = sorted(transcript_dir.glob("*.json"))
 
-    paths = [path for path in paths if path.exists() and path.stem.isdigit()]
+    paths = [path for path in paths if path.exists() and TRACK_ID_PATTERN.fullmatch(path.stem)]
     if limit > 0:
         return paths[:limit]
     return paths

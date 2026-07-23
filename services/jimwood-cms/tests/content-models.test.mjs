@@ -16,7 +16,7 @@ async function schema(apiName) {
 
 const publicModels = {
   post: ["title", "slug", "contentType", "body", "archivedAt"],
-  episode: ["title", "slug", "audio", "externalAudioUrl", "transcriptStatus", "archivedAt"],
+  episode: ["title", "slug", "trackId", "audio", "externalAudioUrl", "archivedAt"],
   person: ["name", "slug", "showOnBoard", "active", "archivedAt"],
   endorsement: ["quote", "attribution", "active", "archivedAt"],
   "media-asset": ["title", "slug", "asset", "visibility", "legacyAttachmentId", "archivedAt"],
@@ -46,6 +46,30 @@ test("redirects are an explicit non-draft registry", async () => {
   assert.equal(model.attributes.fromPath.unique, true);
   assert.equal(model.attributes.statusCode.type, "integer");
   assert.equal(model.attributes.statusCode.default, 301);
+});
+
+test("episode identity is validated while pipeline state lives in the durable outbox", async () => {
+  const episode = await schema("episode");
+  assert.equal(episode.attributes.trackId.required, true);
+  assert.equal(episode.attributes.trackId.unique, true);
+  assert.match("sa_99151132260", new RegExp(episode.attributes.trackId.regex));
+  assert.match("cms_sunday_20260722", new RegExp(episode.attributes.trackId.regex));
+  for (const manualState of ["transcriptStatus", "intelligenceStatus", "vectorStatus"]) {
+    assert.equal(episode.attributes[manualState], undefined);
+  }
+  const lifecycle = await text("src/api/episode/content-types/episode/lifecycles.ts");
+  assert.match(lifecycle, /beforeUpdate/);
+  assert.match(lifecycle, /publishedAt: \{ \$notNull: true \}/);
+  assert.match(lifecycle, /episode-processing-request/);
+  assert.match(lifecycle, /existing\.sourceFingerprint/);
+  assert.match(lifecycle, /Track ID cannot change after an episode has been published/);
+
+  const outbox = await schema("episode-processing-request");
+  assert.equal(outbox.options.draftAndPublish, false);
+  assert.equal(outbox.attributes.requestKey.unique, true);
+  assert.deepEqual(outbox.attributes.status.enum, ["queued", "running", "completed", "failed", "superseded"]);
+  assert.equal(outbox.attributes.forceReprocess.default, false);
+  assert.equal(outbox.indexes[0].type, "unique");
 });
 
 test("revision and audit collections are append-only through API and database lifecycles", async () => {
@@ -96,6 +120,12 @@ test("editorial workflow exposes create, update, transition, and revision reads"
   assert.match(controller, /adoptedExisting: true/);
   assert.match(controller, /siteSettingsVersionMatches/);
   assert.match(controller, /atomic publication transition/);
+  assert.match(controller, /enqueueEpisodeProcessing/);
+  assert.match(controller, /hasPermanentEpisodeIdentity/);
+  assert.match(controller, /data\.trackId = current\.trackId/);
+  assert.match(controller, /requestKey: `\$\{documentId\}:revision:\$\{revisionNumber\}`/);
+  assert.match(controller, /await recordAction[\s\S]*await enqueueEpisodeProcessing/);
+  assert.doesNotMatch(controller, /DB_HOST|DB_PASSWORD|insert into episodes/i);
   const snapshot = await text("src/api/editorial-workflow/controllers/editorial-snapshot.ts");
   assert.match(snapshot, /writableDynamicZone/);
   assert.match(snapshot, /mediaReference/);

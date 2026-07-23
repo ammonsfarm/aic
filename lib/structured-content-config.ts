@@ -50,8 +50,6 @@ export type StructuredCollectionDefinition = {
   listColumns: readonly string[];
 };
 
-const processingOptions = ["not-requested", "queued", "running", "completed", "failed", "skipped"] as const;
-
 export const STRUCTURED_COLLECTIONS: Record<StructuredCollectionKey, StructuredCollectionDefinition> = {
   posts: {
     key: "posts",
@@ -95,21 +93,24 @@ export const STRUCTURED_COLLECTIONS: Record<StructuredCollectionKey, StructuredC
     slugField: "slug",
     publishable: true,
     editorPath: "/content/podcast",
-    listColumns: ["programDate", "transcriptStatus"],
+    listColumns: ["programDate", "trackId"],
     fields: [
       { name: "title", label: "Title", type: "text", required: true },
       { name: "slug", label: "URL slug", type: "slug", required: true },
-      { name: "trackId", label: "Track ID", type: "text" },
+      {
+        name: "trackId",
+        label: "Track ID",
+        type: "text",
+        required: true,
+        help: "Permanent processing identity: a SoundCloud number, sa_<number>, wp-sermon:<number>, or a stable cms_<name>. It cannot change after first publication.",
+      },
       { name: "episodeNumber", label: "Episode number", type: "number" },
       { name: "programDate", label: "Program date", type: "date" },
       { name: "summary", label: "Summary", type: "textarea" },
       { name: "description", label: "Description", type: "richtext" },
       { name: "externalAudioUrl", label: "Existing audio URL", type: "url" },
-      { name: "audioFile", label: "Upload audio", type: "file", accept: "audio/*", mediaTarget: "audio" },
+      { name: "audioFile", label: "Upload MP3 audio", type: "file", accept: "audio/mpeg,.mp3", mediaTarget: "audio", help: "MP3 is required for automatic transcript, intelligence, and vector processing." },
       { name: "durationSeconds", label: "Duration in seconds", type: "number" },
-      { name: "transcriptStatus", label: "Transcript status", type: "select", options: processingOptions },
-      { name: "intelligenceStatus", label: "Intelligence status", type: "select", options: processingOptions },
-      { name: "vectorStatus", label: "Vector status", type: "select", options: processingOptions },
       { name: "publishDate", label: "Editorial publish date", type: "datetime" },
       { name: "scheduledFor", label: "Scheduled for", type: "datetime" },
       { name: "legacyUrl", label: "Legacy URL", type: "url" },

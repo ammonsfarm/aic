@@ -1,0 +1,41 @@
+{
+  "kind": "collectionType",
+  "collectionName": "pastorwood_episode_processing_requests",
+  "info": {
+    "singularName": "episode-processing-request",
+    "pluralName": "episode-processing-requests",
+    "displayName": "Episode Processing Request",
+    "description": "Durable outbox rows created atomically with editorial episode publication"
+  },
+  "options": { "draftAndPublish": false },
+  "pluginOptions": {},
+  "indexes": [
+    {
+      "name": "pastorwood_episode_processing_request_key_uq",
+      "columns": ["request_key"],
+      "type": "unique"
+    }
+  ],
+  "attributes": {
+    "requestKey": { "type": "string", "required": true, "unique": true },
+    "episodeDocumentId": { "type": "string", "required": true },
+    "trackId": { "type": "string", "required": true },
+    "revisionNumber": { "type": "integer", "required": true, "min": 1 },
+    "status": {
+      "type": "enumeration",
+      "enum": ["queued", "running", "completed", "failed", "superseded"],
+      "default": "queued",
+      "required": true
+    },
+    "attemptCount": { "type": "integer", "default": 0, "required": true, "min": 0 },
+    "forceReprocess": { "type": "boolean", "default": false, "required": true },
+    "nextAttemptAt": { "type": "datetime", "required": true },
+    "claimedAt": { "type": "datetime" },
+    "workerId": { "type": "string" },
+    "lastError": { "type": "text" },
+    "payload": { "type": "json", "required": true },
+    "result": { "type": "json" },
+    "requestedBy": { "type": "email", "required": true },
+    "completedAt": { "type": "datetime" }
+  }
+}

@@ -10,6 +10,7 @@ const managedPermissionPrefixes = [
   'api::editorial-workflow.editorial-workflow.',
   'api::endorsement.endorsement.',
   'api::episode.episode.',
+  'api::episode-processing-request.episode-processing-request.',
   'api::media-asset.media-asset.',
   'api::page.page.',
   'api::person.person.',
