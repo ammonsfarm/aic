@@ -33,18 +33,31 @@ from psycopg.rows import dict_row
 
 try:
     from scripts.aic_database_env import (
-        DATABASE_ENV_KEYS,
-        DATABASE_ROUTING_ENV_KEYS,
+        CANONICAL_AIC_ENV,
+        CANONICAL_PODCAST_ENV,
+        canonical_subprocess_env,
         database_dsn,
         load_canonical_aic_env,
+        load_supplemental_podcast_env,
     )
 except ModuleNotFoundError:  # Direct execution from /mnt/storage/aic/scripts.
-    from aic_database_env import DATABASE_ENV_KEYS, DATABASE_ROUTING_ENV_KEYS, database_dsn, load_canonical_aic_env
+    from aic_database_env import (
+        CANONICAL_AIC_ENV,
+        CANONICAL_PODCAST_ENV,
+        canonical_subprocess_env,
+        database_dsn,
+        load_canonical_aic_env,
+        load_supplemental_podcast_env,
+    )
 
 
-DEFAULT_ENV_FILE = Path("/mnt/storage/aic/.env")
-DEFAULT_PODCAST_ENV_FILE = Path("/mnt/storage/aic_podcast/.env")
+DEFAULT_WEB_ROOT = Path("/mnt/storage/aic")
+DEFAULT_ENV_FILE = CANONICAL_AIC_ENV
+DEFAULT_PODCAST_ENV_FILE = CANONICAL_PODCAST_ENV
 DEFAULT_PODCAST_ROOT = Path("/mnt/storage/aic_podcast")
+DEFAULT_WEB_PYTHON = DEFAULT_WEB_ROOT / ".venv-pg/bin/python"
+DEFAULT_PODCAST_PYTHON = DEFAULT_PODCAST_ROOT / ".venv-pg/bin/python"
+DEFAULT_PODCAST_RUNNER = DEFAULT_PODCAST_ROOT / "run_daily_podcast_ingest.py"
 DEFAULT_AUDIO_DIR = Path("/mnt/storage/podcasts")
 DEFAULT_STRAPI_MEDIA_ROOT = Path("/mnt/storage/pastorwood-media/strapi/uploads")
 DEFAULT_PUBLIC_MEDIA_ROOT = Path("/mnt/storage/pastorwood-media/public")
@@ -87,22 +100,29 @@ def iso(value: dt.datetime | None = None) -> str:
     return (value or utc_now()).isoformat(timespec="seconds")
 
 
-def load_env(path: Path) -> None:
-    load_canonical_aic_env(path)
+def load_env(path: Path) -> dict[str, str]:
+    return load_canonical_aic_env(path)
 
 
-def load_supplemental_env(path: Path) -> None:
-    if not path.exists():
-        return
-    for raw_line in path.read_text().splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        if key in (*DATABASE_ENV_KEYS, *DATABASE_ROUTING_ENV_KEYS):
-            continue
-        os.environ.setdefault(key, value.strip().strip('"').strip("'"))
+def validate_production_runtime(args: argparse.Namespace) -> None:
+    expected = {
+        "worker": (Path(__file__).absolute(), DEFAULT_WEB_ROOT / "scripts/process_episode_publish_requests.py"),
+        "interpreter": (Path(sys.executable).absolute(), DEFAULT_WEB_PYTHON),
+        "canonical environment": (args.env_file, DEFAULT_ENV_FILE),
+        "supplemental environment": (args.podcast_env_file, DEFAULT_PODCAST_ENV_FILE),
+        "podcast root": (args.podcast_root, DEFAULT_PODCAST_ROOT),
+    }
+    for label, (actual, required) in expected.items():
+        if actual != required:
+            raise RuntimeError(f"Production {label} must be {required}; got {actual}.")
+    for label, path in {
+        "podcast interpreter": DEFAULT_PODCAST_PYTHON,
+        "podcast runner": DEFAULT_PODCAST_RUNNER,
+    }.items():
+        if not path.is_file():
+            raise RuntimeError(f"Production {label} is missing: {path}")
+    if not os.access(DEFAULT_PODCAST_PYTHON, os.X_OK):
+        raise RuntimeError(f"Production podcast interpreter is not executable: {DEFAULT_PODCAST_PYTHON}")
 
 
 def dsn() -> str:
@@ -814,24 +834,27 @@ def run_pipeline(
     track_id: str,
     *,
     podcast_root: Path,
-    podcast_env_file: Path,
+    canonical_env_file: Path,
+    podcast_python: Path,
+    child_env: dict[str, str],
     timeout_seconds: int,
     retranscribe: bool,
 ) -> dict[str, Any]:
-    python = podcast_root / ".venv-pg/bin/python"
-    if not python.exists():
-        python = Path(sys.executable)
     revision = int(request.get("revisionNumber") or 0)
     attempts = int(request.get("attemptCount") or 1)
     raw_id = request_document_id(request)
     safe_id = re.sub(r"[^A-Za-z0-9_-]+", "_", raw_id)[:60]
     run_id = f"cms_publish_{safe_id}_r{revision}_a{attempts}"
     command = [
-        str(python),
+        str(podcast_python),
         "-u",
         str(podcast_root / "run_daily_podcast_ingest.py"),
         "--env-file",
-        str(podcast_env_file),
+        str(canonical_env_file),
+        "--workspace",
+        str(podcast_root),
+        "--web-workspace",
+        str(DEFAULT_WEB_ROOT),
         "--skip-rss",
         "--track-id",
         track_id,
@@ -860,7 +883,7 @@ def run_pipeline(
     result = subprocess.run(
         command,
         cwd=podcast_root,
-        env=os.environ.copy(),
+        env=child_env.copy(),
         capture_output=True,
         text=True,
         timeout=timeout_seconds,
@@ -918,7 +941,9 @@ def process_request(
             request,
             track_id,
             podcast_root=args.podcast_root,
-            podcast_env_file=args.podcast_env_file,
+            canonical_env_file=args.env_file,
+            podcast_python=DEFAULT_PODCAST_PYTHON,
+            child_env=args.child_env,
             timeout_seconds=args.run_timeout_seconds,
             retranscribe=retranscribe,
         )
@@ -965,8 +990,13 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    load_env(args.env_file)
-    load_supplemental_env(args.podcast_env_file)
+    validate_production_runtime(args)
+    canonical_values = load_env(args.env_file)
+    supplemental_values = load_supplemental_podcast_env(
+        args.podcast_env_file,
+        canonical_values=canonical_values,
+    )
+    args.child_env = canonical_subprocess_env(canonical_values, supplemental_values)
     base_url = os.environ.get("STRAPI_MANAGEMENT_URL") or os.environ.get("STRAPI_URL", "")
     token = os.environ.get("STRAPI_API_TOKEN", "")
     client = StrapiClient(base_url, token)

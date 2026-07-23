@@ -35,6 +35,13 @@ REPORTS = ("episode", "country", "client")
 DEFAULT_CURL_FILE = Path("podtrac-auth.curl")
 DEFAULT_ENV_FILE = Path(".env")
 DEFAULT_LOG_DIR = Path("run_logs")
+SERVER_AIC_ROOT = Path("/mnt/storage/aic")
+SERVER_PODCAST_ROOT = Path("/mnt/storage/aic_podcast")
+SERVER_ENV_FILE = SERVER_AIC_ROOT / ".env"
+SERVER_CURL_FILE = SERVER_PODCAST_ROOT / "podtrac-auth.curl"
+SERVER_LOG_DIR = SERVER_PODCAST_ROOT / "run_logs"
+SERVER_PYTHON = SERVER_AIC_ROOT / ".venv-pg/bin/python"
+SERVER_RUNNER = SERVER_AIC_ROOT / "ops/podtrac/run_daily_podtrac_ingest.py"
 EXPECTED_DB_HOST = "192.168.1.106"
 EXPECTED_DB_PORT = "5432"
 DATABASE_ENV_KEYS = ("DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD")
@@ -48,8 +55,15 @@ LIBPQ_ROUTING_ENV_KEYS = (
     "PGPASSFILE",
     "PGSERVICE",
     "PGSERVICEFILE",
+    "PGOPTIONS",
+    "PGTARGETSESSIONATTRS",
+    "PGSSLMODE",
 )
 DATABASE_ROUTING_ENV_KEYS = (*LIBPQ_ROUTING_ENV_KEYS, "DATABASE_URL")
+
+
+def is_database_routing_key(key: str) -> bool:
+    return key == "DATABASE_URL" or key.startswith("PG")
 
 
 @dataclass(frozen=True)
@@ -93,6 +107,8 @@ def load_env(path: Path) -> None:
             continue
         key, value = line.split("=", 1)
         key = key.strip()
+        if is_database_routing_key(key):
+            raise RuntimeError(f"Declared Podtrac environment must not contain database routing key: {key}")
         if key in sensitive_keys:
             if key in seen_sensitive:
                 raise RuntimeError(f"Declared Podtrac environment contains duplicate sensitive key: {key}")
@@ -110,8 +126,9 @@ def load_env(path: Path) -> None:
             f"Podtrac ingest must use the existing AIC PostgreSQL target at {EXPECTED_DB_HOST}:{EXPECTED_DB_PORT}."
         )
 
-    for key in (*DATABASE_ENV_KEYS, *DATABASE_ROUTING_ENV_KEYS):
-        os.environ.pop(key, None)
+    for key in list(os.environ):
+        if key in DATABASE_ENV_KEYS or is_database_routing_key(key):
+            os.environ.pop(key, None)
     for key in DATABASE_ENV_KEYS:
         os.environ[key] = values[key]
     for key, value in values.items():
@@ -127,7 +144,7 @@ def dsn() -> str:
         raise RuntimeError(
             f"Podtrac ingest must use the existing AIC PostgreSQL target at {EXPECTED_DB_HOST}:{EXPECTED_DB_PORT}."
         )
-    inherited_routing = [key for key in DATABASE_ROUTING_ENV_KEYS if key in os.environ]
+    inherited_routing = sorted(key for key in os.environ if is_database_routing_key(key))
     if inherited_routing:
         raise RuntimeError("Independent libpq routing settings are forbidden: " + ", ".join(inherited_routing))
 
@@ -649,11 +666,34 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--db-connect-timeout", type=int, default=10)
     parser.add_argument("--db-connect-sleep", type=float, default=15.0)
     parser.add_argument("--dry-run", action="store_true", help="Fetch reports and print counts without writing Postgres.")
+    parser.add_argument(
+        "--server-admin-mode",
+        action="store_true",
+        help="Require the fixed farm AIC runner, interpreter, canonical env, curl auth, and log paths.",
+    )
     return parser.parse_args()
+
+
+def validate_server_admin_runtime(args: argparse.Namespace) -> None:
+    if not args.server_admin_mode:
+        return
+    required_paths = {
+        "runner": (Path(__file__).absolute(), SERVER_RUNNER),
+        "interpreter": (Path(sys.executable).absolute(), SERVER_PYTHON),
+        "canonical environment": (args.env_file, SERVER_ENV_FILE),
+        "curl authentication": (args.curl_file, SERVER_CURL_FILE),
+        "log directory": (args.log_dir, SERVER_LOG_DIR),
+    }
+    for label, (actual, required) in required_paths.items():
+        if actual != required:
+            raise RuntimeError(f"Server admin Podtrac {label} must be {required}; got {actual}.")
+    if args.auth_mode != "curl":
+        raise RuntimeError("Server admin Podtrac ingest requires --auth-mode curl.")
 
 
 def main() -> int:
     args = parse_args()
+    validate_server_admin_runtime(args)
     load_env(args.env_file)
     headers = parse_headers_from_curl(args.curl_file) if args.auth_mode == "curl" else {}
     started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")

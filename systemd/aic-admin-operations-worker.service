@@ -9,7 +9,10 @@ User=ammonsfarm
 Group=ammonsfarm
 WorkingDirectory=/mnt/storage/aic
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/mnt/storage/aic/.venv-pg/bin/python /mnt/storage/aic/scripts/process_admin_operation_requests.py --env-file /mnt/storage/aic/.env --limit 1
+UnsetEnvironment=DB_HOST DB_PORT DB_NAME DB_USER DB_PASSWORD DATABASE_URL
+UnsetEnvironment=PGHOST PGHOSTADDR PGPORT PGDATABASE PGUSER PGPASSWORD PGPASSFILE PGSERVICE PGSERVICEFILE PGOPTIONS PGTARGETSESSIONATTRS PGSSLMODE
+UnsetEnvironment=PYTHONPATH PYTHONHOME LD_PRELOAD LD_LIBRARY_PATH BASH_ENV ENV NODE_OPTIONS
+ExecStart=/mnt/storage/aic/.venv-pg/bin/python /mnt/storage/aic/scripts/process_admin_operation_requests.py --env-file /mnt/storage/aic/.env --podcast-env-file /mnt/storage/aic_podcast/.env --limit 1
 TimeoutStartSec=2h 10m
 Nice=5
 IOSchedulingClass=best-effort

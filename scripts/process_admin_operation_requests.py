@@ -9,20 +9,43 @@ from pathlib import Path
 import re
 import socket
 import subprocess
+import sys
 from typing import Any
 
 import psycopg
 from psycopg.rows import dict_row
 
 try:
-    from scripts.aic_database_env import database_dsn, load_canonical_aic_env
+    from scripts.aic_database_env import (
+        CANONICAL_AIC_ENV,
+        CANONICAL_PODCAST_ENV,
+        canonical_subprocess_env,
+        database_dsn,
+        load_canonical_aic_env,
+        load_supplemental_podcast_env,
+    )
 except ModuleNotFoundError:  # Direct execution from /mnt/storage/aic/scripts.
-    from aic_database_env import database_dsn, load_canonical_aic_env
+    from aic_database_env import (
+        CANONICAL_AIC_ENV,
+        CANONICAL_PODCAST_ENV,
+        canonical_subprocess_env,
+        database_dsn,
+        load_canonical_aic_env,
+        load_supplemental_podcast_env,
+    )
 
 
-DEFAULT_ENV_FILE = Path("/mnt/storage/aic/.env")
+DEFAULT_ENV_FILE = CANONICAL_AIC_ENV
+DEFAULT_PODCAST_ENV_FILE = CANONICAL_PODCAST_ENV
 DEFAULT_WEB_ROOT = Path("/mnt/storage/aic")
 DEFAULT_PODCAST_ROOT = Path("/mnt/storage/aic_podcast")
+DEFAULT_WEB_PYTHON = DEFAULT_WEB_ROOT / ".venv-pg/bin/python"
+DEFAULT_PODCAST_PYTHON = DEFAULT_PODCAST_ROOT / ".venv-pg/bin/python"
+DEFAULT_DAILY_INGEST_RUNNER = DEFAULT_PODCAST_ROOT / "run_daily_podcast_ingest.py"
+DEFAULT_PODTRAC_RUNNER = DEFAULT_WEB_ROOT / "ops/podtrac/run_daily_podtrac_ingest.py"
+DEFAULT_PODTRAC_AUTH = DEFAULT_PODCAST_ROOT / "podtrac-auth.curl"
+DEFAULT_PODTRAC_LOG_DIR = DEFAULT_PODCAST_ROOT / "run_logs"
+DEFAULT_PODTRAC_LOCK = Path("/tmp/aic_podtrac_ingest.lock")
 STAGE_TIMEOUT_SECONDS = {
     "daily-ingest": 7_200,
     "podtrac-import": 1_800,
@@ -31,25 +54,32 @@ STAGE_TIMEOUT_SECONDS = {
 RECOVERY_GRACE_SECONDS = 300
 
 
-def load_env(path: Path) -> None:
-    load_canonical_aic_env(path)
+def load_env(path: Path) -> dict[str, str]:
+    return load_canonical_aic_env(path)
 
 
 def dsn() -> str:
     return database_dsn(application_name="aic-admin-operations-worker")
 
 
-def build_command(stage: str, env_file: Path = DEFAULT_ENV_FILE) -> tuple[list[str], Path, int]:
-    web_root = Path(os.environ.get("AIC_WEB_ROOT", str(DEFAULT_WEB_ROOT)))
-    podcast_root = Path(os.environ.get("AIC_PODCAST_ROOT", str(DEFAULT_PODCAST_ROOT)))
-    podcast_python = os.environ.get("AIC_PODCAST_PYTHON", str(podcast_root / ".venv-pg/bin/python"))
-    web_python = os.environ.get("AIC_WEB_PYTHON", str(web_root / ".venv-pg/bin/python"))
-
+def build_command(
+    stage: str,
+    env_file: Path = DEFAULT_ENV_FILE,
+    *,
+    web_root: Path = DEFAULT_WEB_ROOT,
+    podcast_root: Path = DEFAULT_PODCAST_ROOT,
+    web_python: Path = DEFAULT_WEB_PYTHON,
+    podcast_python: Path = DEFAULT_PODCAST_PYTHON,
+) -> tuple[list[str], Path, int]:
     if stage == "daily-ingest":
         return (
             [
-                podcast_python,
+                str(podcast_python),
                 str(podcast_root / "run_daily_podcast_ingest.py"),
+                "--env-file",
+                str(env_file),
+                "--workspace",
+                str(podcast_root),
                 "--transcribe-engine",
                 "mistral",
                 "--max-tracks",
@@ -74,9 +104,19 @@ def build_command(stage: str, env_file: Path = DEFAULT_ENV_FILE) -> tuple[list[s
             [
                 "/usr/bin/flock",
                 "-n",
-                "/tmp/aic_podtrac_ingest.lock",
-                "/usr/bin/bash",
-                str(podcast_root / "scripts/run_podtrac_daily_server.sh"),
+                str(DEFAULT_PODTRAC_LOCK),
+                str(web_python),
+                "-u",
+                str(web_root / "ops/podtrac/run_daily_podtrac_ingest.py"),
+                "--server-admin-mode",
+                "--env-file",
+                str(env_file),
+                "--auth-mode",
+                "curl",
+                "--curl-file",
+                str(podcast_root / "podtrac-auth.curl"),
+                "--log-dir",
+                str(podcast_root / "run_logs"),
             ],
             podcast_root,
             STAGE_TIMEOUT_SECONDS[stage],
@@ -84,7 +124,7 @@ def build_command(stage: str, env_file: Path = DEFAULT_ENV_FILE) -> tuple[list[s
     if stage == "transcript-edits":
         return (
             [
-                web_python,
+                str(web_python),
                 str(web_root / "scripts/apply_transcript_edit_requests.py"),
                 "--env-file",
                 str(env_file),
@@ -95,6 +135,33 @@ def build_command(stage: str, env_file: Path = DEFAULT_ENV_FILE) -> tuple[list[s
             STAGE_TIMEOUT_SECONDS[stage],
         )
     raise ValueError(f"Unsupported admin operation stage: {stage}")
+
+
+def validate_production_runtime(env_file: Path, podcast_env_file: Path) -> None:
+    expected = {
+        "worker": (Path(__file__).absolute(), DEFAULT_WEB_ROOT / "scripts/process_admin_operation_requests.py"),
+        "interpreter": (Path(sys.executable).absolute(), DEFAULT_WEB_PYTHON),
+        "canonical environment": (env_file, DEFAULT_ENV_FILE),
+        "supplemental environment": (podcast_env_file, DEFAULT_PODCAST_ENV_FILE),
+    }
+    for label, (actual, required) in expected.items():
+        if actual != required:
+            raise RuntimeError(f"Production {label} must be {required}; got {actual}.")
+    for label, path in {
+        "podcast interpreter": DEFAULT_PODCAST_PYTHON,
+        "daily ingest runner": DEFAULT_DAILY_INGEST_RUNNER,
+        "Podtrac runner": DEFAULT_PODTRAC_RUNNER,
+        "flock": Path("/usr/bin/flock"),
+    }.items():
+        if not path.is_file():
+            raise RuntimeError(f"Production {label} is missing: {path}")
+    for label, path in {
+        "web interpreter": DEFAULT_WEB_PYTHON,
+        "podcast interpreter": DEFAULT_PODCAST_PYTHON,
+        "flock": Path("/usr/bin/flock"),
+    }.items():
+        if not os.access(path, os.X_OK):
+            raise RuntimeError(f"Production {label} is not executable: {path}")
 
 
 def stale_after_seconds(stage: str) -> int:
@@ -227,13 +294,17 @@ def complete_request(
         return True
 
 
-def run_request(request: dict[str, Any], env_file: Path) -> tuple[int, str]:
+def run_request(
+    request: dict[str, Any],
+    env_file: Path,
+    child_env: dict[str, str],
+) -> tuple[int, str]:
     command, cwd, timeout = build_command(request["stage"], env_file)
     try:
         result = subprocess.run(
             command,
             cwd=cwd,
-            env=os.environ.copy(),
+            env=child_env.copy(),
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -255,13 +326,30 @@ def run_request(request: dict[str, Any], env_file: Path) -> tuple[int, str]:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Process queued AIC admin operations.")
     parser.add_argument("--env-file", type=Path, default=DEFAULT_ENV_FILE)
+    parser.add_argument("--podcast-env-file", type=Path, default=DEFAULT_PODCAST_ENV_FILE)
     parser.add_argument("--limit", type=int, default=1)
+    parser.add_argument(
+        "--scheduled-stage",
+        choices=("daily-ingest", "podtrac-import"),
+        help="Run one fixed scheduled job without creating or claiming an admin queue row.",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    load_env(args.env_file)
+    validate_production_runtime(args.env_file, args.podcast_env_file)
+    canonical_values = load_env(args.env_file)
+    supplemental_values = load_supplemental_podcast_env(
+        args.podcast_env_file,
+        canonical_values=canonical_values,
+    )
+    child_env = canonical_subprocess_env(canonical_values, supplemental_values)
+    if args.scheduled_stage:
+        return_code, output = run_request({"stage": args.scheduled_stage}, args.env_file, child_env)
+        if output.strip():
+            print(safe_output(output, limit=12_000))
+        return return_code
     worker_id = f"{socket.gethostname()}:{os.getpid()}"
     processed = 0
     with psycopg.connect(dsn(), row_factory=dict_row) as conn:
@@ -270,7 +358,7 @@ def main() -> int:
             request = claim_request(conn, worker_id)
             if not request:
                 break
-            return_code, output = run_request(request, args.env_file)
+            return_code, output = run_request(request, args.env_file, child_env)
             complete_request(
                 conn,
                 request,

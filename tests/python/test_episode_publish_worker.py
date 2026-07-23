@@ -479,11 +479,26 @@ class EpisodePublishWorkerTests(unittest.TestCase):
                 {"documentId": "request-1", "revisionNumber": 2, "attemptCount": 1},
                 "sa_42",
                 podcast_root=Path(directory),
-                podcast_env_file=Path(directory) / ".env",
+                canonical_env_file=Path("/mnt/storage/aic/.env"),
+                podcast_python=Path("/fixed/podcast-python"),
+                child_env={
+                    "DB_HOST": "192.168.1.106",
+                    "DB_PORT": "5432",
+                    "DB_NAME": "aic",
+                    "DB_USER": "aic_user",
+                    "DB_PASSWORD": "canonical",
+                    "MISTRAL_API_KEY": "provider-setting",
+                },
                 timeout_seconds=30,
                 retranscribe=True,
             )
         command = run.call_args.args[0]
+        self.assertEqual(command[0], "/fixed/podcast-python")
+        env_index = command.index("--env-file")
+        self.assertEqual(command[env_index + 1], "/mnt/storage/aic/.env")
+        self.assertNotIn(str(Path(directory) / ".env"), command)
+        self.assertEqual(run.call_args.kwargs["env"]["DB_HOST"], "192.168.1.106")
+        self.assertEqual(run.call_args.kwargs["env"]["MISTRAL_API_KEY"], "provider-setting")
         self.assertIn("--retranscribe", command)
         limit_index = command.index("--mistral-max-file-mb")
         self.assertEqual(command[limit_index + 1], "250")

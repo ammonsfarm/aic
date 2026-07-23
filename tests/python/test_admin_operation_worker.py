@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import types
 import unittest
+from unittest import mock
 
 
 PSYCOPG_STUB = types.ModuleType("psycopg")
@@ -24,25 +25,77 @@ SPEC.loader.exec_module(MODULE)
 
 class AdminOperationWorkerTests(unittest.TestCase):
     def setUp(self) -> None:
-        os.environ["AIC_WEB_ROOT"] = "/srv/aic"
-        os.environ["AIC_PODCAST_ROOT"] = "/srv/podcast"
-        os.environ["AIC_WEB_PYTHON"] = "/srv/aic/python"
-        os.environ["AIC_PODCAST_PYTHON"] = "/srv/podcast/python"
+        self.web_root = Path("/srv/aic")
+        self.podcast_root = Path("/srv/podcast")
+        self.web_python = self.web_root / "python"
+        self.podcast_python = self.podcast_root / "python"
+
+    def build(self, stage: str):
+        return MODULE.build_command(
+            stage,
+            Path("/srv/aic/.env"),
+            web_root=self.web_root,
+            podcast_root=self.podcast_root,
+            web_python=self.web_python,
+            podcast_python=self.podcast_python,
+        )
 
     def test_commands_are_fixed_argument_arrays(self) -> None:
-        command, cwd, timeout = MODULE.build_command("podtrac-import", Path("/srv/aic/.env"))
+        command, cwd, timeout = self.build("podtrac-import")
         self.assertEqual(
             command,
             [
                 "/usr/bin/flock",
                 "-n",
                 "/tmp/aic_podtrac_ingest.lock",
-                "/usr/bin/bash",
-                "/srv/podcast/scripts/run_podtrac_daily_server.sh",
+                "/srv/aic/python",
+                "-u",
+                "/srv/aic/ops/podtrac/run_daily_podtrac_ingest.py",
+                "--server-admin-mode",
+                "--env-file",
+                "/srv/aic/.env",
+                "--auth-mode",
+                "curl",
+                "--curl-file",
+                "/srv/podcast/podtrac-auth.curl",
+                "--log-dir",
+                "/srv/podcast/run_logs",
             ],
         )
         self.assertEqual(cwd, Path("/srv/podcast"))
         self.assertGreater(timeout, 0)
+
+        daily, daily_cwd, _timeout = self.build("daily-ingest")
+        self.assertEqual(daily[:6], [
+            "/srv/podcast/python",
+            "/srv/podcast/run_daily_podcast_ingest.py",
+            "--env-file",
+            "/srv/aic/.env",
+            "--workspace",
+            "/srv/podcast",
+        ])
+        self.assertEqual(daily_cwd, Path("/srv/podcast"))
+        self.assertNotIn("/srv/podcast/.env", daily)
+        self.assertNotIn("run_podtrac_daily_server.sh", command)
+
+    def test_subprocess_receives_only_the_prebuilt_canonical_environment(self) -> None:
+        completed = mock.Mock(returncode=0, stdout="ok", stderr="")
+        child_env = {
+            "DB_HOST": "192.168.1.106",
+            "DB_PORT": "5432",
+            "DB_NAME": "aic",
+            "DB_USER": "aic_user",
+            "DB_PASSWORD": "canonical",
+            "MISTRAL_API_KEY": "provider-setting",
+        }
+        with (
+            mock.patch.object(MODULE, "build_command", return_value=(["/fixed/runner"], Path("/fixed"), 30)),
+            mock.patch.object(MODULE.subprocess, "run", return_value=completed) as run,
+        ):
+            result = MODULE.run_request({"stage": "daily-ingest"}, Path("/mnt/storage/aic/.env"), child_env)
+        self.assertEqual(result, (0, "ok"))
+        self.assertEqual(run.call_args.kwargs["env"], child_env)
+        self.assertFalse(run.call_args.kwargs["shell"])
 
     def test_unknown_stage_is_rejected(self) -> None:
         with self.assertRaises(ValueError):

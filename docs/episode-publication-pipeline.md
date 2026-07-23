@@ -36,6 +36,8 @@ The one-time cutover importer is a deliberate baseline exception: it may create 
 
 Operational database reads use an autocommit connection so no transaction remains open while the external ingest runner uses its own connection. Upserts, derived-data resets, and provenance writes each use a short explicit transaction.
 
+Every operational connection, including the child `run_daily_podcast_ingest.py` process, receives its five database settings only from `/mnt/storage/aic/.env` and is pinned to `192.168.1.106:5432`. The worker passes that canonical file explicitly in the child command and removes inherited `DATABASE_URL` and `PG*` routing variables. `/mnt/storage/aic_podcast/.env` is parsed only as a compatibility source for an allowlisted set of podcast provider credentials; its legacy `DB_*` copies must exactly match the canonical file and are ignored, while process-control, Strapi, duplicate sensitive, URL, and `PG*` keys fail closed.
+
 Retryable failures return to `queued` with exponential backoff. A request superseded by a newer publication is never requeued and cannot overwrite the newer request's status or provenance. The final bounded failure remains `failed` with a sanitized error. A content manager can inspect queued/running/completed/failed state on the episode editor and explicitly requeue a failed or completed request with an attributed audit event.
 
 Remote audio URLs are never downloaded by this worker. Automatic processing requires a Strapi MP3 upload, verified legacy Pastor Wood media, or an existing private MinIO episode object. This avoids turning editorial input into an SSRF/download boundary.

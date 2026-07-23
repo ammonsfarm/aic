@@ -1,38 +1,22 @@
 import "server-only";
+import { readFileSync } from "node:fs";
 import { Pool, type QueryResultRow } from "pg";
+import {
+  CANONICAL_AIC_ENV_FILE,
+  resolveDatabaseConfig,
+} from "@/lib/database-env";
 
-const requiredDbEnv = ["DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD"] as const;
-
-type DbEnvKey = (typeof requiredDbEnv)[number];
-
-export class MissingDatabaseEnvError extends Error {
-  missing: DbEnvKey[];
-
-  constructor(missing: DbEnvKey[]) {
-    super(`Missing database environment: ${missing.join(", ")}`);
-    this.name = "MissingDatabaseEnvError";
-    this.missing = missing;
-  }
-}
+export { MissingDatabaseEnvError } from "@/lib/database-env";
 
 declare global {
   var aicPostgresPool: Pool | undefined;
 }
 
 function readDbEnv() {
-  const missing = requiredDbEnv.filter((key) => !process.env[key]);
-
-  if (missing.length > 0) {
-    throw new MissingDatabaseEnvError(missing);
-  }
-
-  return {
-    host: process.env.DB_HOST,
-    port: Number(process.env.DB_PORT),
-    database: process.env.DB_NAME,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-  };
+  const canonicalText = process.env.NODE_ENV === "production"
+    ? readFileSync(CANONICAL_AIC_ENV_FILE, "utf8")
+    : undefined;
+  return resolveDatabaseConfig(process.env.NODE_ENV, process.env, canonicalText);
 }
 
 export function getPool() {

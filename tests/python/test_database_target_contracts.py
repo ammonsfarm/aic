@@ -36,6 +36,26 @@ def load_mac_podtrac_module():
     return module
 
 
+def load_database_env_module():
+    path = REPO_ROOT / "scripts/aic_database_env.py"
+    spec = importlib.util.spec_from_file_location("contract_aic_database_env", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Cannot load {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def canonical_env_text() -> str:
+    return (
+        "DB_HOST=192.168.1.106\n"
+        "DB_PORT=5432\n"
+        "DB_NAME=aic\n"
+        "DB_USER=aic_user\n"
+        "DB_PASSWORD=canonical-password\n"
+    )
+
+
 class DatabaseTargetContractTests(unittest.TestCase):
     def test_server_sync_scripts_use_the_shared_canonical_database_loader(self) -> None:
         for relative_path in SERVER_DATABASE_SCRIPTS:
@@ -68,6 +88,12 @@ class DatabaseTargetContractTests(unittest.TestCase):
                 "PGHOSTADDR": "127.0.0.1",
                 "PGSERVICE": "wrong-service",
                 "PGSERVICEFILE": "/tmp/wrong-pg-service",
+                "PGOPTIONS": "-c search_path=wrong",
+                "PGUNEXPECTEDROUTE": "wrong",
+                "PATH": "/tmp/hostile-bin",
+                "PYTHONPATH": "/tmp/hostile-python",
+                "LD_PRELOAD": "/tmp/hostile.so",
+                "STRAPI_URL": "https://hostile.invalid",
                 "DATABASE_URL": "postgresql://wrong-target.invalid/copied_database",
             }
             with patch.dict(os.environ, hostile, clear=True):
@@ -80,6 +106,7 @@ class DatabaseTargetContractTests(unittest.TestCase):
                 self.assertEqual(os.environ["PODTRAC_OPTION"], "from-file")
                 for key in module.DATABASE_ROUTING_ENV_KEYS:
                     self.assertNotIn(key, os.environ)
+                self.assertNotIn("PGUNEXPECTEDROUTE", os.environ)
                 self.assertIn("host='192.168.1.106' port='5432' dbname='aic'", module.dsn())
 
     def test_mac_podtrac_rejects_a_different_declared_target(self) -> None:
@@ -114,6 +141,103 @@ class DatabaseTargetContractTests(unittest.TestCase):
             with patch.dict(os.environ, {}, clear=True):
                 with self.assertRaisesRegex(RuntimeError, r"duplicate sensitive key: DB_NAME"):
                     module.load_env(env_file)
+
+    def test_canonical_worker_child_env_ignores_hostile_inherited_routing_and_keeps_providers(self) -> None:
+        module = load_database_env_module()
+        with tempfile.TemporaryDirectory() as directory:
+            canonical_file = Path(directory) / "aic.env"
+            supplemental_file = Path(directory) / "podcast.env"
+            canonical_file.write_text(canonical_env_text(), encoding="utf-8")
+            supplemental_file.write_text(
+                canonical_env_text()
+                + "MISTRAL_API_KEY=provider-key\n"
+                + "OPENAI_SESSION_TOKEN=provider-token\n"
+                + "RAG_CHAT_APP_TOKEN=known-but-not-needed-by-ingest\n",
+                encoding="utf-8",
+            )
+            hostile = {
+                "DB_HOST": "203.0.113.55",
+                "DB_PORT": "6543",
+                "DB_NAME": "copied_database",
+                "DB_USER": "wrong_user",
+                "DB_PASSWORD": "wrong_password",
+                "DATABASE_URL": "postgresql://wrong.invalid/copied_database",
+                "PGHOST": "wrong.invalid",
+                "PGPORT": "6543",
+                "PGDATABASE": "copied_database",
+                "PGUSER": "wrong_user",
+                "PGPASSWORD": "wrong_password",
+                "PGOPTIONS": "-c search_path=wrong",
+                "PGUNEXPECTEDROUTE": "wrong",
+            }
+            with patch.dict(os.environ, hostile, clear=True):
+                canonical = module.load_canonical_aic_env(canonical_file, allow_test_path=True)
+                supplemental = module.load_supplemental_podcast_env(
+                    supplemental_file,
+                    canonical_values=canonical,
+                    allow_test_path=True,
+                )
+                child = module.canonical_subprocess_env(canonical, supplemental)
+
+            self.assertEqual(
+                {key: child[key] for key in module.DATABASE_ENV_KEYS},
+                {
+                    "DB_HOST": "192.168.1.106",
+                    "DB_PORT": "5432",
+                    "DB_NAME": "aic",
+                    "DB_USER": "aic_user",
+                    "DB_PASSWORD": "canonical-password",
+                },
+            )
+            self.assertEqual(child["MISTRAL_API_KEY"], "provider-key")
+            self.assertEqual(child["OPENAI_SESSION_TOKEN"], "provider-token")
+            self.assertNotIn("RAG_CHAT_APP_TOKEN", child)
+            self.assertFalse(any(key == "DATABASE_URL" or key.startswith("PG") for key in child))
+            self.assertEqual(child["PATH"], module.SAFE_SUBPROCESS_PATH)
+            self.assertNotIn("PYTHONPATH", child)
+            self.assertNotIn("LD_PRELOAD", child)
+            self.assertNotIn("STRAPI_URL", child)
+
+    def test_supplemental_podcast_env_cannot_become_a_database_authority(self) -> None:
+        module = load_database_env_module()
+        canonical = {
+            "DB_HOST": "192.168.1.106",
+            "DB_PORT": "5432",
+            "DB_NAME": "aic",
+            "DB_USER": "aic_user",
+            "DB_PASSWORD": "canonical-password",
+        }
+        cases = {
+            "mismatched legacy DB value": canonical_env_text().replace("DB_NAME=aic\n", "DB_NAME=copy\n"),
+            "database URL": canonical_env_text() + "DATABASE_URL=postgresql://wrong.invalid/copy\n",
+            "unexpected PG key": canonical_env_text() + "PGUNEXPECTEDROUTE=wrong\n",
+            "duplicate provider secret": canonical_env_text() + "MISTRAL_API_KEY=one\nMISTRAL_API_KEY=two\n",
+            "hostile path": canonical_env_text() + "PATH=/tmp/hostile\n",
+            "hostile python path": canonical_env_text() + "PYTHONPATH=/tmp/hostile\n",
+            "hostile Strapi endpoint": canonical_env_text() + "STRAPI_URL=https://hostile.invalid\n",
+            "unexpected provider secret": canonical_env_text() + "SURPRISE_API_KEY=hostile\n",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            for name, content in cases.items():
+                with self.subTest(name=name):
+                    path = Path(directory) / name.replace(" ", "-")
+                    path.write_text(content, encoding="utf-8")
+                    with self.assertRaises(RuntimeError):
+                        module.load_supplemental_podcast_env(
+                            path,
+                            canonical_values=canonical,
+                            allow_test_path=True,
+                        )
+
+    def test_canonical_worker_env_rejects_declared_database_routing(self) -> None:
+        module = load_database_env_module()
+        with tempfile.TemporaryDirectory() as directory:
+            for key in ("DATABASE_URL", "PGHOST", "PGOPTIONS", "PGUNEXPECTEDROUTE"):
+                with self.subTest(key=key):
+                    path = Path(directory) / f"{key}.env"
+                    path.write_text(canonical_env_text() + f"{key}=wrong\n", encoding="utf-8")
+                    with self.assertRaisesRegex(RuntimeError, "database routing"):
+                        module.load_canonical_aic_env(path, allow_test_path=True)
 
 
 if __name__ == "__main__":
