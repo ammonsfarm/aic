@@ -78,7 +78,8 @@ FIXED_PAGE_TARGETS = {
     "speaking-request": "/contact/",
     "donate": "/donate/",
     "donor-dashboard": "/donor-dashboard/",
-    "privacy": "/privacy/",
+    # /privacy/ belongs to the separate Sermon Search GPT policy surface.
+    "privacy": "/privacy-terms-conditions/",
     "privacy-terms-conditions": "/privacy-terms-conditions/",
     "radio": "/radio/",
 }
@@ -94,7 +95,7 @@ FIXED_PAGE_KEYS = {
     "speaking-request": "contact",
     "donate": "donate",
     "donor-dashboard": "donor-dashboard",
-    "privacy": "privacy",
+    "privacy": "privacy-terms-conditions",
     "privacy-terms-conditions": "privacy-terms-conditions",
     "radio": "radio",
 }
@@ -125,6 +126,18 @@ KNOWN_SHORTCODE_PATTERN = re.compile(
     r"audio|video|caption|gallery|embed"
     r")(?:\s+[^\]]*)?\]",
     re.I,
+)
+LEGACY_UPLOAD_URL_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9._-])(?:(?:https?:)?//(?:www\.)?pastorwood\.org)?"
+    r"/wp-content/uploads/[^\s\"'<>]+",
+    re.I,
+)
+LOCAL_LEGACY_MEDIA_PATTERN = re.compile(r"/media/legacy/[^\s\"'<>]+", re.I)
+LOCAL_EPISODE_MEDIA_PATTERN = re.compile(r"/media/episodes/[^\s\"'<>]+", re.I)
+TRAILING_UPLOAD_PUNCTUATION = ".,;:!?"
+TRAILING_UPLOAD_DELIMITERS = {")": "(", "]": "[", "}": "{"}
+PUBLIC_EPISODE_TRACK_ID_PATTERN = re.compile(
+    r"(?:[0-9]+|sa_[0-9]+|wp-sermon:[0-9]+|cms_[a-z0-9][a-z0-9_-]{0,62})"
 )
 
 
@@ -259,6 +272,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--plan-output", type=Path)
     parser.add_argument("--redirect-output", type=Path)
     parser.add_argument("--media-output", type=Path)
+    parser.add_argument(
+        "--reviewed-media-dispositions",
+        type=Path,
+        default=Path("ops/cutover/pastorwood-reviewed-media-dispositions.json"),
+        help="Optional snapshot-bound, committed approvals for removing unavailable published media references",
+    )
     parser.add_argument("--checkpoint", type=Path, default=Path(".migration-state/pastorwood-cutover-checkpoint.json"))
     parser.add_argument("--mutation-manifest", type=Path, default=Path(".migration-state/pastorwood-cutover-mutations.json"))
     parser.add_argument("--publication-manifest", type=Path, default=Path(".migration-state/pastorwood-cutover-publications.json"))
@@ -270,6 +289,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--confirm-publish-reviewed",
         default="",
         help=f"Required with --publish-reviewed: {PUBLISH_REVIEWED_CONFIRMATION}",
+    )
+    parser.add_argument(
+        "--reviewed-mutation-manifest-sha256",
+        default="",
+        help="Exact phase-one mutation manifest SHA-256 independently reviewed before phase-two publication",
     )
     parser.add_argument("--verify-media", action="store_true", help="Stat every explicitly allowlisted source path")
     parser.add_argument("--verify-episode-audio", action="store_true", help="Read MinIO object names and reconcile all AIC track IDs")
@@ -843,6 +867,53 @@ def basename_key(value: str) -> str:
     return PurePosixPath(path).name.casefold()
 
 
+def public_episode_media_url(track_id: str) -> str:
+    if len(track_id) > 100 or not PUBLIC_EPISODE_TRACK_ID_PATTERN.fullmatch(track_id):
+        return ""
+    return f"/media/episodes/{urllib.parse.quote(track_id, safe='')}"
+
+
+def public_episode_track_id_from_url(value: str) -> str:
+    try:
+        parsed = urllib.parse.urlsplit(value)
+    except ValueError:
+        return ""
+    prefix = "/media/episodes/"
+    if parsed.scheme or parsed.netloc or parsed.query or parsed.fragment or not parsed.path.startswith(prefix):
+        return ""
+    encoded_track_id = parsed.path.removeprefix(prefix)
+    if not encoded_track_id or "/" in encoded_track_id or "\\" in encoded_track_id:
+        return ""
+    track_id = urllib.parse.unquote(encoded_track_id)
+    if (
+        "/" in track_id
+        or "\\" in track_id
+        or re.search(r"%[0-9a-fA-F]{2}", track_id)
+        or len(track_id) > 100
+        or not PUBLIC_EPISODE_TRACK_ID_PATTERN.fullmatch(track_id)
+    ):
+        return ""
+    return track_id
+
+
+def normalize_public_episode_url_match(value: str) -> tuple[str, str]:
+    candidate = value
+    trailing = ""
+    while candidate:
+        final = candidate[-1]
+        if final in TRAILING_UPLOAD_PUNCTUATION:
+            trailing = final + trailing
+            candidate = candidate[:-1]
+            continue
+        opener = TRAILING_UPLOAD_DELIMITERS.get(final)
+        if opener and candidate.count(final) > candidate.count(opener):
+            trailing = final + trailing
+            candidate = candidate[:-1]
+            continue
+        break
+    return public_episode_track_id_from_url(candidate), trailing
+
+
 def stable_fingerprint(value: Any) -> str:
     encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
@@ -854,6 +925,17 @@ def strip_markup(value: str) -> str:
     return re.sub(r"\s+", " ", html.unescape(without_tags)).strip()
 
 
+def localize_legacy_upload_urls(value: str) -> str:
+    def local_upload(match: re.Match[str]) -> str:
+        relative, trailing = normalize_legacy_upload_reference(match.group(0))
+        inside_tag = match.string.rfind("<", 0, match.start()) > match.string.rfind(">", 0, match.start())
+        if inside_tag:
+            trailing = ""
+        return f"/media/legacy/{relative}{trailing}" if relative else match.group(0)
+
+    return LEGACY_UPLOAD_URL_PATTERN.sub(local_upload, value)
+
+
 def clean_legacy_content(value: str, external_image_paths: dict[str, str] | None = None) -> str:
     """Remove WordPress/Divi wrappers while retaining authored HTML and inner copy."""
     cleaned = re.sub(r"<!--(?:.|\n)*?-->", "", value)
@@ -863,14 +945,7 @@ def clean_legacy_content(value: str, external_image_paths: dict[str, str] | None
     cleaned = KNOWN_SHORTCODE_PATTERN.sub("", cleaned)
     cleaned = re.sub(r"\s+on[A-Za-z]+\s*=\s*(?:\"[^\"]*\"|'[^']*')", "", cleaned, flags=re.I)
     cleaned = re.sub(r"\s+(?:href|src)\s*=\s*([\"'])\s*javascript:[^\"']*\1", "", cleaned, flags=re.I)
-
-    upload_pattern = re.compile(r"(?:https?:)?//(?:www\.)?pastorwood\.org/wp-content/uploads/[^\s\"'<>]+", re.I)
-
-    def local_upload(match: re.Match[str]) -> str:
-        relative = safe_upload_relative_path(match.group(0))
-        return f"/media/legacy/{relative}" if relative else ""
-
-    cleaned = upload_pattern.sub(local_upload, cleaned)
+    cleaned = localize_legacy_upload_urls(cleaned)
     for source_url, public_path in sorted((external_image_paths or {}).items(), key=lambda item: (-len(item[0]), item[0])):
         cleaned = cleaned.replace(source_url, public_path)
         cleaned = cleaned.replace(html.escape(source_url, quote=True), public_path)
@@ -880,22 +955,87 @@ def clean_legacy_content(value: str, external_image_paths: dict[str, str] | None
 
 
 def safe_upload_relative_path(value: str) -> str | None:
-    raw = urllib.parse.unquote(value).replace("\\", "/").strip()
+    source = html.unescape(value).strip()
+    if not source or any(character in "\"'<>" or ord(character) < 32 or ord(character) == 127 for character in source):
+        return None
+
+    parse_value = f"https:{source}" if source.startswith("//") else source
+    try:
+        parsed = urllib.parse.urlsplit(parse_value)
+        parsed_port = parsed.port
+    except ValueError:
+        return None
+    absolute_source = bool(parsed.scheme or parsed.netloc)
+    if absolute_source:
+        if (
+            parsed.scheme not in {"http", "https"}
+            or (parsed.hostname or "").casefold() not in {"pastorwood.org", "www.pastorwood.org"}
+            or parsed.username
+            or parsed.password
+            or parsed_port not in {None, 80, 443}
+        ):
+            return None
+    encoded_path = parsed.path
+    for _iteration in range(4):
+        # Encoded URL delimiters must not be reinterpreted as filesystem path
+        # structure or silently truncate a filename after URL parsing.
+        if re.search(r"%(?:2f|5c|3f|23)", encoded_path, re.I):
+            return None
+        decoded_path = urllib.parse.unquote(encoded_path)
+        if decoded_path == encoded_path:
+            break
+        encoded_path = decoded_path
+    else:
+        return None
+    if (
+        re.search(r"%[0-9a-fA-F]{2}", encoded_path)
+        or any(character in "\\?#\"'<>" or ord(character) < 32 or ord(character) == 127 for character in encoded_path)
+    ):
+        return None
+    raw = encoded_path
+
     marker = "/wp-content/uploads/"
-    if marker in raw:
-        raw = raw.split(marker, 1)[1]
+    marker_index = raw.casefold().find(marker)
+    if absolute_source and marker_index < 0:
+        return None
+    if marker_index >= 0:
+        raw = raw[marker_index + len(marker):]
     raw = raw.lstrip("/")
+    if not raw or "//" in raw or any(raw.endswith(close) and raw.count(close) > raw.count(open_) for close, open_ in TRAILING_UPLOAD_DELIMITERS.items()):
+        return None
+    raw_parts = raw.split("/")
+    if any(part in {"", ".", ".."} for part in raw_parts):
+        return None
     try:
         path = PurePosixPath(raw)
     except ValueError:
         return None
-    if not raw or path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
+    if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
         return None
     if any(part.casefold() in PRIVATE_MEDIA_SEGMENTS for part in path.parts):
         return None
     if any(ord(character) < 32 for character in raw):
         return None
     return path.as_posix()
+
+
+def normalize_legacy_upload_reference(value: str) -> tuple[str | None, str]:
+    """Split prose/markup punctuation from a legacy upload and normalize its path."""
+    candidate = value
+    trailing = ""
+    while candidate:
+        final = candidate[-1]
+        if final in TRAILING_UPLOAD_PUNCTUATION:
+            trailing = final + trailing
+            candidate = candidate[:-1]
+            continue
+        opener = TRAILING_UPLOAD_DELIMITERS.get(final)
+        if opener and candidate.count(final) > candidate.count(opener):
+            trailing = final + trailing
+            candidate = candidate[:-1]
+            continue
+        break
+    return safe_upload_relative_path(candidate), trailing
 
 
 def local_legacy_media_url(value: str) -> str:
@@ -909,12 +1049,10 @@ def local_legacy_media_url(value: str) -> str:
         or (parsed.hostname or "").casefold() not in {"pastorwood.org", "www.pastorwood.org"}
         or parsed.username
         or parsed.password
-        or parsed.query
-        or parsed.fragment
         or "/wp-content/uploads/" not in parsed.path
     ):
         return ""
-    relative = safe_upload_relative_path(source)
+    relative, _trailing = normalize_legacy_upload_reference(source)
     return f"/media/legacy/{relative}" if relative else ""
 
 
@@ -1392,7 +1530,7 @@ def build_episodes(
             "programDate": program_date or None,
             "summary": summary,
             "description": text(meta.get("sermon_description")) or text(row.get("detail")),
-            "externalAudioUrl": f"/media/episodes/{track_id}" if re.fullmatch(r"(?:\d+|sa_\d+)", track_id) else "",
+            "externalAudioUrl": public_episode_media_url(track_id),
             "publishDate": iso_datetime(row.get("publishDate")),
             "legacyUrl": f"{LEGACY_ORIGIN}/radio/{slug}/" if sermon else "",
             "canonicalUrl": f"{LEGACY_ORIGIN}/radio/{slug}/",
@@ -1993,27 +2131,254 @@ def build_people_and_endorsements(
     return people, endorsements
 
 
-def extract_upload_references(wp_content: Sequence[dict[str, Any]]) -> defaultdict[str, set[str]]:
+def extract_upload_references(
+    wp_content: Sequence[dict[str, Any]],
+    rejected_references: list[dict[str, str]] | None = None,
+) -> defaultdict[str, set[str]]:
     references: defaultdict[str, set[str]] = defaultdict(set)
-    url_pattern = re.compile(r"(?:https?:)?//(?:www\.)?pastorwood\.org/wp-content/uploads/[^\s\"'<>]+", re.I)
+    rejected_seen: set[tuple[str, str]] = set()
+
+    def reject(source: str, raw_source: str) -> None:
+        identity = (source, raw_source)
+        if rejected_references is not None and identity not in rejected_seen:
+            rejected_seen.add(identity)
+            rejected_references.append({
+                "source": source,
+                "rawSource": raw_source,
+                "classification": "unsafe-or-malformed-upload-reference",
+            })
+
     for row in wp_content:
-        source = f"{text(row.get('type'))}:{text(row.get('id'))}"
-        fields = [text(row.get("content")), text(row.get("excerpt"))]
+        source_type = text(row.get("type")) or text(row.get("sourceType")) or "aic-post"
+        source_id = text(row.get("id")) or text(row.get("postId")) or "unknown"
+        source = f"{source_type}:{source_id}"
+        fields = [
+            text(row.get("content")),
+            text(row.get("excerpt")),
+            text(row.get("contentHtml")),
+            text(row.get("excerptHtml")),
+            text(row.get("text")),
+            text(row.get("summary")),
+        ]
         meta = row.get("meta") if isinstance(row.get("meta"), dict) else {}
         fields.extend(text(value) for value in meta.values())
         for field in fields:
-            for match in url_pattern.findall(field):
-                relative = safe_upload_relative_path(match)
+            for match in LEGACY_UPLOAD_URL_PATTERN.findall(field):
+                relative, _trailing = normalize_legacy_upload_reference(match)
                 if relative:
                     references[relative].add(source)
-        audio = safe_upload_relative_path(text(meta.get("sermon_audio")))
+                else:
+                    reject(source, match)
+        raw_audio = text(meta.get("sermon_audio"))
+        audio, _trailing = normalize_legacy_upload_reference(raw_audio)
         if audio:
             references[audio].add(source)
+        elif raw_audio and LEGACY_UPLOAD_URL_PATTERN.search(raw_audio):
+            reject(source, raw_audio)
     return references
+
+
+def extract_final_payload_upload_references(
+    record_groups: dict[str, Sequence[dict[str, Any]]],
+    rejected_references: list[dict[str, str]],
+) -> defaultdict[str, set[str]]:
+    references: defaultdict[str, set[str]] = defaultdict(set)
+    rejected_seen: set[tuple[str, str]] = set()
+
+    def add_or_reject(source: str, raw_source: str, *, local: bool) -> None:
+        candidate = raw_source.removeprefix("/media/legacy/") if local else raw_source
+        relative_path, _trailing = normalize_legacy_upload_reference(candidate)
+        if relative_path:
+            references[relative_path].add(source)
+            return
+        identity = (source, raw_source)
+        if identity not in rejected_seen:
+            rejected_seen.add(identity)
+            rejected_references.append({
+                "source": source,
+                "rawSource": raw_source,
+                "classification": "unsafe-or-malformed-upload-reference",
+            })
+
+    def inspect(value: Any, source: str) -> None:
+        if isinstance(value, str):
+            for match in LEGACY_UPLOAD_URL_PATTERN.findall(value):
+                add_or_reject(source, match, local=False)
+            for match in LOCAL_LEGACY_MEDIA_PATTERN.findall(value):
+                add_or_reject(source, match, local=True)
+        elif isinstance(value, list):
+            for item in value:
+                inspect(item, source)
+        elif isinstance(value, dict):
+            for item in value.values():
+                inspect(item, source)
+
+    identity_fields = ("pageKey", "legacyId", "trackId", "slug")
+    for kind, records in record_groups.items():
+        for index, record in enumerate(records):
+            identity = next((text(record.get(field)) for field in identity_fields if text(record.get(field))), str(index))
+            inspect(record, f"{kind}:{identity}")
+    return references
+
+
+def build_raw_media_reference_inventory(
+    raw_references: defaultdict[str, set[str]],
+    final_references: defaultdict[str, set[str]],
+    raw_rejections: Sequence[dict[str, str]],
+) -> dict[str, Any]:
+    records = [
+        {
+            "relativePath": relative_path,
+            "normalizedSourceUrl": f"{LEGACY_ORIGIN}/wp-content/uploads/{urllib.parse.quote(relative_path, safe='/')}",
+            "referencedBy": sorted(referenced_by),
+            "classification": "final-public-payload" if relative_path in final_references else "discarded-source-only",
+        }
+        for relative_path, referenced_by in sorted(raw_references.items())
+    ]
+    return {
+        "encountered": len(records),
+        "finalPublicPayload": sum(1 for record in records if record["classification"] == "final-public-payload"),
+        "discardedSourceOnly": sum(1 for record in records if record["classification"] == "discarded-source-only"),
+        "rejectedRawReferences": list(raw_rejections),
+        "records": records,
+    }
+
+
+def localize_final_payload_uploads(record_groups: dict[str, Sequence[dict[str, Any]]]) -> None:
+    def rewrite(value: Any) -> Any:
+        if isinstance(value, str):
+            return localize_legacy_upload_urls(value)
+        if isinstance(value, list):
+            return [rewrite(item) for item in value]
+        if isinstance(value, dict):
+            return {key: rewrite(item) for key, item in value.items()}
+        return value
+
+    for records in record_groups.values():
+        for record in records:
+            rewritten = rewrite(record)
+            record.clear()
+            record.update(rewritten)
+            if "sourceFingerprint" in record:
+                record["sourceFingerprint"] = ""
+                record["sourceFingerprint"] = stable_fingerprint(record)
 
 
 def read_manifest_urls(path: Path) -> list[str]:
     return [line.strip() for line in path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
+
+
+def load_reviewed_media_dispositions(
+    path: Path,
+    snapshot_sha256: str,
+    require_committed: bool,
+) -> tuple[dict[str, Any], dict[str, tuple[str, ...]]]:
+    if not path.exists():
+        return {
+            "enabled": False,
+            "path": str(path),
+            "sha256": "",
+            "snapshotSha256": snapshot_sha256,
+            "reviewedBy": "",
+            "reviewedAt": "",
+            "finalPayloadFingerprint": "",
+            "records": [],
+        }, {}
+    if path.is_symlink() or not path.is_file():
+        raise RuntimeError("Reviewed media disposition path must be a regular non-symlink file")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError(f"Reviewed media disposition file is invalid: {error}") from error
+    records = payload.get("dispositions") if isinstance(payload, dict) else None
+    reviewed_by = text(payload.get("reviewedBy")) if isinstance(payload, dict) else ""
+    reviewed_at = text(payload.get("reviewedAt")) if isinstance(payload, dict) else ""
+    payload_fingerprint = text(payload.get("finalPayloadFingerprint")) if isinstance(payload, dict) else ""
+    if (
+        not isinstance(payload, dict)
+        or payload.get("version") != 1
+        or text(payload.get("snapshotSha256")) != snapshot_sha256
+        or not reviewed_by
+        or not reviewed_at
+        or not isinstance(records, list)
+        or any(not isinstance(record, dict) for record in records)
+        or (bool(records) and not re.fullmatch(r"[a-f0-9]{64}", payload_fingerprint))
+    ):
+        raise RuntimeError("Reviewed media disposition file is not approved for the exact WordPress snapshot")
+    try:
+        reviewed_datetime = datetime.fromisoformat(reviewed_at.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise RuntimeError("Reviewed media disposition timestamp is invalid") from error
+    if reviewed_datetime.tzinfo is None:
+        raise RuntimeError("Reviewed media disposition timestamp must include a timezone")
+
+    approved_removals: dict[str, tuple[str, ...]] = {}
+    normalized_records: list[dict[str, Any]] = []
+    for record in records:
+        relative_path = text(record.get("relativePath"))
+        normalized_path = safe_upload_relative_path(relative_path)
+        reason = text(record.get("reason"))
+        referenced_by = record.get("referencedBy")
+        normalized_references = (
+            tuple(text(item) for item in referenced_by)
+            if isinstance(referenced_by, list) and all(text(item) for item in referenced_by)
+            else ()
+        )
+        if (
+            not normalized_path
+            or normalized_path != relative_path
+            or text(record.get("action")) != "remove-public-reference"
+            or len(reason) < 12
+            or not normalized_references
+            or list(normalized_references) != sorted(set(normalized_references))
+            or normalized_path in approved_removals
+        ):
+            raise RuntimeError("Reviewed media disposition contains an invalid, duplicate, or unexplained removal")
+        approved_removals[normalized_path] = normalized_references
+        normalized_records.append({
+            "relativePath": normalized_path,
+            "action": "remove-public-reference",
+            "reason": reason,
+            "referencedBy": list(normalized_references),
+        })
+
+    tracked_at_head = False
+    clean_at_head = False
+    if require_committed and approved_removals:
+        repository_root = Path(__file__).resolve().parent.parent
+        resolved_path = path.resolve(strict=True)
+        if not resolved_path.is_relative_to(repository_root):
+            raise RuntimeError("Reviewed media disposition file must be committed inside the cutover repository")
+        repository_relative = resolved_path.relative_to(repository_root).as_posix()
+        tracked = subprocess.run(
+            ["git", "-C", str(repository_root), "ls-files", "--error-unmatch", "--", repository_relative],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        clean = subprocess.run(
+            ["git", "-C", str(repository_root), "diff", "--quiet", "HEAD", "--", repository_relative],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        tracked_at_head = tracked.returncode == 0
+        clean_at_head = clean.returncode == 0
+        if not tracked_at_head or not clean_at_head:
+            raise RuntimeError("Reviewed media dispositions must be tracked and unchanged from the deployed commit")
+
+    return {
+        "enabled": True,
+        "path": str(path),
+        "sha256": sha256_file(path),
+        "snapshotSha256": snapshot_sha256,
+        "reviewedBy": reviewed_by,
+        "reviewedAt": reviewed_at,
+        "finalPayloadFingerprint": payload_fingerprint,
+        "trackedAtHead": tracked_at_head if require_committed and approved_removals else None,
+        "cleanAtHead": clean_at_head if require_committed and approved_removals else None,
+        "records": normalized_records,
+    }, approved_removals
 
 
 def build_media_records(
@@ -2033,13 +2398,14 @@ def build_media_records(
             continue
         allowed_paths[relative] = url
 
-    # WordPress often renders an image derivative that has no attachment row of
-    # its own. Preserve only derivatives referenced by published content and
-    # proven to be regular files inside the canonical restricted root.
-    if verify:
-        for relative in sorted(references):
-            if relative not in allowed_paths and safe_restricted_media_file(restricted_root, relative):
-                allowed_paths[relative] = f"{LEGACY_ORIGIN}/wp-content/uploads/{relative}"
+    # WordPress often renders derivatives or directly linked audio without an
+    # attachment row. Every published-content reference must remain in the
+    # inventory even when its source file is missing, so coverage cannot become
+    # green merely because an absent path disappeared from the media records.
+    for relative in sorted(references):
+        if relative not in allowed_paths:
+            encoded_relative = urllib.parse.quote(relative, safe="/")
+            allowed_paths[relative] = f"{LEGACY_ORIGIN}/wp-content/uploads/{encoded_relative}"
 
     public_sitemap_paths = {
         relative
@@ -2078,6 +2444,349 @@ def build_media_records(
     return records, rejected
 
 
+def build_media_reference_coverage(
+    references: defaultdict[str, set[str]],
+    media_records: Sequence[MediaRecord],
+    replacement_media_targets: dict[str, str],
+    approved_reference_removals: dict[str, tuple[str, ...]],
+    reviewed_payload_fingerprint: str,
+    actual_payload_fingerprint: str,
+    rejected_references: Sequence[dict[str, str]],
+    verify_enabled: bool,
+) -> dict[str, Any]:
+    records_by_path = {record.relative_path: record for record in media_records}
+    coverage_references: defaultdict[str, set[str]] = defaultdict(set)
+    for relative_path, referenced_by in references.items():
+        coverage_references[relative_path].update(referenced_by)
+    for record in media_records:
+        if "legacy-public-sitemap" in record.referenced_by:
+            coverage_references[record.relative_path].add("legacy-public-sitemap")
+    coverage_records: list[dict[str, Any]] = []
+    applied_reviewed_removals: set[str] = set()
+    reviewed_reference_drift: list[dict[str, Any]] = []
+    reviewed_payload_matches = (
+        not approved_reference_removals
+        or reviewed_payload_fingerprint == actual_payload_fingerprint
+    )
+    for relative_path, referenced_by in sorted(coverage_references.items()):
+        media_record = records_by_path.get(relative_path)
+        replacement_url = text(replacement_media_targets.get(relative_path))
+        if media_record and media_record.visibility == "public" and media_record.exists:
+            disposition = "verified-public-file"
+            public_target = f"/media/legacy/{relative_path}"
+        elif public_episode_track_id_from_url(replacement_url):
+            disposition = "verified-aic-audio-replacement"
+            public_target = replacement_url
+        elif (
+            relative_path in approved_reference_removals
+            and reviewed_payload_matches
+            and approved_reference_removals[relative_path] == tuple(sorted(referenced_by))
+        ):
+            disposition = "reviewed-reference-removal"
+            public_target = ""
+            applied_reviewed_removals.add(relative_path)
+        else:
+            disposition = "missing-public-reference"
+            public_target = ""
+            if relative_path in approved_reference_removals:
+                reviewed_reference_drift.append({
+                    "relativePath": relative_path,
+                    "approvedReferencedBy": list(approved_reference_removals[relative_path]),
+                    "actualReferencedBy": sorted(referenced_by),
+                })
+        mime_type = text(media_record.mime_type if media_record else mimetypes.guess_type(relative_path)[0])
+        classification = (
+            "audio" if mime_type.startswith("audio/") or relative_path.casefold().endswith(".mp3")
+            else "image" if mime_type.startswith("image/")
+            else "document" if mime_type in {"application/pdf", "text/plain"}
+            else "other"
+        )
+        coverage_records.append({
+            "relativePath": relative_path,
+            "normalizedSourceUrl": f"{LEGACY_ORIGIN}/wp-content/uploads/{urllib.parse.quote(relative_path, safe='/')}",
+            "referencedBy": sorted(referenced_by),
+            "classification": classification,
+            "disposition": disposition,
+            "publicTarget": public_target,
+        })
+    counts = Counter(text(record.get("disposition")) for record in coverage_records)
+    return {
+        "enabled": verify_enabled,
+        "encountered": len(coverage_records),
+        "verifiedPublicFiles": counts["verified-public-file"],
+        "verifiedReplacements": counts["verified-aic-audio-replacement"],
+        "reviewedRemovals": counts["reviewed-reference-removal"],
+        "unexpectedReviewedRemovals": sorted(set(approved_reference_removals) - applied_reviewed_removals),
+        "reviewedReferenceDrift": reviewed_reference_drift,
+        "reviewedPayloadFingerprint": reviewed_payload_fingerprint,
+        "actualPayloadFingerprint": actual_payload_fingerprint,
+        "reviewedPayloadFingerprintDrift": bool(approved_reference_removals) and not reviewed_payload_matches,
+        "rejectedReferences": list(rejected_references),
+        "blockingReferences": [
+            record for record in coverage_records
+            if record["disposition"] == "missing-public-reference"
+        ],
+        "records": coverage_records,
+    }
+
+
+def validate_media_reference_coverage(coverage: dict[str, Any]) -> None:
+    records = coverage.get("records")
+    if not coverage.get("enabled") or not isinstance(records, list):
+        raise RuntimeError("Apply preflight failed: published media reference coverage was not verified")
+    counts = Counter(
+        text(record.get("disposition"))
+        for record in records
+        if isinstance(record, dict)
+    )
+    if (
+        coverage.get("encountered") != len(records)
+        or coverage.get("verifiedPublicFiles") != counts["verified-public-file"]
+        or coverage.get("verifiedReplacements") != counts["verified-aic-audio-replacement"]
+        or coverage.get("reviewedRemovals") != counts["reviewed-reference-removal"]
+        or coverage.get("blockingReferences")
+        or coverage.get("rejectedReferences")
+        or coverage.get("unexpectedReviewedRemovals")
+        or coverage.get("reviewedReferenceDrift")
+        or coverage.get("reviewedPayloadFingerprintDrift")
+        or len(records) != counts["verified-public-file"] + counts["verified-aic-audio-replacement"] + counts["reviewed-reference-removal"]
+        or any(
+            not text(record.get("relativePath"))
+            or not text(record.get("normalizedSourceUrl")).startswith(f"{LEGACY_ORIGIN}/wp-content/uploads/")
+            or not record.get("referencedBy")
+            or text(record.get("classification")) not in {"audio", "image", "document", "other"}
+            or (
+                text(record.get("disposition")) != "reviewed-reference-removal"
+                and not text(record.get("publicTarget")).startswith("/media/")
+            )
+            or (
+                text(record.get("disposition")) == "reviewed-reference-removal"
+                and text(record.get("publicTarget"))
+            )
+            for record in records
+            if isinstance(record, dict)
+        )
+    ):
+        raise RuntimeError("Apply preflight failed: published media reference coverage is incomplete")
+
+
+def apply_verified_media_replacements(
+    record_groups: Sequence[list[dict[str, Any]]],
+    replacement_media_targets: dict[str, str],
+    approved_reference_removals: set[str],
+) -> None:
+    if not replacement_media_targets and not approved_reference_removals:
+        return
+
+    unavailable_markup = "<span>Media unavailable.</span>"
+    url_value_fields = {
+        "externalAudioUrl", "legacyPhotoUrl", "publicPath", "imageUrl", "audioUrl", "videoUrl", "posterUrl",
+    }
+
+    def remove_reviewed_target(value: str, target: str, field_name: str) -> str:
+        if field_name in url_value_fields and value.strip() == target:
+            return ""
+        escaped_target = re.escape(target)
+        attribute_value = rf'(?:"{escaped_target}"|\'{escaped_target}\'|{escaped_target})(?=\s|/?>)'
+        # A srcset contains comma-separated URL candidates and descriptors.
+        # Replacing a candidate with prose would create a bogus relative URL
+        # that the browser could request from the current page. Remove the
+        # complete attribute when it contains the exact reviewed target; a
+        # normal src/poster fallback, when present, remains intact.
+        srcset_attribute = re.compile(
+            r'''\s+srcset\s*=\s*(?:"(?P<double>[^"]*)"|'(?P<single>[^']*)'|(?P<bare>[^\s>]+))''',
+            re.I,
+        )
+
+        def remove_matching_srcset(match: re.Match[str]) -> str:
+            srcset_value = next(
+                (
+                    candidate
+                    for candidate in (match.group("double"), match.group("single"), match.group("bare"))
+                    if candidate is not None
+                ),
+                "",
+            )
+            candidate_urls = [
+                candidate.strip().split(None, 1)[0]
+                for candidate in srcset_value.split(",")
+                if candidate.strip()
+            ]
+            return "" if target in candidate_urls else match.group(0)
+
+        value = srcset_attribute.sub(remove_matching_srcset, value)
+        media_binding = rf"\b(?:src|poster|data|action)\s*=\s*{attribute_value}"
+        paired_media = re.compile(
+            rf"<(?P<tag>audio|video|iframe|object|form)\b(?=[^>]*{media_binding})[^>]*>.*?</(?P=tag)\s*>",
+            re.I | re.S,
+        )
+        value = paired_media.sub(unavailable_markup, value)
+        anchor = re.compile(
+            rf"<a\b(?=[^>]*\b(?:href|formaction)\s*=\s*{attribute_value})[^>]*>(.*?)</a\s*>",
+            re.I | re.S,
+        )
+        value = anchor.sub(lambda match: f"{match.group(1)} {unavailable_markup}", value)
+        interactive = re.compile(
+            rf"<button\b(?=[^>]*\bformaction\s*=\s*{attribute_value})[^>]*>(.*?)</button\s*>",
+            re.I | re.S,
+        )
+        value = interactive.sub(lambda match: f"{match.group(1)} {unavailable_markup}", value)
+        void_media = re.compile(
+            rf"<(?:audio|video|iframe|object|img|source|track|embed|input)\b(?=[^>]*(?:{media_binding}|\bformaction\s*=\s*{attribute_value}))[^>]*?/?>",
+            re.I | re.S,
+        )
+        value = void_media.sub(unavailable_markup, value)
+        url_attribute = re.compile(
+            rf"\s+(?:href|src|poster|srcset|action|formaction)\s*=\s*{attribute_value}",
+            re.I,
+        )
+        value = url_attribute.sub("", value)
+
+        def replace_plain_reference(match: re.Match[str]) -> str:
+            relative_path, trailing = normalize_legacy_upload_reference(
+                match.group(0).removeprefix("/media/legacy/")
+            )
+            expected_relative = target.removeprefix("/media/legacy/")
+            return f"Media unavailable.{trailing}" if relative_path == expected_relative else match.group(0)
+
+        return LOCAL_LEGACY_MEDIA_PATTERN.sub(replace_plain_reference, value)
+
+    def rewrite(value: Any, field_name: str = "") -> Any:
+        if isinstance(value, str):
+            def replace_verified(match: re.Match[str]) -> str:
+                relative_path, trailing = normalize_legacy_upload_reference(
+                    match.group(0).removeprefix("/media/legacy/")
+                )
+                public_target = replacement_media_targets.get(relative_path or "")
+                return f"{public_target}{trailing}" if public_target else match.group(0)
+
+            value = LOCAL_LEGACY_MEDIA_PATTERN.sub(replace_verified, value)
+            matched_removals = {
+                relative_path
+                for raw_target in LOCAL_LEGACY_MEDIA_PATTERN.findall(value)
+                if (relative_path := normalize_legacy_upload_reference(
+                    raw_target.removeprefix("/media/legacy/")
+                )[0]) in approved_reference_removals
+            }
+            for relative_path in sorted(matched_removals, key=lambda item: (-len(item), item)):
+                value = remove_reviewed_target(
+                    value,
+                    f"/media/legacy/{relative_path}",
+                    field_name,
+                )
+            return value
+        if isinstance(value, list):
+            return [rewrite(item, field_name) for item in value]
+        if isinstance(value, dict):
+            return {key: rewrite(item, key) for key, item in value.items()}
+        return value
+
+    for records in record_groups:
+        for record in records:
+            rewritten = rewrite(record)
+            record.clear()
+            record.update(rewritten)
+            if "sourceFingerprint" in record:
+                record["sourceFingerprint"] = ""
+                record["sourceFingerprint"] = stable_fingerprint(record)
+
+
+def audit_final_public_media_targets(
+    record_groups: dict[str, Sequence[dict[str, Any]]],
+    media_records: Sequence[MediaRecord],
+    verify_enabled: bool,
+    verified_episode_track_ids: set[str] | None = None,
+) -> dict[str, Any]:
+    verified_paths = {
+        record.relative_path
+        for record in media_records
+        if record.visibility == "public" and record.exists
+    }
+    references: defaultdict[str, set[str]] = defaultdict(set)
+    invalid_targets: list[dict[str, str]] = []
+    episode_targets: list[dict[str, str]] = []
+    invalid_episode_targets: list[dict[str, str]] = []
+    unverified_episode_targets: list[dict[str, str]] = []
+
+    def inspect(value: Any, source: str) -> None:
+        if isinstance(value, str):
+            for match in LEGACY_UPLOAD_URL_PATTERN.findall(value):
+                invalid_targets.append({
+                    "source": source,
+                    "target": match,
+                    "reason": "legacy-origin-upload-was-not-localized",
+                })
+            for match in LOCAL_LEGACY_MEDIA_PATTERN.findall(value):
+                relative_path, _trailing = normalize_legacy_upload_reference(
+                    match.removeprefix("/media/legacy/")
+                )
+                if relative_path:
+                    references[relative_path].add(source)
+                else:
+                    invalid_targets.append({
+                        "source": source,
+                        "target": match,
+                        "reason": "invalid-local-legacy-media-target",
+                    })
+            for match in LOCAL_EPISODE_MEDIA_PATTERN.findall(value):
+                track_id, _trailing = normalize_public_episode_url_match(match)
+                record = {"source": source, "target": match, "trackId": track_id}
+                if track_id:
+                    episode_targets.append(record)
+                    if verified_episode_track_ids is not None and track_id not in verified_episode_track_ids:
+                        unverified_episode_targets.append(record)
+                else:
+                    invalid_episode_targets.append(record)
+        elif isinstance(value, list):
+            for item in value:
+                inspect(item, source)
+        elif isinstance(value, dict):
+            for item in value.values():
+                inspect(item, source)
+
+    identity_fields = ("pageKey", "legacyId", "trackId", "slug")
+    for kind, records in record_groups.items():
+        for index, record in enumerate(records):
+            identity = next((text(record.get(field)) for field in identity_fields if text(record.get(field))), str(index))
+            inspect(record, f"{kind}:{identity}")
+
+    target_records = [
+        {
+            "relativePath": relative_path,
+            "referencedBy": sorted(referenced_by),
+            "verified": relative_path in verified_paths,
+        }
+        for relative_path, referenced_by in sorted(references.items())
+    ]
+    return {
+        "enabled": verify_enabled,
+        "targets": len(target_records),
+        "verifiedTargets": sum(1 for record in target_records if record["verified"]),
+        "blockingTargets": [record for record in target_records if not record["verified"]],
+        "invalidTargets": invalid_targets,
+        "episodeTargets": episode_targets,
+        "invalidEpisodeTargets": invalid_episode_targets,
+        "unverifiedEpisodeTargets": unverified_episode_targets,
+        "records": target_records,
+    }
+
+
+def validate_final_public_media_targets(audit: dict[str, Any]) -> None:
+    records = audit.get("records")
+    if (
+        not audit.get("enabled")
+        or not isinstance(records, list)
+        or audit.get("targets") != len(records)
+        or audit.get("verifiedTargets") != len(records)
+        or audit.get("blockingTargets")
+        or audit.get("invalidTargets")
+        or audit.get("invalidEpisodeTargets")
+        or audit.get("unverifiedEpisodeTargets")
+        or any(not isinstance(record, dict) or record.get("verified") is not True for record in records)
+    ):
+        raise RuntimeError("Apply preflight failed: final public payload contains an unverified legacy media target")
+
+
 def redirect_target_for(
     path: str,
     post_slug_targets: dict[str, str],
@@ -2086,6 +2795,13 @@ def redirect_target_for(
     replacement_media_targets: dict[str, str] | None = None,
     page_slug_targets: dict[str, str] | None = None,
 ) -> tuple[str | None, str]:
+    # The existing /privacy route belongs to the separate Sermon Search GPT
+    # policy surface. Import the legacy PastorWood page under
+    # /privacy-terms-conditions, but never create a redirect that takes
+    # ownership of /privacy away from that application.
+    normalized_source = path.rstrip("/").casefold()
+    if normalized_source == "/privacy" or normalized_source.startswith("/privacy/"):
+        return None, "owned-current-sermon-search-gpt-route"
     if "/wp-content/uploads/" in path:
         relative_media = safe_upload_relative_path(path)
         if relative_media in public_media_paths:
@@ -2461,6 +3177,74 @@ def copy_public_media(record: MediaRecord, restricted_root: Path, public_root: P
     return source_checksum, destination.stat().st_size
 
 
+def verify_phase1_public_media_evidence(
+    media_records: Sequence[MediaRecord],
+    mutation_records: dict[str, dict[str, Any]],
+    public_root: Path,
+) -> dict[str, Any]:
+    """Re-hash the exact phase-one public files before any reviewed publication."""
+    expected = {
+        f"media:{record.attachment_id}": record
+        for record in media_records
+        if record.visibility == "public" and record.exists
+    }
+    evidenced_keys = {
+        key
+        for key, mutation in mutation_records.items()
+        if "publicMediaEvidence" in mutation
+    }
+    if evidenced_keys != set(expected):
+        missing = sorted(set(expected) - evidenced_keys)[:20]
+        unexpected = sorted(evidenced_keys - set(expected))[:20]
+        raise RuntimeError(
+            f"Phase-one public media evidence is not exact; missing={missing}, unexpected={unexpected}"
+        )
+    if public_root.is_symlink():
+        raise RuntimeError("Public media root must not be a symlink")
+
+    total_bytes = 0
+    verified_records: list[dict[str, Any]] = []
+    for key, record in sorted(expected.items()):
+        mutation = mutation_records.get(key, {})
+        evidence = mutation.get("publicMediaEvidence")
+        expected_public_path = f"/media/legacy/{record.relative_path}"
+        if (
+            not isinstance(evidence, dict)
+            or text(mutation.get("kind")) != "media"
+            or text(mutation.get("identity")) != record.attachment_id
+            or text(evidence.get("relativePath")) != record.relative_path
+            or text(evidence.get("publicPath")) != expected_public_path
+            or not isinstance(evidence.get("sizeBytes"), int)
+            or isinstance(evidence.get("sizeBytes"), bool)
+            or int(evidence.get("sizeBytes")) <= 0
+            or evidence.get("sizeBytes") != record.size_bytes
+            or not re.fullmatch(r"[a-f0-9]{64}", text(evidence.get("sha256")))
+        ):
+            raise RuntimeError(f"Phase-one public media evidence is invalid for {key}")
+        public_file = safe_restricted_media_file(public_root, record.relative_path)
+        if not public_file:
+            raise RuntimeError(f"Phase-one public media file is missing, unsafe, or a symlink: {record.relative_path}")
+        actual_size = public_file.stat().st_size
+        if actual_size != evidence["sizeBytes"]:
+            raise RuntimeError(f"Phase-one public media size drifted: {record.relative_path}")
+        if sha256_file(public_file) != evidence["sha256"]:
+            raise RuntimeError(f"Phase-one public media checksum drifted: {record.relative_path}")
+        if public_file.stat().st_size != actual_size:
+            raise RuntimeError(f"Phase-one public media changed during verification: {record.relative_path}")
+        total_bytes += actual_size
+        verified_records.append({
+            "key": key,
+            "relativePath": record.relative_path,
+            "sha256": text(evidence.get("sha256")),
+            "sizeBytes": actual_size,
+        })
+    return {
+        "verifiedFiles": len(expected),
+        "verifiedBytes": total_bytes,
+        "evidenceFingerprint": stable_fingerprint(verified_records),
+    }
+
+
 def load_checkpoint(path: Path, plan_fingerprint: str, no_resume: bool = False) -> set[str]:
     if no_resume or not path.exists():
         return set()
@@ -2574,6 +3358,11 @@ def apply_plan(
                 "afterFingerprint": text(result.get("afterFingerprint")),
                 "recordedAt": datetime.now(timezone.utc).isoformat(),
             }
+            if "publicMediaEvidence" in result:
+                evidence = result.get("publicMediaEvidence")
+                if kind != "media" or not isinstance(evidence, dict):
+                    raise RuntimeError("Cutover mutation returned misplaced or invalid public media evidence")
+                mutation_records[key]["publicMediaEvidence"] = dict(evidence)
             write_mutation_manifest(args.mutation_manifest, plan_fingerprint, mutation_records)
             completed.add(key)
             write_json(args.checkpoint, {"version": 2, "planFingerprint": plan_fingerprint, "completed": sorted(completed)})
@@ -2592,7 +3381,7 @@ def apply_plan(
     for endorsement in endorsements:
         process("endorsement", text(endorsement.get("legacyId")), lambda endorsement=endorsement: client.upsert("endorsements", "legacyId", text(endorsement["legacyId"]), endorsement))
     for record in media_records:
-        def apply_media(record: MediaRecord = record) -> str:
+        def apply_media(record: MediaRecord = record) -> dict[str, Any]:
             checksum = ""
             size = record.size_bytes or 0
             if args.copy_media and record.visibility == "public" and record.exists:
@@ -2610,9 +3399,17 @@ def apply_plan(
                 "mimeType": record.mime_type,
                 "fileSizeBytes": size or None,
                 "checksumSha256": checksum,
-                "usageNotes": ", ".join((*record.referenced_by, *(('metadata-only: no verified public audio',) if record.attachment_id in metadata_only_media_ids else ()))),
+                "usageNotes": ", ".join((*record.referenced_by, *(('not public: unavailable or explicitly reviewed for reference removal',) if record.attachment_id in metadata_only_media_ids else ()))),
             }
-            return client.upsert("media-assets", "legacyAttachmentId", record.attachment_id, data)
+            result = client.upsert("media-assets", "legacyAttachmentId", record.attachment_id, data)
+            if checksum:
+                result["publicMediaEvidence"] = {
+                    "relativePath": record.relative_path,
+                    "publicPath": f"/media/legacy/{record.relative_path}",
+                    "sha256": checksum,
+                    "sizeBytes": size,
+                }
+            return result
         process("media", record.attachment_id, apply_media)
     for redirect in redirects:
         process(
@@ -2627,6 +3424,18 @@ def apply_plan(
             ),
         )
 
+    public_media_evidence: dict[str, Any] = {}
+    if not failures:
+        try:
+            public_media_evidence = verify_phase1_public_media_evidence(
+                media_records,
+                mutation_records,
+                args.public_media_root,
+            )
+        except Exception as error:
+            failures.append({"kind": "public-media-evidence", "identity": "phase-one", "error": str(error)[:1200]})
+            results["public-media-evidence.failed"] += 1
+
     write_json(args.failure_report, {
         "generatedAt": datetime.now(timezone.utc).isoformat(),
         "planFingerprint": plan_fingerprint,
@@ -2637,6 +3446,8 @@ def apply_plan(
     final_results: dict[str, Any] = dict(sorted(results.items()))
     final_results["mutationManifest"] = str(args.mutation_manifest)
     final_results["mutationManifestRecords"] = len(mutation_records)
+    final_results["mutationManifestSha256"] = sha256_file(args.mutation_manifest)
+    final_results["publicMediaEvidence"] = public_media_evidence
     return final_results
 
 
@@ -2698,7 +3509,7 @@ def expected_cutover_entries(plan: dict[str, Any], payloads: dict[str, Any]) -> 
     media_public_paths = payloads["mediaPublicPaths"]
     for record in payloads["media"]:
         identity = record.attachment_id
-        has_verified_replacement = text(media_public_paths.get(identity)).startswith("/media/episodes/")
+        has_verified_replacement = bool(public_episode_track_id_from_url(text(media_public_paths.get(identity))))
         eligible = (
             record.visibility == "public"
             and identity not in metadata_only_media_ids
@@ -2728,6 +3539,7 @@ def load_publication_manifest(
     path: Path,
     plan_fingerprint: str,
     mutation_manifest_sha256: str,
+    public_media_verification: dict[str, Any],
 ) -> dict[str, dict[str, Any]]:
     if not path.exists():
         return {}
@@ -2740,6 +3552,7 @@ def load_publication_manifest(
         or value.get("version") != 1
         or value.get("planFingerprint") != plan_fingerprint
         or value.get("mutationManifestSha256") != mutation_manifest_sha256
+        or value.get("publicMediaVerification") != public_media_verification
     ):
         raise RuntimeError("Cutover publication manifest does not match the reviewed plan and mutation manifest")
     actions = value.get("actions")
@@ -2758,6 +3571,7 @@ def write_publication_manifest(
     path: Path,
     plan_fingerprint: str,
     mutation_manifest_sha256: str,
+    public_media_verification: dict[str, Any],
     actions: dict[str, dict[str, Any]],
     exclusions: list[dict[str, str]],
 ) -> None:
@@ -2765,6 +3579,7 @@ def write_publication_manifest(
         "version": 1,
         "planFingerprint": plan_fingerprint,
         "mutationManifestSha256": mutation_manifest_sha256,
+        "publicMediaVerification": public_media_verification,
         "generatedAt": datetime.now(timezone.utc).isoformat(),
         "actions": [actions[key] for key in sorted(actions)],
         "exclusions": exclusions,
@@ -2785,6 +3600,12 @@ def publish_reviewed_plan(
 
     plan_fingerprint = text(payloads.get("planFingerprint"))
     expected_entries = expected_cutover_entries(plan, payloads)
+    mutation_manifest_sha256 = sha256_file(args.mutation_manifest)
+    if (
+        not re.fullmatch(r"[a-f0-9]{64}", text(args.reviewed_mutation_manifest_sha256))
+        or text(args.reviewed_mutation_manifest_sha256) != mutation_manifest_sha256
+    ):
+        raise RuntimeError("Reviewed publication requires the exact independently confirmed phase-one mutation manifest SHA-256")
     mutation_records = load_mutation_manifest(args.mutation_manifest, plan_fingerprint)
     if set(mutation_records) != set(expected_entries):
         missing = sorted(set(expected_entries) - set(mutation_records))[:20]
@@ -2819,11 +3640,16 @@ def publish_reviewed_plan(
         ):
             raise RuntimeError(f"Draft mutation evidence drifted for {key}")
 
-    mutation_manifest_sha256 = sha256_file(args.mutation_manifest)
+    public_media_verification = verify_phase1_public_media_evidence(
+        payloads["media"],
+        mutation_records,
+        args.public_media_root,
+    )
     publication_actions = load_publication_manifest(
         args.publication_manifest,
         plan_fingerprint,
         mutation_manifest_sha256,
+        public_media_verification,
     )
     if set(publication_actions) - set(expected_entries):
         raise RuntimeError("Publication evidence contains an action outside the reviewed cutover plan")
@@ -2841,6 +3667,7 @@ def publish_reviewed_plan(
         args.publication_manifest,
         plan_fingerprint,
         mutation_manifest_sha256,
+        public_media_verification,
         publication_actions,
         exclusions,
     )
@@ -2915,7 +3742,7 @@ def publish_reviewed_plan(
                     and re.fullmatch(r"[a-f0-9]{64}", text(current.get("checksumSha256")))
                     and int(current.get("fileSizeBytes") or 0) > 0
                 )
-                verified_replacement = public_path.startswith("/media/episodes/")
+                verified_replacement = bool(public_episode_track_id_from_url(public_path))
                 if current.get("visibility") != "public" or not (verified_file or verified_replacement):
                     raise RuntimeError(f"Reviewed media is inactive, private, or unverified: {key}")
             elif current.get("visibility") == "public":
@@ -2948,6 +3775,7 @@ def publish_reviewed_plan(
             args.publication_manifest,
             plan_fingerprint,
             mutation_manifest_sha256,
+            public_media_verification,
             publication_actions,
             exclusions,
         )
@@ -2982,12 +3810,14 @@ def publish_reviewed_plan(
             args.publication_manifest,
             plan_fingerprint,
             mutation_manifest_sha256,
+            public_media_verification,
             publication_actions,
             exclusions,
         )
 
     return {
         "publicationManifest": str(args.publication_manifest),
+        "publicMediaVerification": public_media_verification,
         "published": sum(1 for record in publication_actions.values() if record.get("action") == "published"),
         "redirectsActivated": sum(1 for record in publication_actions.values() if record.get("action") == "activated"),
         "excludedDrafts": len(exclusions),
@@ -3056,6 +3886,16 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]
         *read_manifest_urls(args.attachment_manifest),
         *(text(row.get("sourceUrl")) for row in rest_attachments if text(row.get("sourceUrl"))),
     ]))
+    raw_rejected_upload_references: list[dict[str, str]] = []
+    raw_upload_references = extract_upload_references(
+        [*wp_content, *aic_posts],
+        raw_rejected_upload_references,
+    )
+    reviewed_media_dispositions, approved_reference_removals = load_reviewed_media_dispositions(
+        args.reviewed_media_dispositions,
+        text(rest_snapshot_evidence.get("sha256")),
+        args.apply or args.publish_reviewed,
+    )
     external_image_references = extract_external_image_references(rest_wp_content)
     external_image_backup_verification, external_image_paths, external_media_records = verify_external_image_backup_manifest(
         args.external_image_backup_manifest,
@@ -3085,11 +3925,30 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]
         excluded_endorsements,
         structured_content_coverage,
     )
+    rejected_upload_references: list[dict[str, str]] = []
+    final_payload_groups = {
+        "page": pages,
+        "post": posts,
+        "episode": episodes,
+        "person": people,
+        "endorsement": endorsements,
+    }
+    localize_final_payload_uploads(final_payload_groups)
+    pre_removal_payload_fingerprint = stable_fingerprint(final_payload_groups)
+    upload_references = extract_final_payload_upload_references(
+        final_payload_groups,
+        rejected_upload_references,
+    )
+    raw_media_reference_inventory = build_raw_media_reference_inventory(
+        raw_upload_references,
+        upload_references,
+        raw_rejected_upload_references,
+    )
     media_records, rejected_media = build_media_records(
         attachments,
         attachment_urls,
         legacy_public_urls,
-        extract_upload_references(wp_content),
+        upload_references,
         args.restricted_media_root,
         args.verify_media,
     )
@@ -3100,7 +3959,11 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]
         raise RuntimeError("External image backup collides with an existing media identity")
     media_records.sort(key=lambda record: record.relative_path)
     missing_episode_media = reconcile_episode_media(episodes, media_records)
-    aic_track_ids = {text(row.get("trackId")) for row in aic_episodes if re.fullmatch(r"(?:\d+|sa_\d+)", text(row.get("trackId")))}
+    aic_track_ids = {
+        text(row.get("trackId"))
+        for row in aic_episodes
+        if PUBLIC_EPISODE_TRACK_ID_PATTERN.fullmatch(text(row.get("trackId")))
+    }
     wordpress_sermons_by_id = {
         text(row.get("id")): row
         for row in wp_content
@@ -3136,12 +3999,15 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]
             and episode_audio_inventory.get(object_id, 0) > 0
         )
         if replacement_verified:
-            replacement_url = f"/media/episodes/{object_id}"
+            replacement_url = public_episode_media_url(object_id)
             replacement_media_targets[record.relative_path] = replacement_url
             disposition = "served-by-verified-aic-audio-object"
+        elif record.relative_path in approved_reference_removals:
+            replacement_url = ""
+            disposition = "reviewed-remove-public-reference"
         else:
             replacement_url = ""
-            disposition = "metadata-only-no-verified-public-audio"
+            disposition = "blocking-missing-public-media"
         missing_public_media_disposition.append({
             "legacyAttachmentId": record.attachment_id,
             "relativePath": record.relative_path,
@@ -3161,8 +4027,37 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]
     metadata_only_media_ids = {
         text(row.get("legacyAttachmentId"))
         for row in missing_public_media_disposition
-        if text(row.get("disposition")) == "metadata-only-no-verified-public-audio"
+        if text(row.get("disposition")) in {
+            "blocking-missing-public-media",
+            "reviewed-remove-public-reference",
+        }
     }
+    media_reference_coverage = build_media_reference_coverage(
+        upload_references,
+        media_records,
+        replacement_media_targets,
+        approved_reference_removals,
+        text(reviewed_media_dispositions.get("finalPayloadFingerprint")),
+        pre_removal_payload_fingerprint,
+        rejected_upload_references,
+        args.verify_media,
+    )
+    applied_reference_removals = {
+        text(record.get("relativePath"))
+        for record in media_reference_coverage["records"]
+        if text(record.get("disposition")) == "reviewed-reference-removal"
+    }
+    apply_verified_media_replacements(
+        (pages, posts, episodes, people, endorsements),
+        replacement_media_targets,
+        applied_reference_removals,
+    )
+    final_media_target_audit = audit_final_public_media_targets(
+        final_payload_groups,
+        media_records,
+        args.verify_media,
+        {track_id for track_id, size in episode_audio_inventory.items() if size > 0},
+    )
     rest_media_backup_verification = verify_rest_media_backup_manifest(
         args.rest_media_backup_manifest,
         text(rest_snapshot_evidence.get("sha256")),
@@ -3188,6 +4083,10 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]
         "redirects": redirects,
         "mediaPublicPaths": media_public_paths,
         "metadataOnlyMediaIds": sorted(metadata_only_media_ids),
+        "mediaReferenceCoverage": media_reference_coverage,
+        "reviewedMediaDispositions": reviewed_media_dispositions,
+        "rawMediaReferenceInventory": raw_media_reference_inventory,
+        "finalMediaTargetAudit": final_media_target_audit,
     })
     wp_counts = Counter(text(row.get("type")) for row in wp_content)
     match_counts = Counter(match.method for match in matches)
@@ -3245,6 +4144,8 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]
         "wordpressRestSnapshot": rest_snapshot_evidence,
         "wordpressRestMediaBackup": rest_media_backup_verification,
         "externalImageBackup": external_image_backup_verification,
+        "reviewedMediaDispositions": reviewed_media_dispositions,
+        "rawMediaReferenceInventory": raw_media_reference_inventory,
         "plannedCounts": {
             "pages": len(pages),
             "posts": len(posts),
@@ -3296,8 +4197,10 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]
             "enabled": args.verify_media,
             "existing": sum(1 for record in media_records if record.exists),
             "missing": sum(1 for record in media_records if args.verify_media and not record.exists),
-            "checksums": "computed and compared during --apply --copy-media only",
+            "checksums": "computed during phase-one copy and rehashed from mutation evidence before phase-two publication",
         },
+        "mediaReferenceCoverage": media_reference_coverage,
+        "finalMediaTargetAudit": final_media_target_audit,
         "peopleMediaCoverage": {
             "people": len(people),
             "verifiedPublicPhotos": len(people) - len(people_without_photo_source) - len(people_with_unverified_photo),
@@ -3312,7 +4215,10 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]
             "objects": len(episode_audio_object_ids) if args.verify_episode_audio else None,
             "totalBytes": sum(episode_audio_inventory.values()) if args.verify_episode_audio else None,
             "zeroByteObjectIds": sorted(object_id for object_id, size in episode_audio_inventory.items() if size == 0),
-            "invalidObjectIds": sorted(object_id for object_id in episode_audio_object_ids if not re.fullmatch(r"(?:\d+|sa_\d+)", object_id)),
+            "invalidObjectIds": sorted(
+                object_id for object_id in episode_audio_object_ids
+                if not PUBLIC_EPISODE_TRACK_ID_PATTERN.fullmatch(object_id)
+            ),
             "found": len(aic_track_ids & episode_audio_object_ids) if args.verify_episode_audio else None,
             "missing": sorted(aic_track_ids - episode_audio_object_ids) if args.verify_episode_audio else [],
             "orphanObjects": sorted(episode_audio_object_ids - aic_track_ids) if args.verify_episode_audio else [],
@@ -3341,6 +4247,8 @@ def build_plan(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any]
 
 
 def validate_apply_preflight(plan: dict[str, Any]) -> None:
+    validate_media_reference_coverage(plan.get("mediaReferenceCoverage", {}))
+    validate_final_public_media_targets(plan.get("finalMediaTargetAudit", {}))
     coverage = plan.get("episodeAudioCoverage", {})
     if (
         not coverage.get("enabled")
@@ -3427,11 +4335,26 @@ def validate_apply_preflight(plan: dict[str, Any]) -> None:
         raise RuntimeError("Apply preflight failed: a discarded sermon lacks a canonical redirect alias")
     dispositions = plan.get("missingPublicMediaDisposition", {})
     disposition_records = dispositions.get("records", [])
+    reviewed_removal_paths = {
+        text(row.get("relativePath"))
+        for row in plan.get("reviewedMediaDispositions", {}).get("records", [])
+        if isinstance(row, dict) and text(row.get("action")) == "remove-public-reference"
+    }
     if len(disposition_records) != len(plan.get("missingPublicMedia", [])) or any(
-        text(row.get("disposition")) not in {"served-by-verified-aic-audio-object", "metadata-only-no-verified-public-audio"}
+        not (
+            (
+                text(row.get("disposition")) == "served-by-verified-aic-audio-object"
+                and public_episode_track_id_from_url(text(row.get("replacementUrl")))
+            )
+            or (
+                text(row.get("disposition")) == "reviewed-remove-public-reference"
+                and text(row.get("relativePath")) in reviewed_removal_paths
+                and not text(row.get("replacementUrl"))
+            )
+        )
         for row in disposition_records
     ):
-        raise RuntimeError("Apply preflight failed: missing public media does not have a safe disposition")
+        raise RuntimeError("Apply preflight failed: missing public media lacks a verified replacement or reviewed removal")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -3443,6 +4366,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise ValueError("--apply requires --verify-media --verify-episode-audio --copy-media")
         if args.publish_reviewed and not (args.verify_media and args.verify_episode_audio):
             raise ValueError("--publish-reviewed requires --verify-media --verify-episode-audio")
+        if args.publish_reviewed and not re.fullmatch(r"[a-f0-9]{64}", text(args.reviewed_mutation_manifest_sha256)):
+            raise ValueError("--publish-reviewed requires --reviewed-mutation-manifest-sha256 with the exact phase-one SHA-256")
         plan, payloads = build_plan(args)
         if args.plan_output:
             write_json(args.plan_output, plan)

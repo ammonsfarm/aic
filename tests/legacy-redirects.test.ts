@@ -21,10 +21,19 @@ afterEach(() => {
 
 describe("generated legacy redirect integrity", () => {
   it("cannot override current private, API, login, or asset routes", () => {
-    for (const path of ["/admin", "/api/private", "/content/pages", "/login", "/_next/static/file.js"]) {
+    for (const path of ["/admin", "/api/private", "/content/pages", "/login", "/_next/static/file.js", "/privacy", "/privacy/archive"]) {
       expect(isReservedLegacyRedirectSource(path)).toBe(true);
       expect(resolveLegacyRedirect(path)).toBeNull();
     }
+  });
+
+  it("never asks Strapi for a redirect that could shadow the GPT privacy route", async () => {
+    process.env.STRAPI_PUBLIC_URL = "https://cms.example.test";
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(resolvePublicLegacyRedirect("/privacy/")).resolves.toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("contains no self loops and all media targets exist in the verified manifest", () => {

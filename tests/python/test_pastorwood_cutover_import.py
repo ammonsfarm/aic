@@ -21,6 +21,7 @@ class CutoverIdentityTests(unittest.TestCase):
         args = MODULE.parse_args([])
         self.assertEqual(args.wordpress_source, "verified-snapshot")
         self.assertEqual(args.wordpress_rest_snapshot, MODULE.DEFAULT_WORDPRESS_SNAPSHOT)
+        self.assertEqual(args.reviewed_mutation_manifest_sha256, "")
         with self.assertRaisesRegex(RuntimeError, "disabled by default"):
             MODULE.fetch_wordpress_direct_refresh(SimpleNamespace(
                 wordpress_source="verified-snapshot",
@@ -63,6 +64,38 @@ class CutoverIdentityTests(unittest.TestCase):
         self.assertNotIn("et_pb", cleaned)
         self.assertNotIn("script", cleaned)
         self.assertNotIn("onclick", cleaned)
+
+    def test_malformed_upload_punctuation_is_normalized_without_a_broken_public_path(self):
+        raw = '<img src="https://www.pastorwood.org/wp-content/uploads/2024/photo.jpg)">'
+        cleaned = MODULE.clean_legacy_content(raw)
+        references = MODULE.extract_upload_references([{
+            "type": "page", "id": "7", "content": raw, "excerpt": "", "meta": {},
+        }])
+
+        self.assertEqual(cleaned, '<img src="/media/legacy/2024/photo.jpg">')
+        self.assertEqual(references, {"2024/photo.jpg": {"page:7"}})
+        self.assertIsNone(MODULE.safe_upload_relative_path("2024/photo.jpg)"))
+
+    def test_unsafe_encoded_upload_delimiters_are_preserved_reported_and_blocking(self):
+        for encoded_name in ("foo.jpg%29", "foo%3Fmissing.jpg", "foo%23missing.jpg"):
+            with self.subTest(encoded_name=encoded_name):
+                source_url = f"https://www.pastorwood.org/wp-content/uploads/{encoded_name}"
+                cleaned = MODULE.clean_legacy_content(f'<img src="{source_url}">')
+                rejected = []
+                references = MODULE.extract_final_payload_upload_references(
+                    {"post": [{"legacyId": "7", "body": cleaned}]},
+                    rejected,
+                )
+                coverage = MODULE.build_media_reference_coverage(
+                    references, [], {}, {}, "", "a" * 64, rejected, True,
+                )
+
+                self.assertIn(source_url, cleaned)
+                self.assertNotIn('src=""', cleaned)
+                self.assertEqual(references, {})
+                self.assertEqual(rejected[0]["rawSource"], source_url)
+                with self.assertRaisesRegex(RuntimeError, "coverage is incomplete"):
+                    MODULE.validate_media_reference_coverage(coverage)
 
     def test_legacy_content_cleanup_preserves_authored_bracketed_copy(self):
         authored = "Though [Jesus] was God's Son. [Jesus said,] obey. [do this thing] and compare [2:6]."
@@ -111,6 +144,26 @@ class CutoverIdentityTests(unittest.TestCase):
     def test_aic_episode_uses_same_origin_public_audio_route(self):
         episodes, _ = MODULE.build_episodes([], [{"trackId": 1003386838, "title": "Program", "publishDate": "2024-01-01", "sourceFile": "1003386838.mp3", "detail": ""}])
         self.assertEqual(episodes[0]["externalAudioUrl"], "/media/episodes/1003386838")
+
+    def test_public_episode_media_urls_share_the_full_safe_track_id_contract(self):
+        expected = {
+            "1003386838": "/media/episodes/1003386838",
+            "sa_99151132260": "/media/episodes/sa_99151132260",
+            "wp-sermon:14759": "/media/episodes/wp-sermon%3A14759",
+            "cms_sunday_20260722": "/media/episodes/cms_sunday_20260722",
+        }
+        for track_id, public_url in expected.items():
+            with self.subTest(track_id=track_id):
+                self.assertEqual(MODULE.public_episode_media_url(track_id), public_url)
+                self.assertEqual(MODULE.public_episode_track_id_from_url(public_url), track_id)
+        for unsafe in [
+            "/media/episodes/../secret",
+            "/media/episodes/cms_%252fsecret",
+            "/media/episodes/wp-sermon%3Abad",
+            "https://evil.example/media/episodes/100",
+        ]:
+            with self.subTest(unsafe=unsafe):
+                self.assertEqual(MODULE.public_episode_track_id_from_url(unsafe), "")
 
     def test_build_episodes_imports_genuinely_unique_wordpress_sermon(self):
         aic = [{"trackId": "canonical", "title": "Canonical Episode", "publishDate": "2024-04-05", "sourceFile": "canonical.json", "detail": ""}]
@@ -392,6 +445,25 @@ class CutoverIdentityTests(unittest.TestCase):
                 },
             },
             "excludedEndorsements": [malformed_endorsement],
+            "mediaReferenceCoverage": {
+                "enabled": True,
+                "encountered": 0,
+                "verifiedPublicFiles": 0,
+                "verifiedReplacements": 0,
+                "reviewedRemovals": 0,
+                "unexpectedReviewedRemovals": [],
+                "rejectedReferences": [],
+                "blockingReferences": [],
+                "records": [],
+            },
+            "finalMediaTargetAudit": {
+                "enabled": True,
+                "targets": 0,
+                "verifiedTargets": 0,
+                "blockingTargets": [],
+                "invalidTargets": [],
+                "records": [],
+            },
         }
 
         with self.assertRaisesRegex(RuntimeError, "endorsements structured extraction coverage is incomplete"):
@@ -476,6 +548,9 @@ class CutoverBoundaryTests(unittest.TestCase):
             "/wp-content/uploads/woocommerce_uploads/order.pdf",
             "/wp-content/uploads/logs/debug.log",
             "%2e%2e/private.txt",
+            "https://www.pastorwood.org/wp-content/uploads/foo%3Fmissing.jpg",
+            "https://www.pastorwood.org/wp-content/uploads/foo%23missing.jpg",
+            "https://www.pastorwood.org/wp-content/uploads/folder%2Fother.jpg",
         ]
         for value in bad_paths:
             with self.subTest(value=value):
@@ -485,6 +560,242 @@ class CutoverBoundaryTests(unittest.TestCase):
             MODULE.safe_upload_relative_path("https://www.pastorwood.org/wp-content/uploads/sermons/2024/01/show.mp3"),
             "sermons/2024/01/show.mp3",
         )
+
+    def test_missing_published_reference_stays_visible_and_blocks_without_review(self):
+        references = MODULE.defaultdict(set)
+        references["sermons/missing.mp3"].add("wpfc_sermon:4")
+        with tempfile.TemporaryDirectory() as directory:
+            records, rejected = MODULE.build_media_records([], [], [], references, Path(directory), True)
+
+        self.assertEqual(rejected, [])
+        self.assertEqual(len(records), 1)
+        self.assertFalse(records[0].exists)
+        coverage = MODULE.build_media_reference_coverage(
+            references, records, {}, {}, "", "a" * 64, [], True,
+        )
+        self.assertEqual(coverage["blockingReferences"][0]["relativePath"], "sermons/missing.mp3")
+        self.assertEqual(coverage["blockingReferences"][0]["classification"], "audio")
+        self.assertEqual(coverage["blockingReferences"][0]["referencedBy"], ["wpfc_sermon:4"])
+        with self.assertRaisesRegex(RuntimeError, "coverage is incomplete"):
+            MODULE.validate_media_reference_coverage(coverage)
+
+    def test_sitemap_only_missing_asset_can_be_explicitly_retired_without_a_redirect(self):
+        record = MODULE.MediaRecord(
+            "11", "Retired", "retired/file.pdf",
+            "https://www.pastorwood.org/wp-content/uploads/retired/file.pdf",
+            "application/pdf", "public", ("legacy-public-sitemap",), False, None,
+        )
+        fingerprint = "d" * 64
+        coverage = MODULE.build_media_reference_coverage(
+            MODULE.defaultdict(set),
+            [record],
+            {},
+            {record.relative_path: ("legacy-public-sitemap",)},
+            fingerprint,
+            fingerprint,
+            [],
+            True,
+        )
+
+        MODULE.validate_media_reference_coverage(coverage)
+        self.assertEqual(coverage["records"][0]["disposition"], "reviewed-reference-removal")
+        redirects, failures, unmatched = MODULE.build_redirects(
+            [record.source_url], [], [], [], [record],
+        )
+        self.assertEqual(redirects, [])
+        self.assertEqual(failures, [])
+        self.assertEqual(unmatched[0]["reason"], "private-or-unpublished-attachment")
+
+    def test_aic_only_post_uploads_are_included_in_exact_reference_coverage(self):
+        references = MODULE.extract_upload_references([{
+            "postId": "16494",
+            "sourceType": "pastorwood_devotional",
+            "contentHtml": '<img src="https://www.pastorwood.org/wp-content/uploads/aic-only/photo.jpg">',
+        }])
+
+        self.assertEqual(references, {"aic-only/photo.jpg": {"pastorwood_devotional:16494"}})
+
+    def test_final_payload_audit_catches_any_unverified_legacy_target(self):
+        audit = MODULE.audit_final_public_media_targets(
+            {"post": [{"legacyId": "7", "body": '<img src="/media/legacy/hidden/photo.jpg">'}]},
+            [],
+            True,
+        )
+
+        self.assertEqual(audit["blockingTargets"][0]["relativePath"], "hidden/photo.jpg")
+        with self.assertRaisesRegex(RuntimeError, "final public payload"):
+            MODULE.validate_final_public_media_targets(audit)
+
+    def test_media_replacement_is_token_exact_and_final_episode_urls_are_validated(self):
+        records = [{
+            "legacyId": "7",
+            "body": "/media/legacy/x.mp3 /media/legacy/x.mp3.backup",
+        }]
+        MODULE.apply_verified_media_replacements(
+            (records,),
+            {"x.mp3": "/media/episodes/wp-sermon%3A7"},
+            set(),
+        )
+
+        self.assertIn("/media/episodes/wp-sermon%3A7", records[0]["body"])
+        self.assertIn("/media/legacy/x.mp3.backup", records[0]["body"])
+        self.assertNotIn("/media/episodes/wp-sermon%3A7.backup", records[0]["body"])
+
+        invalid = MODULE.audit_final_public_media_targets(
+            {"post": [{"legacyId": "8", "body": "/media/episodes/123.backup"}]},
+            [],
+            True,
+        )
+        with self.assertRaisesRegex(RuntimeError, "final public payload"):
+            MODULE.validate_final_public_media_targets(invalid)
+
+    def test_reviewed_removal_is_snapshot_bound_and_rewrites_the_broken_reference(self):
+        snapshot_sha256 = "a" * 64
+        payload_fingerprint = "b" * 64
+        relative_path = "sermons/missing.mp3"
+        with tempfile.TemporaryDirectory() as directory:
+            disposition_path = Path(directory) / "reviewed.json"
+            disposition_path.write_text(json.dumps({
+                "version": 1,
+                "snapshotSha256": snapshot_sha256,
+                "reviewedBy": "Content owner",
+                "reviewedAt": "2026-07-22T12:00:00Z",
+                "finalPayloadFingerprint": payload_fingerprint,
+                "dispositions": [{
+                    "relativePath": relative_path,
+                    "action": "remove-public-reference",
+                    "reason": "The source recording is permanently unavailable.",
+                    "referencedBy": ["wpfc_sermon:9"],
+                }],
+            }), encoding="utf-8")
+            evidence, removals = MODULE.load_reviewed_media_dispositions(
+                disposition_path, snapshot_sha256, False,
+            )
+
+        self.assertEqual(removals, {relative_path: ("wpfc_sermon:9",)})
+        self.assertEqual(evidence["snapshotSha256"], snapshot_sha256)
+        references = MODULE.defaultdict(set)
+        references[relative_path].add("wpfc_sermon:9")
+        missing_record = MODULE.MediaRecord(
+            "9", "Missing", relative_path,
+            f"https://www.pastorwood.org/wp-content/uploads/{relative_path}",
+            "audio/mpeg", "public", ("wpfc_sermon:9",), False, None,
+        )
+        coverage = MODULE.build_media_reference_coverage(
+            references, [missing_record], {}, removals,
+            payload_fingerprint, payload_fingerprint, [], True,
+        )
+        MODULE.validate_media_reference_coverage(coverage)
+        self.assertEqual(coverage["records"][0]["disposition"], "reviewed-reference-removal")
+        records = [{
+            "body": (
+                f'<a href="/media/legacy/{relative_path}">Unavailable audio</a>'
+                f'<a href=/media/legacy/{relative_path}>Unquoted audio</a>'
+                f'<img src="/media/legacy/{relative_path}">'
+                f'<audio src="/media/legacy/{relative_path}"></audio>'
+                f' Plain /media/legacy/{relative_path} reference.'
+            ),
+        }]
+        MODULE.apply_verified_media_replacements((records,), {}, set(removals))
+        self.assertNotIn("/media/legacy/", records[0]["body"])
+        self.assertNotRegex(records[0]["body"], r'(?:href|src|poster)\s*=\s*["\']\s*["\']')
+        self.assertGreaterEqual(records[0]["body"].count("Media unavailable."), 5)
+
+        collision = [{
+            "body": (
+                f'<a href="/media/legacy/{relative_path}">Remove</a>'
+                f'<a href="/media/legacy/{relative_path}.backup">Keep</a>'
+            ),
+        }]
+        MODULE.apply_verified_media_replacements((collision,), {}, set(removals))
+        self.assertNotIn(f'/media/legacy/{relative_path}"', collision[0]["body"])
+        self.assertIn(f'/media/legacy/{relative_path}.backup', collision[0]["body"])
+
+        responsive = [{
+            "body": (
+                '<img src="/media/legacy/sermons/verified.jpg" '
+                f'srcset="/media/legacy/{relative_path} 300w, '
+                '/media/legacy/sermons/verified.jpg 600w">'
+            ),
+        }]
+        MODULE.apply_verified_media_replacements((responsive,), {}, set(removals))
+        self.assertNotIn("srcset=", responsive[0]["body"])
+        self.assertNotIn("Media unavailable. 300w", responsive[0]["body"])
+        self.assertIn('src="/media/legacy/sermons/verified.jpg"', responsive[0]["body"])
+
+        drifted = MODULE.build_media_reference_coverage(
+            references, [missing_record], {}, removals,
+            payload_fingerprint, "c" * 64, [], True,
+        )
+        with self.assertRaisesRegex(RuntimeError, "coverage is incomplete"):
+            MODULE.validate_media_reference_coverage(drifted)
+
+    def test_phase_two_rehashes_exact_phase_one_media_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            public_root = Path(directory) / "public"
+            public_file = public_root / "2024" / "episode.mp3"
+            public_file.parent.mkdir(parents=True)
+            payload = b"phase-one immutable public media"
+            public_file.write_bytes(payload)
+            digest = hashlib.sha256(payload).hexdigest()
+            record = MODULE.MediaRecord(
+                "1", "Episode", "2024/episode.mp3",
+                "https://www.pastorwood.org/wp-content/uploads/2024/episode.mp3",
+                "audio/mpeg", "public", ("wpfc_sermon:1",), True, len(payload),
+            )
+            mutations = {"media:1": {
+                "kind": "media",
+                "identity": "1",
+                "publicMediaEvidence": {
+                    "relativePath": record.relative_path,
+                    "publicPath": "/media/legacy/2024/episode.mp3",
+                    "sha256": digest,
+                    "sizeBytes": len(payload),
+                },
+            }}
+
+            verified = MODULE.verify_phase1_public_media_evidence([record], mutations, public_root)
+            self.assertEqual(verified["verifiedFiles"], 1)
+            self.assertRegex(verified["evidenceFingerprint"], r"^[a-f0-9]{64}$")
+
+            public_file.write_bytes(b"tampered phase-two media payload")
+            with self.assertRaisesRegex(RuntimeError, "drifted"):
+                MODULE.verify_phase1_public_media_evidence([record], mutations, public_root)
+
+    def test_phase_two_rejects_missing_extra_and_symlink_media_evidence(self):
+        payload = b"public media"
+        record = MODULE.MediaRecord(
+            "1", "Episode", "episode.mp3",
+            "https://www.pastorwood.org/wp-content/uploads/episode.mp3",
+            "audio/mpeg", "public", ("wpfc_sermon:1",), True, len(payload),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            public_root = Path(directory) / "public"
+            public_root.mkdir()
+            with self.assertRaisesRegex(RuntimeError, "not exact"):
+                MODULE.verify_phase1_public_media_evidence([record], {}, public_root)
+
+            target = Path(directory) / "target.mp3"
+            target.write_bytes(payload)
+            (public_root / "episode.mp3").symlink_to(target)
+            digest = hashlib.sha256(payload).hexdigest()
+            mutations = {"media:1": {
+                "kind": "media", "identity": "1",
+                "publicMediaEvidence": {
+                    "relativePath": "episode.mp3",
+                    "publicPath": "/media/legacy/episode.mp3",
+                    "sha256": digest,
+                    "sizeBytes": len(payload),
+                },
+            }}
+            with self.assertRaisesRegex(RuntimeError, "symlink"):
+                MODULE.verify_phase1_public_media_evidence([record], mutations, public_root)
+
+            mutations["media:extra"] = {
+                "kind": "media", "identity": "extra", "publicMediaEvidence": {},
+            }
+            with self.assertRaisesRegex(RuntimeError, "not exact"):
+                MODULE.verify_phase1_public_media_evidence([record], mutations, public_root)
 
     def test_public_media_requires_manifest_and_published_reference(self):
         attachments = [{"id": "5", "title": "Show", "mimeType": "audio/mpeg", "meta": {"_wp_attached_file": "sermons/show.mp3"}}]
@@ -571,6 +882,33 @@ class CutoverBoundaryTests(unittest.TestCase):
         target, reason = MODULE.redirect_target_for("/category/resources/", {}, {}, set())
         self.assertEqual(target, "/written-resources/")
         self.assertEqual(reason, "taxonomy-fallback")
+
+    def test_legacy_website_privacy_never_claims_the_sermon_search_gpt_policy_route(self):
+        target, reason = MODULE.redirect_target_for("/privacy/", {}, {}, set())
+        pages, excluded = MODULE.build_pages([{
+            "id": "81", "type": "page", "slug": "privacy", "title": "Website Privacy",
+            "content": "<p>Website privacy terms.</p>", "excerpt": "", "meta": {},
+        }])
+
+        self.assertEqual((target, reason), (None, "owned-current-sermon-search-gpt-route"))
+        self.assertEqual(
+            MODULE.redirect_target_for("/privacy/archive/", {}, {}, set()),
+            (None, "owned-current-sermon-search-gpt-route"),
+        )
+        self.assertEqual(excluded, [])
+        self.assertEqual(pages[0]["pageKey"], "privacy-terms-conditions")
+        self.assertEqual(pages[0]["slug"], "privacy-terms-conditions")
+        redirects, failures, unmatched = MODULE.build_redirects(
+            ["https://www.pastorwood.org/privacy/"],
+            [{
+                "id": "81", "type": "page", "slug": "privacy", "title": "Website Privacy",
+                "content": "<p>Website privacy terms.</p>", "excerpt": "", "meta": {},
+            }],
+            [], [], [],
+        )
+        self.assertEqual(redirects, [])
+        self.assertEqual(failures, [])
+        self.assertEqual(unmatched[0]["reason"], "owned-current-sermon-search-gpt-route")
 
     def test_missing_public_media_never_receives_redirect(self):
         record = MODULE.MediaRecord("1", "Missing", "2024/missing.mp3", "https://www.pastorwood.org/wp-content/uploads/2024/missing.mp3", "audio/mpeg", "public", ("legacy-public-sitemap",), False, None)

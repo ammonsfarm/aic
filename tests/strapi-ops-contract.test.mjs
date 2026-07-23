@@ -356,13 +356,34 @@ test("deploy builds Strapi before installing it and optionally verifies without 
 
 test("PastorWood cutover defaults to the pinned snapshot, imports drafts, and separates reviewed publication", () => {
   const cutover = source("scripts/pastorwood_cutover_import.py");
+  const publicationStart = cutover.indexOf("def publish_reviewed_plan(");
+  const publicationEnd = cutover.indexOf("\ndef build_plan(", publicationStart);
+  const publication = cutover.slice(publicationStart, publicationEnd);
+  const reviewedSealIndex = publication.indexOf("args.reviewed_mutation_manifest_sha256");
+  const exactManifestIndex = publication.indexOf("set(mutation_records) != set(expected_entries)");
+  const mediaRehashIndex = publication.indexOf("verify_phase1_public_media_evidence(");
+  const clientIndex = publication.indexOf('canonical_strapi_client(payloads["env"])');
+  const publishIndex = publication.indexOf("client.publish_reviewed(");
   assert.match(cutover, /DEFAULT_WORDPRESS_SNAPSHOT/);
   assert.match(cutover, /default="verified-snapshot"/);
+  assert.match(cutover, /pastorwood-reviewed-media-dispositions\.json/);
+  assert.match(cutover, /--reviewed-mutation-manifest-sha256/);
+  assert.match(cutover, /exact independently confirmed phase-one mutation manifest SHA-256/);
+  assert.match(cutover, /Reviewed media dispositions must be tracked and unchanged from the deployed commit/);
+  assert.match(cutover, /mediaReferenceCoverage/);
+  assert.match(cutover, /finalMediaTargetAudit/);
+  assert.match(cutover, /publicMediaEvidence/);
+  assert.match(cutover, /wp-sermon:\[0-9\]\+\|cms_\[a-z0-9\]/);
   assert.match(cutover, /PUBLISH_REVIEWED_CONFIRMATION = "PUBLISH_REVIEWED_PASTORWOOD_CUTOVER"/);
   assert.match(cutover, /\/api\/editorial\/\{entity_type\}/);
   assert.match(cutover, /\{\*\*redirect, "active": False\}/);
   assert.match(cutover, /mutationManifestSha256/);
   assert.match(cutover, /Redirect activation refuses a partial reviewed publication phase/);
+  assert.ok(publicationStart >= 0 && publicationEnd > publicationStart);
+  assert.ok(reviewedSealIndex >= 0 && exactManifestIndex > reviewedSealIndex && mediaRehashIndex > exactManifestIndex);
+  assert.ok(clientIndex > mediaRehashIndex && publishIndex > clientIndex);
+  assert.match(publication, /publicMediaVerification/);
+  assert.doesNotMatch(publication, /copy_public_media\(/);
   assert.doesNotMatch(cutover, /status_query = "\?status=published"/);
   assert.doesNotMatch(cutover, /docker/i);
 });

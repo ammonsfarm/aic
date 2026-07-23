@@ -27,10 +27,18 @@ const reservedTargets = [
   "/_next",
 ];
 
+// /privacy is owned by the existing Sermon Search GPT policy page. The
+// PastorWood policy is imported at /privacy-terms-conditions, and no generated
+// or content-managed legacy redirect may shadow the GPT route.
+const protectedCurrentRouteSources = ["/privacy"];
+
 function isReservedPath(value: string) {
   const path = normalizePath(value);
   const lowerPath = path.toLowerCase();
-  return Boolean(path && reservedTargets.some((prefix) => lowerPath === `${prefix}/` || lowerPath.startsWith(`${prefix}/`)));
+  return Boolean(path && (
+    reservedTargets.some((prefix) => lowerPath === `${prefix}/` || lowerPath.startsWith(`${prefix}/`))
+    || protectedCurrentRouteSources.some((source) => lowerPath === `${source}/` || lowerPath.startsWith(`${source}/`))
+  ));
 }
 
 function normalizePath(value: string) {
