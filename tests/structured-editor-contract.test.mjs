@@ -238,9 +238,17 @@ test("episode publication uses a durable outbox and read-only processing status"
   assert.match(worker, /episode_processing_ownership/);
   assert.match(worker, /episode_processing_provenance/);
   assert.match(worker, /ensure_request_current/);
+  assert.match(worker, /transition_request/);
+  assert.match(worker, /worker-transition/);
   assert.match(worker, /matching_complete_provenance/);
   assert.match(worker, /--mistral-max-file-mb/);
   assert.match(worker, /--retranscribe/);
+  const transition = await source("services/jimwood-cms/src/api/episode-processing-request/controllers/episode-processing-request.ts");
+  assert.match(transition, /strapi\.db\.transaction/);
+  assert.match(transition, /pg_advisory_xact_lock/);
+  assert.match(transition, /current\?\.status === 'running'/);
+  assert.match(transition, /current\.workerId === input\.workerId/);
+  assert.match(transition, /newest\?\.documentId === documentId/);
   const migration = await source("postgres/migrations/022_episode_processing_provenance.sql");
   assert.match(migration, /create table if not exists episode_processing_ownership/);
   assert.match(migration, /episode_document_id text not null unique/);

@@ -57,6 +57,44 @@ class FakeStrapi:
             return None
         return max(matches, key=lambda row: int(row.get("revisionNumber") or 0)).copy()
 
+    def transition_request(self, request, data):
+        row = next(row for row in self.rows if row["documentId"] == request["documentId"])
+        latest = self.latest_request(request["episodeDocumentId"])
+        if (
+            row.get("status") != "running"
+            or row.get("workerId") != request.get("workerId")
+            or row.get("requestKey") != request.get("requestKey")
+            or not latest
+            or latest.get("documentId") != row.get("documentId")
+            or latest.get("requestKey") != row.get("requestKey")
+        ):
+            return None
+        update = {
+            **data,
+            "claimedAt": None,
+            "workerId": "",
+            "lastError": "" if data["status"] == "completed" else data["lastError"],
+            "completedAt": data.get("completedAt") if data["status"] != "queued" else None,
+        }
+        self.updates.append((row["documentId"], update.copy()))
+        row.update(update)
+        return row.copy()
+
+
+class RaceInjectingStrapi(FakeStrapi):
+    def __init__(self, rows, newer):
+        super().__init__(rows)
+        self.newer = newer
+        self.injected = False
+
+    def transition_request(self, request, data):
+        if not self.injected:
+            self.injected = True
+            current = next(row for row in self.rows if row["documentId"] == request["documentId"])
+            current.update({"status": "superseded", "workerId": ""})
+            self.rows.append(self.newer.copy())
+        return super().transition_request(request, data)
+
 
 class FakeConnection:
     def __init__(self, *, existing_episode=False, owners=None):
@@ -153,7 +191,7 @@ class EpisodePublishWorkerTests(unittest.TestCase):
             "workerId": "farm:1",
         }
         client = FakeStrapi([
-            old.copy(),
+            {**old, "status": "superseded", "workerId": ""},
             {
                 "documentId": "request-new",
                 "episodeDocumentId": "episode-doc",
@@ -182,7 +220,7 @@ class EpisodePublishWorkerTests(unittest.TestCase):
             "workerId": "farm:1",
         }
         client = FakeStrapi([
-            old.copy(),
+            {**old, "status": "superseded", "workerId": ""},
             {
                 "documentId": "request-new",
                 "episodeDocumentId": "episode-doc",
@@ -197,6 +235,64 @@ class EpisodePublishWorkerTests(unittest.TestCase):
         with self.assertRaises(WORKER.RequestNoLongerCurrent):
             WORKER.mark_completed(client, old, {"stale": True}, now=now)
         self.assertEqual(client.rows[0]["status"], "superseded")
+        self.assertNotEqual(client.rows[0].get("result"), {"stale": True})
+
+    def test_atomic_failure_transition_cannot_requeue_after_concurrent_publication(self):
+        now = dt.datetime(2026, 7, 22, 16, 0, tzinfo=dt.UTC)
+        old = {
+            "documentId": "request-old",
+            "episodeDocumentId": "episode-doc",
+            "requestKey": "episode-doc:revision:1",
+            "revisionNumber": 1,
+            "status": "running",
+            "attemptCount": 1,
+            "workerId": "farm:1",
+        }
+        newer = {
+            "documentId": "request-new",
+            "episodeDocumentId": "episode-doc",
+            "requestKey": "episode-doc:revision:2",
+            "revisionNumber": 2,
+            "status": "queued",
+            "attemptCount": 0,
+            "workerId": "",
+        }
+        client = RaceInjectingStrapi([old.copy()], newer)
+
+        self.assertFalse(WORKER.mark_failed(client, old, RuntimeError("old failed"), now=now, max_attempts=6))
+        self.assertEqual([(row["documentId"], row["status"]) for row in client.rows], [
+            ("request-old", "superseded"),
+            ("request-new", "queued"),
+        ])
+
+    def test_atomic_completion_transition_cannot_finish_after_concurrent_publication(self):
+        now = dt.datetime(2026, 7, 22, 16, 0, tzinfo=dt.UTC)
+        old = {
+            "documentId": "request-old",
+            "episodeDocumentId": "episode-doc",
+            "requestKey": "episode-doc:revision:1",
+            "revisionNumber": 1,
+            "status": "running",
+            "attemptCount": 1,
+            "workerId": "farm:1",
+        }
+        newer = {
+            "documentId": "request-new",
+            "episodeDocumentId": "episode-doc",
+            "requestKey": "episode-doc:revision:2",
+            "revisionNumber": 2,
+            "status": "queued",
+            "attemptCount": 0,
+            "workerId": "",
+        }
+        client = RaceInjectingStrapi([old.copy()], newer)
+
+        with self.assertRaises(WORKER.RequestNoLongerCurrent):
+            WORKER.mark_completed(client, old, {"stale": True}, now=now)
+        self.assertEqual([(row["documentId"], row["status"]) for row in client.rows], [
+            ("request-old", "superseded"),
+            ("request-new", "queued"),
+        ])
         self.assertNotEqual(client.rows[0].get("result"), {"stale": True})
 
     def test_duplicate_publication_with_matching_complete_provenance_is_a_noop(self):

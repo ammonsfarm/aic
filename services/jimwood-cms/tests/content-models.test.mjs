@@ -71,6 +71,18 @@ test("episode identity is validated while pipeline state lives in the durable ou
   assert.deepEqual(outbox.attributes.status.enum, ["queued", "running", "completed", "failed", "superseded"]);
   assert.equal(outbox.attributes.forceReprocess.default, false);
   assert.equal(outbox.indexes[0].type, "unique");
+
+  const workerRoute = await text("src/api/episode-processing-request/routes/01-worker-transition.ts");
+  assert.match(workerRoute, /:documentId\/worker-transition/);
+  assert.match(workerRoute, /episode-processing-request\.workerTransition/);
+  const workerController = await text("src/api/episode-processing-request/controllers/episode-processing-request.ts");
+  assert.match(workerController, /strapi\.db\.transaction/);
+  assert.match(workerController, /pg_advisory_xact_lock/);
+  assert.match(workerController, /pastorwood-editorial:episode:/);
+  assert.match(workerController, /current\?\.status === 'running'/);
+  assert.match(workerController, /current\.workerId === input\.workerId/);
+  assert.match(workerController, /newest\?\.documentId === documentId/);
+  assert.match(workerController, /ctx\.conflict/);
 });
 
 test("revision and audit collections are append-only through API and database lifecycles", async () => {

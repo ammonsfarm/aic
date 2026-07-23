@@ -61,6 +61,14 @@ class RequestNoLongerCurrent(RuntimeError):
     """Stop stale work without requeueing it ahead of a newer publication."""
 
 
+class StrapiRequestError(RuntimeError):
+    """Expose an HTTP status without leaking the managed API token."""
+
+    def __init__(self, status_code: int, message: str):
+        super().__init__(message)
+        self.status_code = status_code
+
+
 def utc_now() -> dt.datetime:
     return dt.datetime.now(dt.UTC)
 
@@ -190,7 +198,10 @@ class StrapiClient:
                 return json.loads(raw) if raw else None
         except urllib.error.HTTPError as error:
             detail = error.read(1_000).decode("utf-8", errors="replace")
-            raise RuntimeError(f"Strapi {method} failed ({error.code}): {detail}") from error
+            raise StrapiRequestError(
+                error.code,
+                f"Strapi {method} failed ({error.code}): {detail}",
+            ) from error
 
     def list_requests(
         self,
@@ -249,6 +260,38 @@ class StrapiClient:
         if not isinstance(rows, list):
             raise RuntimeError("Strapi did not return the episode processing request list.")
         return rows[0] if rows and isinstance(rows[0], dict) else None
+
+    def transition_request(
+        self,
+        request: dict[str, Any],
+        data: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        document_id = request_document_id(request)
+        payload = {
+            "data": {
+                "requestKey": request_key(request),
+                "episodeDocumentId": episode_document_id(request),
+                "workerId": bounded_text(request.get("workerId"), 300),
+                **data,
+            }
+        }
+        try:
+            response = self.request(
+                "POST",
+                (
+                    "/api/episode-processing-requests/"
+                    f"{urllib.parse.quote(document_id, safe='')}/worker-transition"
+                ),
+                payload,
+            ) or {}
+        except StrapiRequestError as error:
+            if error.status_code == 409:
+                return None
+            raise
+        row = response.get("data") if isinstance(response, dict) else None
+        if not isinstance(row, dict):
+            raise RuntimeError("Strapi did not return the transitioned episode processing request.")
+        return row
 
 
 def request_document_id(request: dict[str, Any]) -> str:
@@ -386,40 +429,34 @@ def mark_failed(
     now: dt.datetime,
     max_attempts: int,
 ) -> bool:
-    try:
-        ensure_request_current(client, request)
-    except RequestNoLongerCurrent:
-        return False
     attempts = max(1, int(request.get("attemptCount") or 1))
     terminal = attempts >= max_attempts
     message = sanitized_error(error)
-    client.update_request(
-        request_document_id(request),
+    updated = client.transition_request(
+        request,
         {
             "status": "failed" if terminal else "queued",
             "nextAttemptAt": iso(now + dt.timedelta(seconds=retry_delay_seconds(attempts))),
-            "claimedAt": None,
-            "workerId": "",
             "lastError": message,
-            "completedAt": iso(now) if terminal else None,
+            **({"completedAt": iso(now)} if terminal else {}),
         },
     )
-    return True
+    return updated is not None
 
 
 def mark_completed(client: StrapiClient, request: dict[str, Any], result: dict[str, Any], *, now: dt.datetime) -> None:
-    ensure_request_current(client, request)
-    client.update_request(
-        request_document_id(request),
+    updated = client.transition_request(
+        request,
         {
             "status": "completed",
-            "claimedAt": None,
-            "workerId": "",
-            "lastError": "",
             "result": result,
             "completedAt": iso(now),
         },
     )
+    if updated is None:
+        raise RequestNoLongerCurrent(
+            "Episode publication request was superseded before its completion could be recorded."
+        )
 
 
 def upsert_operational_episode(
