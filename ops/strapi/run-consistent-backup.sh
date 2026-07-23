@@ -58,10 +58,12 @@ if systemctl is-active --quiet "${strapi_service}"; then
   systemctl stop "${strapi_service}"
 fi
 
-# The AIC database environment is application-owned shell input, so it is
-  # sourced only after privileges are dropped to the service account.
+# The wrapper reads only the five canonical DB values after privileges are
+# dropped. backup-strapi.sh exports one read-only REPEATABLE READ snapshot for
+# both custom archives. Public operational writes continue while the snapshot
+# is held; Strapi stays stopped through both dumps and the media tar.
 runuser --user ammonsfarm -- \
   "${ops_root}/with-aic-db-env.sh" \
   "${ops_root}/backup-strapi.sh"
 
-echo "Created a coordinated Strapi database and media backup while writes were quiesced."
+echo "Created coordinated Strapi and public-operational snapshot archives with Strapi media quiesced."

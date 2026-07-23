@@ -20,7 +20,8 @@ restart anything by themselves.
 - Database namespace: dedicated schema `aic_strapi` inside that same existing
   AIC PostgreSQL database; no local or copied Strapi database
 - Durable new uploads: `/mnt/storage/pastorwood-media/strapi/uploads`
-- Backups: `/mnt/storage/backups/aic-strapi`
+- Backups: `/mnt/storage/backups/aic-strapi`, with exactly two PostgreSQL
+  custom archives plus the Strapi media tar in each timestamped set
 - PostgreSQL clients: native version 16 tools at `/usr/lib/postgresql/16/bin`
 
 The service stays private to the host. Content managers use the authenticated AIC
@@ -100,29 +101,59 @@ Production refuses to start with SQLite.
 8. Run `sudo systemctl start aic-strapi-backup.service` once and inspect its
    journal and output directory.
 9. Run `sudo /usr/local/libexec/aic-strapi/verify-strapi-backup.sh`. It checks SHA-256 sums,
-   re-lists the PostgreSQL archive without network access, compares both stored
-   archive listings, and never creates or restores a database.
+   re-lists both PostgreSQL archives without network access, compares their
+   stored listings and exact object inventories, fully parses both archives to
+   `/dev/null`, and never creates or restores a database.
 
 Do not expose the Strapi write token or draft APIs through a public browser.
 
 ## Backup verification
 
-Each successful backup contains a PostgreSQL custom-format dump scoped with
-`pg_dump --schema aic_strapi`, a media archive, file listings, metadata, and
-SHA-256 checksums. The backup command validates the database archive with
-`pg_restore --list` and a full offline `pg_restore --file=/dev/null`, validates
-the media archive with `tar --list`, checksums the archives and listings, and
-only then atomically names the backup directory.
+Each successful backup contains exactly these PostgreSQL 16 custom archives:
+
+- `aic-strapi-schema.dump`, selected only with `--schema=aic_strapi` and no
+  table selector.
+- `public-operational.dump`, selected only with one explicit `--table` option
+  for each approved table and sequence and no schema selector.
+
+The public operational inventory is deliberately narrow. Its 11 tables are
+`public_subscriptions`, `public_subscription_attempts`,
+`public_subscription_events`, `public_subscription_provider_outbox`,
+`public_subscription_provider_webhook_events`, `public_contact_messages`,
+`public_contact_attempts`, `public_contact_message_events`,
+`pastorwood_public_projection`, `pastorwood_public_projection_identities`, and
+`pastorwood_public_projection_media`. Its six sequences are
+`public_subscriptions_id_seq`, `public_subscription_attempts_id_seq`,
+`public_subscription_events_id_seq`, `public_contact_messages_id_seq`,
+`public_contact_attempts_id_seq`, and `public_contact_message_events_id_seq`.
+The installed `backup-object-inventory.txt` is the machine-checked source for
+that exact list.
+
+The backup command starts one canonical PostgreSQL session with a read-only
+`REPEATABLE READ` transaction and `pg_export_snapshot()`. The session remains
+open while both independent `pg_dump` processes receive that same snapshot ID.
+The coordinated root wrapper stops Strapi before this begins and does not
+restart it until both dumps and `media.tar.gz` finish, so the `aic_strapi`
+archive and media tree stay quiesced together. The public web application is
+not stopped: subscription, contact, and projection writes can continue, while
+the public archive represents their state at the exported snapshot.
+
+The manifest records the exact canonical source host, port, database name,
+`aic_strapi` schema, snapshot ID and transaction properties, archive names,
+and fully qualified table/sequence inventory. Creation and verification run
+`pg_restore --list`, enforce the exact relation TOCs, and fully parse both
+archives with `pg_restore --file=/dev/null`. They validate the media archive
+with `tar --list`, checksum every archive, listing, and manifest, and only then
+atomically name the backup directory.
 
 The scripts deliberately run the installed PostgreSQL 16 `pg_dump` and
-`pg_restore` binaries by absolute path. Backup creation connects only to the
-canonical target for the schema-scoped dump. Verification lists and fully
-decompresses the completed archive offline without a database target.
-Neither checked-in script creates a validation database or invokes a restore.
-The coordinated backup service temporarily stops Strapi, runs the database and
-media backup as `ammonsfarm`, and restarts Strapi even when backup creation
-fails. This prevents a successful archive from pairing database metadata with a
-different point-in-time media tree.
+`psql`, `pg_dump`, and `pg_restore` binaries by absolute path. Backup creation
+connects only through the exact canonical wrapper and PID-bound guard.
+Verification lists and fully parses the completed archives offline without a
+database target. Neither checked-in script creates, copies, clones, repoints,
+or restores a database. The coordinated backup service restarts Strapi even
+when snapshot export, either dump, media packaging, or validation fails; failed
+runs also roll back the snapshot session and remove the partial directory.
 
 The configured backup directory and media root are currently on the same
 `/mnt/storage` failure domain. An independently configured off-host or offsite

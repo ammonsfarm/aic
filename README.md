@@ -93,3 +93,7 @@ The timer runs every two minutes and processes up to twenty-five queued edits pe
 ## Strapi episode publication queue
 
 Publishing an episode through the private AIC content manager records a durable Strapi outbox row in the same editorial transaction. `aic-episode-publish-worker.timer` bridges that row into the operational `episodes` table and the existing per-track transcript, intelligence, and vector pipeline with bounded retries, stale-claim recovery, and SHA-256 audio provenance so duplicate publications are cheap while changed audio is retranscribed. Processing state is derived and read-only in the editor; it is not an editable episode field. See `docs/episode-publication-pipeline.md` for the source-of-truth and audio-staging contract.
+
+## PastorWood backup boundary
+
+The native backup service creates exactly two PostgreSQL 16 custom archives from one exported read-only snapshot of the existing canonical database: the complete `aic_strapi` schema and an explicit 11-table/6-sequence public operational set. Strapi remains stopped through both dumps and the media tar, while public writes can continue and are represented at the shared snapshot. Verification is offline only (`pg_restore --list` and `--file=/dev/null`) and never creates or restores a database. See `ops/strapi/README.md` for the exact inventory and recovery evidence.

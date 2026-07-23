@@ -1,14 +1,14 @@
 [Unit]
-Description=Back up AIC Pastor Wood Strapi database and media
+Description=Back up AIC Pastor Wood Strapi, public operational data, and media
 After=network-online.target aic-strapi.service
 Wants=network-online.target
 
 [Service]
 Type=oneshot
 Environment=NODE_ENV=production
-UnsetEnvironment=STRAPI_AIC_ENV_FILE STRAPI_DATABASE_ENV_TEST_MODE STRAPI_POSTGRES_CLIENT_ROOT STRAPI_NATIVE_CLIENT_TEST_MODE
+UnsetEnvironment=STRAPI_AIC_ENV_FILE STRAPI_DATABASE_ENV_TEST_MODE STRAPI_POSTGRES_CLIENT_ROOT STRAPI_NATIVE_CLIENT_TEST_MODE STRAPI_BACKUP_TEST_ROOT STRAPI_BACKUP_ROOT STRAPI_MEDIA_ROOT STRAPI_BACKUP_DRY_RUN STRAPI_BACKUP_RETENTION_DAYS
 ExecStart=/usr/local/libexec/aic-strapi/run-consistent-backup.sh
-TimeoutStartSec=30m
+TimeoutStartSec=60m
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true

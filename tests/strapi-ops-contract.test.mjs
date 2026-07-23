@@ -315,6 +315,8 @@ test("root-executed operations are installed immutably outside the writable chec
   assert.match(installer, /libexec_root="\$\{STRAPI_OPS_ROOT:-\/usr\/local\/libexec\/aic-strapi\}"/);
   assert.match(installer, /install -o root -g root -m 0755/);
   assert.match(installer, /install -o root -g root -m 0644/);
+  assert.match(installer, /validate-backup-toc\.py/);
+  assert.match(installer, /backup-object-inventory\.txt/);
   assert.match(deploy, /\/usr\/local\/sbin\/aic-install-strapi-ops/);
   const targetCheckIndex = deploy.indexOf("/usr/local/libexec/aic-strapi/with-aic-db-env.sh /usr/bin/true");
   const migrationIndex = deploy.indexOf('echo "Applying database migrations..."');
@@ -394,6 +396,16 @@ test("all systemd writable paths exist before service namespace setup", () => {
   assert.match(schemaUnit, /ProtectSystem=strict/);
   assert.match(backupUnit, /ProtectSystem=strict/);
   assert.match(backupUnit, /ExecStart=\/usr\/local\/libexec\/aic-strapi\/run-consistent-backup\.sh/);
+  assert.match(backupUnit, /TimeoutStartSec=60m/);
+  for (const variable of [
+    "STRAPI_BACKUP_TEST_ROOT",
+    "STRAPI_BACKUP_ROOT",
+    "STRAPI_MEDIA_ROOT",
+    "STRAPI_BACKUP_DRY_RUN",
+    "STRAPI_BACKUP_RETENTION_DAYS",
+  ]) {
+    assert.match(backupUnit, new RegExp(`UnsetEnvironment=.*${variable}`));
+  }
   assert.doesNotMatch(backupUnit, /^User=ammonsfarm$/m);
   assert.match(backupUnit, /ReadWritePaths=\/mnt\/storage\/backups\/aic-strapi/);
 });
@@ -408,6 +420,10 @@ test("coordinated backup quiesces Strapi and drops privileges for database acces
   assert.match(script, /http:\/\/127\.0\.0\.1:1337\/_health/);
   assert.match(script, /\/run\/aic-strapi\/aic-api-token/);
   assert.match(script, /sync-aic-strapi-env\.sh/);
+  assert.match(script, /one read-only REPEATABLE READ snapshot/);
+  const stopIndex = script.indexOf('systemctl stop "${strapi_service}"');
+  const backupIndex = script.lastIndexOf('"${ops_root}/backup-strapi.sh"');
+  assert.ok(stopIndex >= 0 && backupIndex > stopIndex);
   assert.doesNotMatch(script, /source .*\.env|pg_restore|CREATE DATABASE|DROP DATABASE/);
 });
 
@@ -531,17 +547,23 @@ test("Strapi environment synchronization serializes the full atomic rewrite", as
 
 test("backup verification checks archives, listings, and checksums without a database restore", () => {
   const verify = source("ops/strapi/verify-strapi-backup.sh");
+  const inventory = source("ops/strapi/backup-object-inventory.txt").trim().split(/\r?\n/);
+  assert.equal(inventory.filter((line) => line.startsWith("table ")).length, 11);
+  assert.equal(inventory.filter((line) => line.startsWith("sequence ")).length, 6);
   assert.match(verify, /sha256sum --check SHA256SUMS/);
   assert.match(verify, /canonical_client_root="\/usr\/lib\/postgresql\/16\/bin"/);
-  assert.match(verify, /"\$\{pg_restore_bin\}" --list "\$\{backup_dir\}\/database\.dump"/);
-  assert.match(verify, /"\$\{pg_restore_bin\}" --exit-on-error --file=\/dev\/null/);
-  assert.match(verify, /cmp --silent .*database\.contents/);
+  assert.match(verify, /"\$\{pg_restore_bin\}" --list "\$\{backup_dir\}\/aic-strapi-schema\.dump"/);
+  assert.match(verify, /"\$\{pg_restore_bin\}" --list "\$\{backup_dir\}\/public-operational\.dump"/);
+  assert.equal((verify.match(/"\$\{pg_restore_bin\}" --exit-on-error --file=\/dev\/null/g) ?? []).length, 2);
+  assert.match(verify, /cmp --silent .*aic-strapi-schema\.contents/);
+  assert.match(verify, /cmp --silent .*public-operational\.contents/);
+  assert.match(verify, /validate-backup-toc\.py/);
   assert.match(verify, /tar --list --gzip/);
   assert.doesNotMatch(verify, /docker|--network/);
   assert.match(verify, /database_schema=aic_strapi/);
   assert.match(verify, /database_host=192\.168\.1\.106/);
   assert.match(verify, /database_port=5432/);
-  assert.doesNotMatch(verify, /--dbname|CREATE DATABASE|DROP DATABASE|--clean/);
+  assert.doesNotMatch(verify, /pg_restore[^\n]*(?:--dbname|\s-d\s)|CREATE DATABASE|DROP DATABASE|--clean/);
 });
 
 test("backup service can read but never write the canonical environment", () => {

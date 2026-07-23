@@ -24,8 +24,12 @@ scripts=(
   require-canonical-db-context.sh
   run-consistent-backup.sh
   sync-aic-strapi-env.sh
+  validate-backup-toc.py
   verify-strapi-backup.sh
   with-aic-db-env.sh
+)
+resources=(
+  backup-object-inventory.txt
 )
 units=(
   aic-strapi.service
@@ -37,6 +41,9 @@ units=(
 install -d -o root -g root -m 0755 "${libexec_root}" "${libexec_root}/systemd"
 for script in "${scripts[@]}"; do
   install -o root -g root -m 0755 "${source_root}/${script}" "${libexec_root}/${script}"
+done
+for resource in "${resources[@]}"; do
+  install -o root -g root -m 0644 "${source_root}/${resource}" "${libexec_root}/${resource}"
 done
 for unit in "${units[@]}"; do
   install -o root -g root -m 0644 "${source_root}/systemd/${unit}" "${libexec_root}/systemd/${unit}"
