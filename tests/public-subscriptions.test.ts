@@ -234,10 +234,7 @@ describe("public subscription boundary", () => {
     const now = Date.now();
     const validation = validateSubscriptionPayload(validPayload(now), now);
     if (!validation.ok) throw new Error("Expected a valid subscription fixture.");
-    mocks.queryRows
-      .mockResolvedValueOnce([{ ip_count: "0", email_count: "0", cleaned_count: "12" }])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ event_type: "consent-captured" }]);
+    mocks.queryRows.mockResolvedValueOnce([{ outcome: "success", cleaned_count: "12" }]);
 
     const result = await capturePublicSubscription(
       validation.value,
@@ -251,15 +248,80 @@ describe("public subscription boundary", () => {
     expect(cleanupSql).toContain("delete from public_subscription_attempts attempts");
     expect(cleanupSql).toContain("make_interval(days => $3::integer)");
     expect(cleanupSql).toContain("limit $4::integer");
-    expect(cleanupValues.slice(2)).toEqual([SUBSCRIPTION_ATTEMPT_RETENTION_DAYS, 500]);
+    expect(cleanupValues.slice(2, 4)).toEqual([SUBSCRIPTION_ATTEMPT_RETENTION_DAYS, 500]);
+    expect(mocks.queryRows).toHaveBeenCalledTimes(1);
+  });
+
+  it("serializes IP and email limits and commits the complete capture in one statement", async () => {
+    const now = Date.now();
+    const validation = validateSubscriptionPayload(validPayload(now), now);
+    if (!validation.ok) throw new Error("Expected a valid subscription fixture.");
+    mocks.queryRows.mockResolvedValueOnce([{ outcome: "success", cleaned_count: "0" }]);
+
+    await expect(capturePublicSubscription(
+      validation.value,
+      new Request("https://www.pastorwood.org/api/public/subscriptions", {
+        headers: {
+          "cf-connecting-ip": "203.0.113.8",
+          "user-agent": "subscription-concurrency-test",
+        },
+      }),
+    )).resolves.toEqual({ ok: true });
+
+    expect(mocks.queryRows).toHaveBeenCalledTimes(1);
+    const [sql, values] = mocks.queryRows.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain("hashtextextended('public-subscription-ip:' || $1::text, 0)");
+    expect(sql).toContain("hashtextextended('public-subscription-email:' || $2::text, 0)");
+    expect(sql).toContain("select distinct lock_key");
+    expect(sql).toContain("pg_advisory_xact_lock(ordered_locks.lock_key)");
+    expect(sql).toMatch(/from \(\s*select lock_key\s*from lock_keys\s*order by lock_key\s*\) ordered_locks/);
+    expect(sql).toContain("order by lock_key");
+    expect(sql).toContain("lock_barrier as materialized");
+    expect(sql).toContain("ip_count >= 5 or email_count >= 3 as rate_limited");
+    expect(sql).toContain("insert into public_subscription_attempts(ip_hash, email_hash, accepted)");
+    expect(sql).toContain("insert into public_subscriptions(");
+    expect(sql).toContain("insert into public_subscription_events");
+    expect(sql).toContain("insert into public_subscription_provider_outbox");
+    expect(sql).toContain("when decision.rate_limited then 'rate-limited'");
+    expect(sql.indexOf("from public_subscription_attempts, lock_barrier")).toBeLessThan(sql.indexOf("decision as materialized"));
+    expect(sql.indexOf("decision as materialized")).toBeLessThan(sql.indexOf("attempted as"));
+    expect(sql).toContain("left join (select count(*) as queued_count from queued) queued_result on true");
+    expect(values[0]).toMatch(/^[a-f0-9]{64}$/);
+    expect(values[1]).toMatch(/^[a-f0-9]{64}$/);
+    expect(values[0]).not.toBe(values[1]);
+    expect(values[4]).toBe("listener@example.com");
+    expect(values[9]).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("returns rate limiting from the atomic statement without starting a second query", async () => {
+    const now = Date.now();
+    const validation = validateSubscriptionPayload(validPayload(now), now);
+    if (!validation.ok) throw new Error("Expected a valid subscription fixture.");
+    mocks.queryRows.mockResolvedValueOnce([{ outcome: "rate-limited", cleaned_count: "0" }]);
+
+    await expect(capturePublicSubscription(
+      validation.value,
+      new Request("https://www.pastorwood.org/api/public/subscriptions"),
+    )).resolves.toEqual({ ok: false, reason: "rate-limited" });
+    expect(mocks.queryRows).toHaveBeenCalledTimes(1);
+  });
+
+  it("cannot leave a partial application-side query sequence when capture fails", async () => {
+    const now = Date.now();
+    const validation = validateSubscriptionPayload(validPayload(now), now);
+    if (!validation.ok) throw new Error("Expected a valid subscription fixture.");
+    mocks.queryRows.mockRejectedValueOnce(new Error("statement rolled back"));
+
+    await expect(capturePublicSubscription(
+      validation.value,
+      new Request("https://www.pastorwood.org/api/public/subscriptions"),
+    )).rejects.toThrow("statement rolled back");
+    expect(mocks.queryRows).toHaveBeenCalledTimes(1);
   });
 
   it("keeps a suppressed address suppressed and returns a generic non-success response", async () => {
     const now = Date.now();
-    mocks.queryRows
-      .mockResolvedValueOnce([{ ip_count: "0", email_count: "0", cleaned_count: "0" }])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ event_type: "resubscribe-blocked-suppressed" }]);
+    mocks.queryRows.mockResolvedValueOnce([{ outcome: "suppressed", cleaned_count: "0" }]);
 
     const response = await subscribe(new Request("https://www.pastorwood.org/api/public/subscriptions", {
       method: "POST",
@@ -278,25 +340,22 @@ describe("public subscription boundary", () => {
     });
     expect(JSON.stringify(payload)).not.toMatch(/listener|example\.com|suppress|consent|status/i);
 
-    const outcomeSql = String(mocks.queryRows.mock.calls[2]?.[0]);
+    expect(mocks.queryRows).toHaveBeenCalledTimes(1);
+    const outcomeSql = String(mocks.queryRows.mock.calls[0]?.[0]);
     expect(outcomeSql).toContain("public_subscriptions.status = 'suppressed' then 'suppressed'");
     expect(outcomeSql).toContain("resubscribe-blocked-suppressed");
-    expect(outcomeSql).toContain("select event_type from recorded_event");
     expect(outcomeSql).toContain("source_path, ip_hash, user_agent_hash, unsubscribe_token_hash");
     expect(outcomeSql).toContain("provider_status, provider_last_error, updated_at");
-    expect(outcomeSql).toContain("values ($1, 'pending', $2, $3, now(), $4, $5, $6, $7, 'pending', null, now())");
+    expect(outcomeSql).toContain("select $5, 'pending', $6, $7, now(), $8, $1, $9, $10, 'pending', null, now()");
     expect(outcomeSql).toContain("unsubscribe_token_hash = excluded.unsubscribe_token_hash");
     expect(outcomeSql).toContain("public_subscription_provider_outbox");
     expect(outcomeSql).toContain("desired_action = 'subscribe'");
-    expect(mocks.queryRows.mock.calls[2]?.[1]?.[6]).toMatch(/^[a-f0-9]{64}$/);
+    expect(mocks.queryRows.mock.calls[0]?.[1]?.[9]).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it("returns pending confirmation instead of claiming immediate subscription", async () => {
     const now = Date.now();
-    mocks.queryRows
-      .mockResolvedValueOnce([{ ip_count: "0", email_count: "0", cleaned_count: "0" }])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ event_type: "consent-captured" }]);
+    mocks.queryRows.mockResolvedValueOnce([{ outcome: "success", cleaned_count: "0" }]);
 
     const response = await subscribe(new Request("https://www.pastorwood.org/api/public/subscriptions", {
       method: "POST",
@@ -305,6 +364,7 @@ describe("public subscription boundary", () => {
     }));
 
     expect(response.status).toBe(201);
+    expect(mocks.queryRows).toHaveBeenCalledTimes(1);
     await expect(response.json()).resolves.toEqual({
       ok: true,
       state: "pending",
