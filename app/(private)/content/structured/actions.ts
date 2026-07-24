@@ -44,6 +44,7 @@ import {
   strapiStructuredCacheTag,
 } from "@/lib/strapi-cache-tags";
 import { safeCmsHref } from "@/lib/cms-html";
+import { assertCanonicalEpisodeMediaSelection } from "@/lib/canonical-episode-media";
 
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"]);
 const ALLOWED_EPISODE_AUDIO_TYPES = new Set(["audio/mpeg", "audio/mp3", "audio/mpeg3", "audio/x-mpeg-3"]);
@@ -276,14 +277,23 @@ async function structuredPayload(
       const candidate = formData.get(field.name);
       const selectedIdValue = formString(formData, `${field.name}LibraryId`);
       const selectedId = selectedIdValue ? Number(selectedIdValue) : 0;
+      const canonicalTrackId = field.name === "audioFile"
+        ? formString(formData, `${field.name}CanonicalTrackId`)
+        : "";
       const hasUpload = candidate instanceof File && candidate.size > 0;
       if (selectedIdValue && (!Number.isSafeInteger(selectedId) || selectedId <= 0)) {
         throw new Error(`${field.label} has an invalid existing-media selection.`);
       }
-      if (hasUpload && selectedId) {
-        throw new Error(`${field.label} must use either an existing media item or a new upload, not both.`);
+      if ([hasUpload, Boolean(selectedId), Boolean(canonicalTrackId)].filter(Boolean).length > 1) {
+        throw new Error(`${field.label} must use one source: canonical episode audio, an existing Strapi item, or a new upload.`);
       }
-      if (hasUpload && candidate instanceof File) {
+      if (canonicalTrackId) {
+        const canonical = await assertCanonicalEpisodeMediaSelection(canonicalTrackId);
+        data.externalAudioUrl = canonical.publicUrl;
+        if (field.mediaTarget) {
+          data[field.mediaTarget] = null;
+        }
+      } else if (hasUpload && candidate instanceof File) {
         validateFile(field, candidate);
         const uploaded = await uploadStructuredFile(candidate);
         if (uploaded) {

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { RichTextArea } from "@/app/(private)/content/strapi-pages/page-editor-client";
+import { CanonicalEpisodeMediaPicker } from "@/components/canonical-episode-media-picker";
 import type { ReusableMediaOption, StructuredEntry, StructuredRelationOption } from "@/lib/strapi-structured-management";
 import type {
   StructuredCollectionDefinition,
@@ -261,6 +262,9 @@ function StandardField({
     return (
       <fieldset className="editor-field-group">
         <legend>{field.label}</legend>
+        {field.name === "audioFile" ? (
+          <CanonicalEpisodeMediaPicker name={`${field.name}CanonicalTrackId`} />
+        ) : null}
         <label>
           <span>Use existing public media</span>
           <select name={`${field.name}LibraryId`} defaultValue="" aria-describedby={helpId}>
@@ -276,7 +280,9 @@ function StandardField({
         </label>
         <small id={helpId}>
           {mediaName ? `Current file: ${mediaName}. ` : ""}
-          {field.help || (creating && field.required ? "Choose an existing item or upload a file." : "Leave both controls empty to keep the current file.")}
+          {field.name === "audioFile"
+            ? "Choose canonical episode audio above, or upload a genuinely new MP3. Existing canonical audio is referenced in place and is not copied into Strapi."
+            : field.help || (creating && field.required ? "Choose an existing item or upload a file." : "Leave both controls empty to keep the current file.")}
           {mediaUrl ? <> · <a href={mediaUrl}>Open current file</a></> : null}
         </small>
       </fieldset>

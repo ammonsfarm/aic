@@ -363,7 +363,9 @@ test("media upload is bounded and private visibility is part of the editor contr
   const form = await source("components/structured-content-form.tsx");
   assert.match(form, /LibraryId/);
   assert.match(form, /Use existing public media/);
-  assert.match(actions, /must use either an existing media item or a new upload/);
+  assert.match(actions, /must use one source: canonical episode audio, an existing Strapi item, or a new upload/);
+  assert.match(actions, /assertCanonicalEpisodeMediaSelection/);
+  assert.match(form, /CanonicalEpisodeMediaPicker/);
   assert.match(pageActions, /Choose either an existing section image or a new upload/);
 });
 

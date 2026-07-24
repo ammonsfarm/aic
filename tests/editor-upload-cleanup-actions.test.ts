@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   assertManagedPageSlugAvailable: vi.fn(),
+  assertCanonicalEpisodeMediaSelection: vi.fn(),
   assertReusableMediaSelection: vi.fn(),
   createManagedPage: vi.fn(),
   createStructuredEntry: vi.fn(),
@@ -42,6 +43,10 @@ vi.mock("@/lib/cms-html", () => ({
   safeCmsEmbedUrl: (value: string) => value.includes("youtube.com/watch?v=dQw4w9WgXcQ")
     ? "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"
     : "",
+}));
+
+vi.mock("@/lib/canonical-episode-media", () => ({
+  assertCanonicalEpisodeMediaSelection: mocks.assertCanonicalEpisodeMediaSelection,
 }));
 
 vi.mock("@/lib/strapi", () => ({
@@ -154,6 +159,9 @@ beforeEach(() => {
   mocks.requireUser.mockResolvedValue(user);
   mocks.assertManagedPageSlugAvailable.mockResolvedValue(undefined);
   mocks.assertReusableMediaSelection.mockResolvedValue(undefined);
+  mocks.assertCanonicalEpisodeMediaSelection.mockResolvedValue({
+    publicUrl: "/media/episodes/123",
+  });
   mocks.deleteStructuredFile.mockResolvedValue(undefined);
   mocks.redirect.mockImplementation((url: string) => {
     throw new Error(`REDIRECT:${url}`);
@@ -297,6 +305,41 @@ describe("page editor upload cleanup", () => {
 });
 
 describe("structured editor upload cleanup", () => {
+  it("references canonical episode audio without uploading or creating Strapi media", async () => {
+    mocks.definition.editorPath = "/content/podcast";
+    mocks.definition.fields = [
+      { type: "text", name: "trackId", label: "Track ID", required: true },
+      { type: "url", name: "externalAudioUrl", label: "Existing audio URL" },
+      {
+        type: "file",
+        name: "audioFile",
+        label: "Upload MP3 audio",
+        accept: "audio/mpeg,.mp3",
+        mediaTarget: "audio",
+      },
+    ];
+    mocks.createStructuredEntry.mockResolvedValue({ documentId: "episode-123" });
+    const formData = new FormData();
+    formData.set("trackId", "123");
+    formData.set("audioFileCanonicalTrackId", "123");
+
+    await expect(createStructuredEntryAction("episodes", formData)).rejects.toThrow(
+      "REDIRECT:/content/podcast/episode-123?created=1",
+    );
+    expect(mocks.assertCanonicalEpisodeMediaSelection).toHaveBeenCalledWith("123");
+    expect(mocks.uploadStructuredFile).not.toHaveBeenCalled();
+    expect(mocks.createStructuredEntry).toHaveBeenCalledWith(
+      "episodes",
+      expect.objectContaining({
+        trackId: "123",
+        externalAudioUrl: "/media/episodes/123",
+        audio: null,
+      }),
+      user,
+      "",
+    );
+  });
+
   it("never deletes a pre-existing selected media item", async () => {
     const formData = new FormData();
     formData.set("featuredImageFileLibraryId", "900");
