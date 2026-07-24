@@ -193,11 +193,11 @@ function searchFields(definition: StructuredCollectionDefinition) {
 function addEditorPopulate(query: URLSearchParams, definition: StructuredCollectionDefinition) {
   for (const field of definition.fields) {
     if (field.type === "seo") {
-      query.set(`populate[${field.name}][populate]`, "*");
+      query.set(`populate[${field.name}][populate][socialImage]`, "true");
     } else if (field.type === "relation" || field.type === "scripture" || field.type === "external-links") {
-      query.set(`populate[${field.name}]`, "*");
+      query.set(`populate[${field.name}]`, "true");
     } else if (field.type === "file" && field.mediaTarget) {
-      query.set(`populate[${field.mediaTarget}]`, "*");
+      query.set(`populate[${field.mediaTarget}]`, "true");
     }
   }
 }

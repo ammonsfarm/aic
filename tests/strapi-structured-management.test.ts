@@ -28,12 +28,13 @@ afterEach(() => {
 });
 
 describe("structured Strapi inventory", () => {
-  it("deep-populates nested SEO media when loading an editor draft", async () => {
+  it("populates editor relations without traversing private upload back-references", async () => {
     const fetchMock = vi.fn(async (input: URL | RequestInfo) => {
       const url = new URL(String(input));
-      expect(url.searchParams.get("populate[seo][populate]")).toBe("*");
-      expect(url.searchParams.get("populate[featuredImage]")).toBe("*");
-      expect(url.searchParams.get("populate[author]")).toBe("*");
+      expect(url.searchParams.get("populate[seo][populate][socialImage]")).toBe("true");
+      expect(url.searchParams.get("populate[featuredImage]")).toBe("true");
+      expect(url.searchParams.get("populate[author]")).toBe("true");
+      expect([...url.searchParams.values()]).not.toContain("*");
       const published = url.searchParams.get("status") === "published";
       return new Response(JSON.stringify({
         data: published ? null : {
