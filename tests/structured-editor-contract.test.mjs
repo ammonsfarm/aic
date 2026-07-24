@@ -449,7 +449,7 @@ test("editor preview and revision rollback routes exist", async () => {
   const preview = await source("app/(private)/content/structured/[collection]/[documentId]/preview/page.tsx");
   assert.match(preview, /sanitizeCmsHtml/);
   assert.match(preview, /\/api\/content\/strapi-media\//);
-  assert.match(preview, /<audio controls/);
+  assert.match(preview, /<audio[^>]*\bcontrols\b/);
   assert.match(preview, /PublicLayoutPreview/);
   assert.match(preview, /pw-board-grid/);
   assert.match(preview, /pw-endorsement-grid/);
