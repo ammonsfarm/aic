@@ -336,7 +336,9 @@ function EpisodeCard({ episode }: { episode: PublishedEpisode }) {
       </div>
       <h2><Link href={`/radio/${episode.slug}`}>{episode.title}</Link></h2>
       {episode.summary ? <p>{episode.summary}</p> : null}
-      {episode.audioUrl ? <audio controls preload="none" src={episode.audioUrl} /> : <p>Audio is temporarily unavailable.</p>}
+      {episode.audioUrl ? (
+        <audio aria-label={`Play ${episode.title}`} controls preload="none" src={episode.audioUrl} />
+      ) : <p>Audio is temporarily unavailable.</p>}
     </article>
   );
 }

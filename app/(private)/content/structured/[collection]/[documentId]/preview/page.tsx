@@ -124,7 +124,7 @@ function EpisodePreview({ entry }: { entry: StructuredEntry }) {
             </div>
             <h2>{title}</h2>
             {summary ? <p>{summary}</p> : null}
-            {audioHref ? <audio controls preload="none" src={audioHref}>Your browser cannot play this audio.</audio> : <p>Audio is not attached to this draft.</p>}
+            {audioHref ? <audio aria-label={`Play ${title}`} controls preload="none" src={audioHref}>Your browser cannot play this audio.</audio> : <p>Audio is not attached to this draft.</p>}
           </article>
         </div>
       </section>
@@ -188,9 +188,9 @@ function MediaAssetPreview({ entry }: { entry: StructuredEntry }) {
         {!asset ? <p>No file is attached to this draft.</p> : type === "image" || asset.mime.startsWith("image/") ? (
           <figure><img src={asset.href} alt={entryText(entry, "altText")} /><figcaption>{entryText(entry, "caption")}</figcaption></figure>
         ) : type === "audio" || asset.mime.startsWith("audio/") ? (
-          <div className="pw-audio-card"><audio controls preload="metadata" src={asset.href}>Your browser cannot play this audio.</audio></div>
+          <div className="pw-audio-card"><audio aria-label={`Play ${title}`} controls preload="metadata" src={asset.href}>Your browser cannot play this audio.</audio></div>
         ) : type === "video" || asset.mime.startsWith("video/") ? (
-          <video controls preload="metadata" src={asset.href}>Your browser cannot play this video.</video>
+          <video aria-label={`Play ${title}`} controls preload="metadata" src={asset.href}>Your browser cannot play this video.</video>
         ) : <a className="pw-button pw-button--primary" href={asset.href}>Open {title}</a>}
         {entryText(entry, "credit") ? <p>Credit: {entryText(entry, "credit")}</p> : null}
       </section>

@@ -157,6 +157,7 @@ describe("public radio detail route", () => {
     }));
 
     expect(markup).toContain("Existing broadcast");
+    expect(markup).toContain('aria-label="Play Existing broadcast"');
     expect(markup).not.toContain("Live publishing is temporarily unavailable");
     expect(markup).not.toContain("reconnects");
   });
