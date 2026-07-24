@@ -53,6 +53,47 @@ beforeEach(() => {
 });
 
 describe("public structured collection availability", () => {
+  it("renders intentional bootstrap collections without announcing an outage", async () => {
+    mocks.board.mockResolvedValue({
+      ...emptyPage,
+      pageSize: 100,
+      items: [{ documentId: "board-1", name: "Board Member", title: "Chair", organization: "", biography: "", photoUrl: "" }],
+      total: 1,
+      pageCount: 1,
+      degraded: false,
+      continuitySource: "bootstrap",
+    });
+    mocks.endorsements.mockResolvedValue({
+      ...emptyPage,
+      pageSize: 100,
+      items: [{ documentId: "endorsement-1", quote: "A faithful ministry.", attribution: "Friend", title: "", organization: "", photoUrl: "" }],
+      total: 1,
+      pageCount: 1,
+      degraded: false,
+      continuitySource: "bootstrap",
+    });
+    mocks.posts.mockResolvedValue({
+      ...emptyPage,
+      items: [{ documentId: "post-1", title: "Existing writing", slug: "existing-writing", contentType: "written-resource", summary: "", publishDate: null }],
+      total: 1,
+      pageCount: 1,
+      degraded: false,
+      continuitySource: "bootstrap",
+    });
+
+    const markup = [
+      renderToStaticMarkup(await PastorWoodStructuredBoardPage({})),
+      renderToStaticMarkup(await PastorWoodStructuredEndorsementsPage({})),
+      renderToStaticMarkup(await PastorWoodStructuredPostsPage({ mode: "written" })),
+    ].join("\n");
+
+    expect(markup).toContain("Board Member");
+    expect(markup).toContain("A faithful ministry.");
+    expect(markup).toContain("Existing writing");
+    expect(markup).not.toContain("Live publishing is temporarily unavailable");
+    expect(markup).not.toContain("reconnects");
+  });
+
   it("renders valid-empty board and endorsement collections without claiming an outage", async () => {
     const board = renderToStaticMarkup(await PastorWoodStructuredBoardPage({}));
     const endorsements = renderToStaticMarkup(await PastorWoodStructuredEndorsementsPage({}));

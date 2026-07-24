@@ -134,4 +134,26 @@ describe("public writing detail availability", () => {
     expect(markup).toContain("existing Abiding in Christ archive");
     expect(markup).toContain('role="status"');
   });
+
+  it("renders a planned bootstrap writing without announcing an outage", async () => {
+    mocks.lookup.mockResolvedValue({
+      status: "found",
+      degraded: false,
+      item: {
+        documentId: "aic-fallback-post:42",
+        title: "Bootstrap writing",
+        slug: "bootstrap-writing",
+        contentType: "written-resource",
+        summary: "Existing AIC archive copy.",
+        body: "<p>Body</p>",
+        publishDate: "2025-01-01",
+      },
+    });
+
+    const markup = renderToStaticMarkup(await WritingDetailPage({ params: Promise.resolve({ slug: "bootstrap-writing" }) }));
+
+    expect(markup).toContain("Bootstrap writing");
+    expect(markup).not.toContain("Live publishing is temporarily unavailable");
+    expect(markup).not.toContain("reconnects");
+  });
 });

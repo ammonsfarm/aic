@@ -34,6 +34,8 @@ export type PublishedPage<T> = {
   pageCount: number;
   total: number;
   available: boolean;
+  // Planned bootstrap continuity before CMS cutover is available normally.
+  // This flag is reserved for fallback after an authoritative source fails.
   degraded?: boolean;
   continuitySource?: "projection" | "bootstrap";
 };
@@ -505,7 +507,7 @@ export async function listPublishedPostsPage(contentType: string | undefined, pa
       ...fallback,
       items: fallback.items.map(fallbackPost),
       available: true,
-      degraded: true,
+      degraded: cutoverEnabled,
       continuitySource: "bootstrap",
     };
   } catch (error) {
@@ -537,7 +539,7 @@ export async function getPublishedPostBySlugResult(slug: string): Promise<Publis
     }
     try {
       const fallback = await getFallbackPostBySlug(slug);
-      return fallback ? { status: "found", item: fallbackPost(fallback), degraded: true } : { status: "unavailable" };
+      return fallback ? { status: "found", item: fallbackPost(fallback), degraded: cutoverEnabled } : { status: "unavailable" };
     } catch (error) {
       if (!isDatabaseAccessDuringBuildError(error)) {
         console.error("Published post detail bootstrap lookup failed.", error);
@@ -653,7 +655,7 @@ export async function listPublishedEpisodesPage(
       ...fallback,
       items: fallback.items.map(fallbackEpisode),
       available: true,
-      degraded: true,
+      degraded: cutoverEnabled,
       continuitySource: "bootstrap",
     };
   } catch (error) {
@@ -689,7 +691,7 @@ async function publishedEpisodeLookupResult(filters: Record<string, string>): Pr
       const fallback = filters.slug !== undefined
         ? await getFallbackEpisodeBySlug(filters.slug)
         : await getFallbackEpisodeByTrackId(filters.trackId || "");
-      return fallback ? { status: "found", item: fallbackEpisode(fallback), degraded: true } : { status: "unavailable" };
+      return fallback ? { status: "found", item: fallbackEpisode(fallback), degraded: cutoverEnabled } : { status: "unavailable" };
     } catch (error) {
       if (!isDatabaseAccessDuringBuildError(error)) {
         console.error("Published episode detail bootstrap lookup failed.", error);
@@ -823,7 +825,7 @@ export async function listPublishedBoardMembersResult(): Promise<PublishedPage<P
       pageCount: 1,
       total: STATIC_BOARD_MEMBERS.length,
       available: true,
-      degraded: true,
+      degraded: cutoverEnabled,
       continuitySource: "bootstrap",
     };
   }
@@ -891,7 +893,7 @@ export async function listPublishedEndorsementsResult(): Promise<PublishedPage<P
       pageCount: 1,
       total: STATIC_ENDORSEMENTS.length,
       available: true,
-      degraded: true,
+      degraded: cutoverEnabled,
       continuitySource: "bootstrap",
     };
   }

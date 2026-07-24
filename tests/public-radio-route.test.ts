@@ -130,6 +130,37 @@ describe("public radio detail route", () => {
     expect(markup).not.toContain('role="alert"');
   });
 
+  it("renders the intentional bootstrap archive without announcing an outage", async () => {
+    listPublishedEpisodesPage.mockResolvedValue({
+      items: [{
+        documentId: "bootstrap-episode-1",
+        title: "Existing broadcast",
+        slug: "existing-broadcast",
+        trackId: "42",
+        programDate: "2024-04-01",
+        summary: "A broadcast",
+        description: "",
+        audioUrl: "/media/episodes/42",
+        durationSeconds: null,
+      }],
+      page: 1,
+      pageSize: 24,
+      pageCount: 1,
+      total: 1,
+      available: true,
+      degraded: false,
+      continuitySource: "bootstrap",
+    });
+
+    const markup = renderToStaticMarkup(await PastorWoodStructuredRadioPage({
+      archive: { page: 1, query: "", year: null, hasFilters: false },
+    }));
+
+    expect(markup).toContain("Existing broadcast");
+    expect(markup).not.toContain("Live publishing is temporarily unavailable");
+    expect(markup).not.toContain("reconnects");
+  });
+
   it("preserves active filters in accessible archive pagination links", async () => {
     listPublishedEpisodesPage.mockResolvedValue({
       items: [{

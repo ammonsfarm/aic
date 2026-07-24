@@ -133,25 +133,26 @@ describe("PastorWood public CMS cutover gate", () => {
     await expect(resolvePublicLegacyRedirect(generated.fromPath)).resolves.toEqual(resolveLegacyRedirect(generated.fromPath));
     await expect(listPublishedPostsPage(undefined, 1, 24)).resolves.toMatchObject({
       items: [{ documentId: "bootstrap-post" }],
+      degraded: false,
       continuitySource: "bootstrap",
     });
     await expect(listLatestPublishedPostsResult(24)).resolves.toMatchObject({
-      items: [{ documentId: "bootstrap-post" }], continuitySource: "bootstrap",
+      items: [{ documentId: "bootstrap-post" }], degraded: false, continuitySource: "bootstrap",
     });
     await expect(getPublishedPostBySlugResult("bootstrap-post")).resolves.toMatchObject({
-      status: "found", item: { documentId: "bootstrap-post" }, degraded: true,
+      status: "found", item: { documentId: "bootstrap-post" }, degraded: false,
     });
     await expect(listPublishedEpisodesPage(1, 24)).resolves.toMatchObject({
-      items: [{ documentId: "bootstrap-episode" }], continuitySource: "bootstrap",
+      items: [{ documentId: "bootstrap-episode" }], degraded: false, continuitySource: "bootstrap",
     });
     await expect(getPublishedEpisodeBySlugResult("bootstrap-episode")).resolves.toMatchObject({
-      status: "found", item: { documentId: "bootstrap-episode" }, degraded: true,
+      status: "found", item: { documentId: "bootstrap-episode" }, degraded: false,
     });
     await expect(listPublishedBoardMembersResult()).resolves.toMatchObject({
-      available: true, continuitySource: "bootstrap",
+      available: true, degraded: false, continuitySource: "bootstrap",
     });
     await expect(listPublishedEndorsementsResult()).resolves.toMatchObject({
-      available: true, continuitySource: "bootstrap",
+      available: true, degraded: false, continuitySource: "bootstrap",
     });
     await expect(listPublicMediaAssets()).resolves.toEqual([]);
     await expect(listPublicRedirects()).resolves.toEqual([]);
