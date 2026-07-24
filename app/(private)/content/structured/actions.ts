@@ -30,7 +30,7 @@ import {
   isSafeLegacyRedirectTarget,
   normalizeLegacyRequestPath,
 } from "@/lib/legacy-redirects";
-import { requireContentManagerApiUser } from "@/lib/rbac";
+import { requireAdminApiUser, requireContentManagerApiUser } from "@/lib/rbac";
 import { structuredSeoPayload } from "@/lib/structured-seo";
 import {
   MAX_AUDIO_BYTES,
@@ -498,7 +498,7 @@ export async function transitionStructuredEntryAction(
 }
 
 export async function retryEpisodeProcessingAction(documentId: string, formData: FormData) {
-  const user = await requireContentManagerApiUser();
+  const user = await requireAdminApiUser();
   await retryEpisodeProcessing(
     documentId,
     user,

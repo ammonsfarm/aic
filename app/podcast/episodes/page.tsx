@@ -6,6 +6,11 @@ import { DataFreshnessNotice } from "@/components/data-freshness";
 import { getEpisodeOperationalStatus } from "@/lib/admin-operations";
 import { getEpisodeStatisticsDashboard, parsePodtracRange, podtracRangeOptions } from "@/lib/podcast-data";
 import { requireSignedInAppUser } from "@/lib/rbac";
+import {
+  getEpisodeReprocessContextByTrackId,
+  type EpisodeReprocessContext,
+} from "@/lib/strapi-structured-management";
+import { queueEpisodeReprocessAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -197,7 +202,17 @@ function DateEpisodeGrid({
 export default async function EpisodeStatisticsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string; trackId?: string; downloadDate?: string; startDate?: string; endDate?: string; q?: string; page?: string }>;
+  searchParams: Promise<{
+    range?: string;
+    trackId?: string;
+    downloadDate?: string;
+    startDate?: string;
+    endDate?: string;
+    q?: string;
+    page?: string;
+    reprocessQueued?: string;
+    reprocessError?: string;
+  }>;
 }) {
   const params = await searchParams;
   const range = parsePodtracRange(params.range);
@@ -215,6 +230,16 @@ export default async function EpisodeStatisticsPage({
     params.trackId ? getEpisodeOperationalStatus(params.trackId) : Promise.resolve(null),
   ]);
   const isAdministrator = appUser.role === "Admin";
+  let reprocessContext: EpisodeReprocessContext | null = null;
+  let reprocessLookupError = "";
+  if (isAdministrator && params.trackId) {
+    try {
+      reprocessContext = await getEpisodeReprocessContextByTrackId(params.trackId);
+    } catch (cause) {
+      console.error("Episode reprocess status lookup failed", cause);
+      reprocessLookupError = "The Strapi processing queue is temporarily unavailable.";
+    }
+  }
   const reportState: ReportLinkState = {
     range: dashboard.range.key,
     startDate: dashboard.range.key === "custom" ? dashboard.range.startDate ?? undefined : params.startDate,
@@ -226,6 +251,13 @@ export default async function EpisodeStatisticsPage({
   const activeSummary = selected ?? dashboard.summary;
   const activeTrend = selected ? dashboard.selectedDailyTrend : dashboard.dailyTrend;
   const maxEpisodeDownloads = Math.max(...dashboard.episodes.map((episode) => episode.rangeDownloads), 1);
+  const selectedEpisodeHref = selected
+    ? episodeStatsHref({
+        state: reportState,
+        trackId: selected.trackId,
+        downloadDate: params.downloadDate,
+      })
+    : "/podcast/episodes";
 
   return (
     <>
@@ -278,6 +310,58 @@ export default async function EpisodeStatisticsPage({
               {episodeOperational.latestTranscriptError ? (
                 <p className="empty-state empty-state--error" role="alert">Latest transcript worker error: {episodeOperational.latestTranscriptError}</p>
               ) : null}
+            </section>
+          ) : null}
+          {isAdministrator && selected ? (
+            <section className="podcast-chart-section" id="episode-reprocess">
+              <p className="eyebrow">Administrator action</p>
+              <h2>Reprocess this episode</h2>
+              {params.reprocessQueued === "1" ? (
+                <div className="notice-card notice-card--success" role="status">
+                  <strong>Full reprocessing queued</strong>
+                  <p>The background worker will rebuild the transcript, vectors, intelligence, and database records.</p>
+                </div>
+              ) : null}
+              {params.reprocessError ? (
+                <p className="empty-state empty-state--error" role="alert">{params.reprocessError}</p>
+              ) : null}
+              {reprocessLookupError ? (
+                <p className="empty-state empty-state--error" role="alert">{reprocessLookupError}</p>
+              ) : !reprocessContext ? (
+                <p className="empty-state" role="status">
+                  No matching Strapi episode exists for Track ID {selected.trackId}; reprocessing cannot be queued here.
+                </p>
+              ) : reprocessContext.processing?.status === "queued" || reprocessContext.processing?.status === "running" ? (
+                <p className="notice-card" role="status">
+                  Episode processing is already {reprocessContext.processing.status}. A second request cannot be queued.
+                </p>
+              ) : (
+                <form
+                  className="editor-grid editor-grid--two"
+                  action={queueEpisodeReprocessAction.bind(null, selected.trackId, selectedEpisodeHref)}
+                >
+                  <p className="muted-copy">
+                    This queues a destructive rebuild of transcript-derived data. The worker retranscribes the canonical MinIO
+                    audio, recreates transcript and intelligence vectors, and reloads the episode data in PostgreSQL.
+                  </p>
+                  <label>
+                    <span>Reason for reprocessing</span>
+                    <input
+                      name="reprocessNote"
+                      required
+                      maxLength={2000}
+                      placeholder="For example: transcript quality correction"
+                    />
+                  </label>
+                  <label className="checkbox-row checkbox-row--form">
+                    <input name="confirmReprocess" type="checkbox" value="confirmed" required />
+                    <span>I understand this replaces the current transcript-derived data.</span>
+                  </label>
+                  <div className="editor-form__actions">
+                    <button className="button" type="submit">Reprocess episode</button>
+                  </div>
+                </form>
+              )}
             </section>
           ) : null}
           <section className="split-board split-board--wide">

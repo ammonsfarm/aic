@@ -372,7 +372,7 @@ test("media upload is bounded and private visibility is part of the editor contr
   assert.match(pageActions, /Choose either an existing section image or a new upload/);
 });
 
-test("episode publication uses a durable outbox and read-only processing status", async () => {
+test("episode publication and Administrator reprocessing use the durable outbox", async () => {
   const workflow = await source("services/jimwood-cms/src/api/editorial-workflow/controllers/editorial-workflow.ts");
   assert.match(workflow, /processingRequestUid/);
   assert.match(workflow, /requestKey: `\$\{documentId\}:revision:\$\{revisionNumber\}`/);
@@ -381,6 +381,9 @@ test("episode publication uses a durable outbox and read-only processing status"
   assert.match(workflow, /status: 'superseded'/);
   assert.match(workflow, /action === 'retry-processing'/);
   assert.match(workflow, /A processing retry note is required/);
+  assert.match(workflow, /latestRevision < 1/);
+  assert.match(workflow, /initialRequest: true/);
+  assert.match(workflow, /forceReprocess/);
   assert.match(workflow, /Track ID cannot change after an episode has been published/);
   assert.doesNotMatch(workflow, /DB_HOST|DB_PASSWORD|insert into episodes/i);
 
@@ -396,7 +399,20 @@ test("episode publication uses a durable outbox and read-only processing status"
   assert.match(editor, /processing\.status === "running"/);
   assert.match(editor, /processing\.status === "completed"/);
   assert.match(editor, /processing\.status === "failed"/);
-  assert.match(editor, /Queue processing retry/);
+  assert.match(editor, /isAdministrator/);
+  assert.match(editor, /Reprocess episode/);
+
+  const structuredActions = await source("app/(private)/content/structured/actions.ts");
+  const reprocessAction = structuredActions.slice(structuredActions.indexOf("export async function retryEpisodeProcessingAction"));
+  assert.match(reprocessAction, /requireAdminApiUser/);
+
+  const adminEpisodes = await source("app/podcast/episodes/page.tsx");
+  assert.match(adminEpisodes, /isAdministrator && selected/);
+  assert.match(adminEpisodes, /queueEpisodeReprocessAction/);
+  assert.match(adminEpisodes, /retranscribes the canonical MinIO/);
+  const adminAction = await source("app/podcast/episodes/actions.ts");
+  assert.match(adminAction, /requireAdminApiUser/);
+  assert.match(adminAction, /queueEpisodeReprocessByTrackId/);
 
   const deploy = await source("scripts/deploy-farm-web.sh");
   assert.match(deploy, /install-episode-publish-worker\.sh/);

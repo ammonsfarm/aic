@@ -30,6 +30,7 @@ vi.mock("next/cache", () => ({
 vi.mock("next/navigation", () => ({ redirect: mocks.redirect }));
 
 vi.mock("@/lib/rbac", () => ({
+  requireAdminApiUser: mocks.requireUser,
   requireContentManagerApiUser: mocks.requireUser,
 }));
 

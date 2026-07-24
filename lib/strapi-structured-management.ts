@@ -45,6 +45,11 @@ export type EpisodeProcessingRequest = {
   updatedAt?: string;
 };
 
+export type EpisodeReprocessContext = {
+  episode: StructuredEntry;
+  processing: EpisodeProcessingRequest | null;
+};
+
 type StrapiEnvelope<T> = {
   data: T;
   meta?: {
@@ -59,6 +64,7 @@ type EditorialActor = {
 };
 
 const DEFAULT_LIST_PAGE_SIZE = 50;
+const OPERATIONAL_TRACK_ID_PATTERN = /^(?:\d+|sa_\d+|wp-sermon:\d+|cms_[a-z0-9][a-z0-9_-]{0,62})$/;
 
 export type StructuredPagination = {
   page: number;
@@ -479,6 +485,80 @@ export async function getStructuredEntry(key: StructuredCollectionKey, documentI
     publishedAt: published?.publishedAt || null,
     isPublished: Boolean(published),
   };
+}
+
+function validOperationalTrackId(value: string) {
+  const trackId = value.trim();
+  if (!trackId || trackId.length > 100 || !OPERATIONAL_TRACK_ID_PATTERN.test(trackId)) {
+    throw new Error("This episode has an invalid permanent Track ID.");
+  }
+  return trackId;
+}
+
+async function getStructuredEpisodeByTrackId(trackIdInput: string) {
+  const trackId = validOperationalTrackId(trackIdInput);
+  const definition = getStructuredCollection("episodes");
+  if (!definition) {
+    throw new Error("Episode content management is not configured.");
+  }
+
+  for (const status of ["draft", "published"] as const) {
+    const query = new URLSearchParams();
+    query.set("filters[trackId][$eq]", trackId);
+    query.set("pagination[pageSize]", "2");
+    query.set("status", status);
+    addEditorPopulate(query, definition);
+    const response = await strapiRequest<StrapiEnvelope<unknown[]>>(
+      `/api/${definition.apiPath}?${query.toString()}`,
+    );
+    const matches = (response?.data || [])
+      .map((item) => normalizeEntry(item, status === "published"))
+      .filter((item): item is StructuredEntry => Boolean(item));
+    if (matches.length > 1) {
+      throw new Error(`More than one Strapi episode uses Track ID ${trackId}.`);
+    }
+    if (matches[0]) {
+      return matches[0];
+    }
+  }
+
+  return null;
+}
+
+export async function getEpisodeReprocessContextByTrackId(
+  trackId: string,
+): Promise<EpisodeReprocessContext | null> {
+  const episode = await getStructuredEpisodeByTrackId(trackId);
+  if (!episode) {
+    return null;
+  }
+  return {
+    episode,
+    processing: await getLatestEpisodeProcessingRequest(episode.documentId),
+  };
+}
+
+export async function queueEpisodeReprocessByTrackId(
+  trackId: string,
+  user: CurrentAppUser,
+  note: string,
+) {
+  const retryNote = note.trim();
+  if (!retryNote) {
+    throw new Error("A reprocessing reason is required.");
+  }
+  if (retryNote.length > 2_000) {
+    throw new Error("The reprocessing reason must be 2,000 characters or fewer.");
+  }
+  const episode = await getStructuredEpisodeByTrackId(trackId);
+  if (!episode) {
+    throw new Error(`No Strapi episode matches Track ID ${validOperationalTrackId(trackId)}.`);
+  }
+  if (!episode.updatedAt) {
+    throw new Error("The Strapi episode is missing its content version. Reload before reprocessing.");
+  }
+  await retryEpisodeProcessing(episode.documentId, user, episode.updatedAt, retryNote);
+  return episode;
 }
 
 export async function createStructuredEntry(

@@ -366,6 +366,7 @@ async function enqueueEpisodeProcessing(
   episode: DocumentRecord,
   revisionNumber: number,
   actorInput: Actor | undefined,
+  forceReprocess = false,
 ) {
   const actor = requireActor(actorInput);
   const trackId = operationalTrackId(episode.trackId);
@@ -393,7 +394,7 @@ async function enqueueEpisodeProcessing(
     });
   }
 
-  await documents(processingRequestUid).create({
+  return documents(processingRequestUid).create({
     data: {
       requestKey: `${documentId}:revision:${revisionNumber}`,
       episodeDocumentId: documentId,
@@ -401,7 +402,7 @@ async function enqueueEpisodeProcessing(
       revisionNumber,
       status: 'queued',
       attemptCount: 0,
-      forceReprocess: false,
+      forceReprocess,
       nextAttemptAt: new Date().toISOString(),
       workerId: '',
       lastError: '',
@@ -723,24 +724,56 @@ const editorialWorkflowController = {
         if (entityType !== 'episode') {
           return ctx.badRequest('Processing retry is only available for episodes.');
         }
+        const retryNote = boundedText(input.note, 2_000);
+        if (!retryNote) {
+          return ctx.badRequest('A processing retry note is required.');
+        }
         const requests = await documents(processingRequestUid).findMany({
           filters: { episodeDocumentId: documentId },
-          sort: ['createdAt:desc'],
+          sort: ['revisionNumber:desc', 'createdAt:desc'],
           limit: 1,
         });
         const request = requests[0];
         if (!request) {
-          return ctx.badRequest('Publish this episode before requesting processing.');
+          const revisions = await documents(revisionUid).findMany({
+            filters: { entityType: 'episode', entityDocumentId: documentId },
+            sort: ['revisionNumber:desc'],
+            limit: 1,
+          });
+          const latestRevision = Number(revisions[0]?.revisionNumber || 0);
+          if (latestRevision < 1) {
+            return ctx.badRequest('This episode has no editorial revision to process.');
+          }
+          const created = await enqueueEpisodeProcessing(
+            documentId,
+            current,
+            latestRevision,
+            actor,
+            true,
+          );
+          const retryActor = requireActor(actor);
+          await documents(eventUid).create({
+            data: {
+              entityType,
+              entityDocumentId: documentId,
+              entityTitle: boundedText(current.title, 1_000),
+              action: 'episode_processing_retry',
+              actorId: retryActor.id,
+              actorEmail: retryActor.email,
+              actorName: retryActor.name,
+              note: retryNote,
+              detail: { processingRequestDocumentId: created.documentId, initialRequest: true },
+              source: 'aic-content-manager',
+            },
+          });
+          ctx.body = { data: created };
+          return;
         }
         if (request.status === 'superseded') {
           return ctx.badRequest('A superseded request cannot replace the newer publication request.');
         }
         if (request.status === 'queued' || request.status === 'running') {
           return ctx.badRequest('Episode processing is already queued or running.');
-        }
-        const retryNote = boundedText(input.note, 2_000);
-        if (!retryNote) {
-          return ctx.badRequest('A processing retry note is required.');
         }
         const retried = await documents(processingRequestUid).update({
           documentId: request.documentId,

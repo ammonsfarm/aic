@@ -13,6 +13,7 @@ import {
   type StructuredRevision,
 } from "@/lib/strapi-structured-management";
 import { getStructuredCollection, type StructuredCollectionKey } from "@/lib/structured-content-config";
+import { requireContentManagerOrAdmin } from "@/lib/rbac";
 import {
   deleteStructuredEntryAction,
   retryEpisodeProcessingAction,
@@ -44,8 +45,32 @@ function notice(query: Record<string, string | undefined>) {
   if (query.archive) return "Content archived and removed from public listings.";
   if (query.restore) return "Content restored as a private draft.";
   if (query.rolledBack) return "The selected revision was restored as a new draft.";
-  if (query.processingRetry) return "Episode processing was queued for another bounded attempt.";
+  if (query.processingRetry) return "Full episode reprocessing was queued.";
   return "";
+}
+
+function EpisodeReprocessForm({ documentId, updatedAt }: { documentId: string; updatedAt: string }) {
+  return (
+    <form className="editor-grid editor-grid--two" action={retryEpisodeProcessingAction.bind(null, documentId)}>
+      <input type="hidden" name="expectedUpdatedAt" value={updatedAt} />
+      <p className="muted-copy">
+        Administrator only. This replaces transcript-derived rows, retranscribes the canonical audio, recreates vectors and
+        intelligence, and reloads the operational episode data.
+      </p>
+      <label>
+        <span>Reason for reprocessing</span>
+        <input
+          name="processingRetryNote"
+          required
+          maxLength={2000}
+          placeholder="Why should this episode be fully reprocessed?"
+        />
+      </label>
+      <div className="editor-form__actions">
+        <button className="button button--ghost" type="submit">Reprocess episode</button>
+      </div>
+    </form>
+  );
 }
 
 export async function StructuredEntryEditorView({
@@ -57,6 +82,8 @@ export async function StructuredEntryEditorView({
   documentId: string;
   query: Record<string, string | undefined>;
 }) {
+  const appUser = await requireContentManagerOrAdmin();
+  const isAdministrator = appUser.role === "Admin";
   const definition = getStructuredCollection(collection);
   if (!definition) {
     notFound();
@@ -157,7 +184,13 @@ export async function StructuredEntryEditorView({
           {processingError ? <div className="editor-form"><p role="alert">{processingError}</p></div> : null}
           {!processing && !processingError ? (
             <div className="editor-form">
-              <p className="muted-copy">No processing request exists yet. Publishing creates one in the same durable editorial transaction.</p>
+              <p className="muted-copy">
+                No processing request exists yet. Publishing creates one automatically; an Administrator can also queue a full
+                rebuild against the existing canonical episode.
+              </p>
+              {isAdministrator ? (
+                <EpisodeReprocessForm documentId={documentId} updatedAt={String(entry.updatedAt || "")} />
+              ) : null}
             </div>
           ) : null}
           {processing ? (
@@ -174,17 +207,8 @@ export async function StructuredEntryEditorView({
               {processing.status === "failed" ? <p role="alert">Processing reached its bounded retry limit and needs review.</p> : null}
               {processing.status === "superseded" ? <p role="status">A newer publication revision replaced this request.</p> : null}
               {processing.lastError ? <p role="alert"><strong>Latest error:</strong> {processing.lastError}</p> : null}
-              {processing.status === "failed" || processing.status === "completed" ? (
-                <form className="editor-grid editor-grid--two" action={retryEpisodeProcessingAction.bind(null, documentId)}>
-                  <input type="hidden" name="expectedUpdatedAt" value={String(entry.updatedAt || "")} />
-                  <label>
-                    <span>Retry note</span>
-                    <input name="processingRetryNote" required placeholder="Why should this episode be processed again?" />
-                  </label>
-                  <div className="editor-form__actions">
-                    <button className="button button--ghost" type="submit">Queue processing retry</button>
-                  </div>
-                </form>
+              {isAdministrator && (processing.status === "failed" || processing.status === "completed") ? (
+                <EpisodeReprocessForm documentId={documentId} updatedAt={String(entry.updatedAt || "")} />
               ) : null}
             </div>
           ) : null}

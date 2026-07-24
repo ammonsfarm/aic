@@ -2,10 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   deleteStructuredFile,
+  getEpisodeReprocessContextByTrackId,
   getStructuredEntry,
   getStructuredInventorySummary,
   listReusableMediaOptions,
   listStructuredEntriesPage,
+  queueEpisodeReprocessByTrackId,
   transitionStructuredEntry,
 } from "@/lib/strapi-structured-management";
 
@@ -28,6 +30,76 @@ afterEach(() => {
 });
 
 describe("structured Strapi inventory", () => {
+  it("queues a full episode reprocess by exact canonical Track ID", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(payload([{
+        documentId: "episode-123",
+        trackId: "123",
+        title: "Existing episode",
+        updatedAt: "2026-07-24T10:00:00.000Z",
+      }], 1, 1, 2))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { documentId: "request-1" } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await queueEpisodeReprocessByTrackId(
+      "123",
+      { clerkUserId: "admin-1", email: "admin@example.test", name: "Admin", role: "Admin" },
+      "Correct a transcript quality problem",
+    );
+
+    const [lookupUrl] = fetchMock.mock.calls[0] as [URL];
+    expect(lookupUrl.searchParams.get("filters[trackId][$eq]")).toBe("123");
+    expect(lookupUrl.searchParams.get("status")).toBe("draft");
+    const [retryUrl, retryInit] = fetchMock.mock.calls[1] as [URL, RequestInit];
+    expect(retryUrl.pathname).toBe("/api/editorial/episode/episode-123/retry-processing");
+    expect(retryInit.method).toBe("POST");
+    expect(JSON.parse(String(retryInit.body))).toMatchObject({
+      actor: { id: "admin-1", email: "admin@example.test" },
+      expectedUpdatedAt: "2026-07-24T10:00:00.000Z",
+      note: "Correct a transcript quality problem",
+    });
+  });
+
+  it("loads the durable processing state for the admin episode action", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(payload([{
+        documentId: "episode-123",
+        trackId: "123",
+        title: "Existing episode",
+        updatedAt: "2026-07-24T10:00:00.000Z",
+      }], 1, 1, 2))
+      .mockResolvedValueOnce(payload([{
+        documentId: "request-1",
+        episodeDocumentId: "episode-123",
+        trackId: "123",
+        revisionNumber: 4,
+        status: "running",
+        attemptCount: 1,
+        lastError: "",
+        result: {},
+      }], 1, 1, 1));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const context = await getEpisodeReprocessContextByTrackId("123");
+
+    expect(context?.episode.documentId).toBe("episode-123");
+    expect(context?.processing?.status).toBe("running");
+    const [processingUrl] = fetchMock.mock.calls[1] as [URL];
+    expect(processingUrl.pathname).toBe("/api/episode-processing-requests");
+    expect(processingUrl.searchParams.get("filters[episodeDocumentId][$eq]")).toBe("episode-123");
+  });
+
+  it("rejects unsafe Track IDs before contacting Strapi", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getEpisodeReprocessContextByTrackId("../bad")).rejects.toThrow("invalid permanent Track ID");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("populates editor relations without traversing private upload back-references", async () => {
     const fetchMock = vi.fn(async (input: URL | RequestInfo) => {
       const url = new URL(String(input));
