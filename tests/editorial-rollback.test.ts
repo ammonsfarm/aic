@@ -45,6 +45,13 @@ const components = {
       imageSide: { type: "enumeration" },
     },
   },
+  "page-sections.gallery-section": {
+    attributes: {
+      heading: { type: "string" },
+      images: { type: "media" },
+      galleryColumns: { type: "enumeration" },
+    },
+  },
   "navigation.navigation-item": {
     attributes: {
       label: { type: "string" },
@@ -113,6 +120,33 @@ describe("editorial rollback snapshots", () => {
         heading: "Pastor Wood",
         image: 41,
         imageSide: "right",
+      }],
+    });
+  });
+
+  it("restores every media reference in a gallery section", () => {
+    const snapshot = snapshotForRevision({
+      documentId: "page-gallery",
+      title: "Gallery",
+      sections: [{
+        id: 32,
+        __component: "page-sections.gallery-section",
+        heading: "Ministry gallery",
+        images: [
+          { id: 51, url: "/uploads/one.jpg" },
+          { id: 52, url: "/uploads/two.jpg" },
+        ],
+        galleryColumns: "two",
+      }],
+    });
+
+    expect(writableSnapshot("api::page.page", snapshot, resolver)).toEqual({
+      title: "Gallery",
+      sections: [{
+        __component: "page-sections.gallery-section",
+        heading: "Ministry gallery",
+        images: [51, 52],
+        galleryColumns: "two",
       }],
     });
   });

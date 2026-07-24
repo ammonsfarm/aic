@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 
 import {
   CONTACT_CATEGORIES,
@@ -12,9 +12,19 @@ import {
 
 type ContactFormState = { kind: "idle" | "busy" | "success" | "error"; message: string };
 
-export function PublicContactForm({ sourcePath = "/contact/" }: { sourcePath?: string }) {
+export function PublicContactForm({
+  sourcePath = "/contact/",
+  showIntro = true,
+  labelledBy,
+}: {
+  sourcePath?: string;
+  showIntro?: boolean;
+  labelledBy?: string;
+}) {
   const [startedAt, setStartedAt] = useState(() => Date.now());
   const [status, setStatus] = useState<ContactFormState>({ kind: "idle", message: "" });
+  const generatedId = useId();
+  const headingId = `contact-form-${generatedId.replace(/:/g, "")}`;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -37,7 +47,7 @@ export function PublicContactForm({ sourcePath = "/contact/" }: { sourcePath?: s
           consent: data.get("consent") === "yes",
           consentVersion: CONTACT_CONSENT_VERSION,
           website: data.get("website"),
-          sourcePath,
+          sourcePath: sourcePath || window.location.pathname,
           startedAt,
         }),
       });
@@ -54,15 +64,8 @@ export function PublicContactForm({ sourcePath = "/contact/" }: { sourcePath?: s
     }
   }
 
-  return (
-    <section className="pw-section pw-contact-form-section" aria-labelledby="contact-form-title">
-      <div className="pw-contact-form-section__intro">
-        <p className="pw-kicker">Send a message</p>
-        <h2 id="contact-form-title">How may we help?</h2>
-        <p>Use this form for feedback, prayer requests, speaking invitations, or general ministry correspondence.</p>
-        <p><strong>Please do not use this form for emergencies or include financial, medical, or other highly sensitive details.</strong></p>
-      </div>
-      <form className="pw-contact-form" onSubmit={submit}>
+  const form = (
+      <form className="pw-contact-form" onSubmit={submit} aria-labelledby={labelledBy}>
         <div className="pw-contact-form__grid">
           <label>
             <span>Message type</span>
@@ -112,6 +115,19 @@ export function PublicContactForm({ sourcePath = "/contact/" }: { sourcePath?: s
           {status.message}
         </p>
       </form>
+  );
+
+  if (!showIntro) return form;
+
+  return (
+    <section className="pw-section pw-contact-form-section" aria-labelledby={headingId}>
+      <div className="pw-contact-form-section__intro">
+        <p className="pw-kicker">Send a message</p>
+        <h2 id={headingId}>How may we help?</h2>
+        <p>Use this form for feedback, prayer requests, speaking invitations, or general ministry correspondence.</p>
+        <p><strong>Please do not use this form for emergencies or include financial, medical, or other highly sensitive details.</strong></p>
+      </div>
+      {form}
     </section>
   );
 }

@@ -17,7 +17,7 @@ import {
 import { SUBSCRIPTION_ATTEMPT_RETENTION_DAYS } from "@/lib/public-subscription-contract";
 import { listPublishedEndorsementsResult, type PublishedEndorsement } from "@/lib/strapi-structured-public";
 import { getStrapiSiteSettings, type StrapiSiteSettings } from "@/lib/strapi-site-settings";
-import { safeCmsHref, sanitizeCmsHtml } from "@/lib/cms-html";
+import { safeCmsEmbedUrl, safeCmsHref, sanitizeCmsHtml } from "@/lib/cms-html";
 
 const routes = {
   home: "/",
@@ -369,6 +369,7 @@ export function DevotionalSignup({ sourcePath = "/" }: { sourcePath?: string }) 
 }
 
 export type PastorWoodCmsSection = {
+  id?: number;
   component?: string;
   eyebrow?: string;
   heading?: string;
@@ -382,6 +383,24 @@ export type PastorWoodCmsSection = {
     alternativeText?: string;
     name?: string;
   } | null;
+  images?: Array<{
+    id?: number;
+    url: string;
+    alternativeText?: string;
+    name?: string;
+  }>;
+  galleryColumns?: "two" | "three" | "four";
+  embedUrl?: string;
+  embedTitle?: string;
+  embedAspectRatio?: "landscape" | "standard" | "square";
+  formType?: "contact" | "newsletter" | "";
+  columnCount?: "two" | "three";
+  columnOneHeading?: string;
+  columnOneBody?: string;
+  columnTwoHeading?: string;
+  columnTwoBody?: string;
+  columnThreeHeading?: string;
+  columnThreeBody?: string;
 };
 
 export type PastorWoodCmsPage = {
@@ -416,14 +435,35 @@ function RichTextContent({ value }: { value: string }) {
   return <div className="pw-rich-text" dangerouslySetInnerHTML={{ __html: sanitizeCmsHtml(value) }} />;
 }
 
-function CmsPageSections({
+function isRenderableCmsSection(section: PastorWoodCmsSection) {
+  if (section.component === "page-sections.gallery-section") {
+    return Boolean(section.images?.length);
+  }
+  if (section.component === "page-sections.embed-section") {
+    return Boolean(section.embedTitle && safeCmsEmbedUrl(section.embedUrl ?? ""));
+  }
+  if (section.component === "page-sections.form-section") {
+    return Boolean(section.heading && (section.formType === "contact" || section.formType === "newsletter"));
+  }
+  if (section.component === "page-sections.columns-section") {
+    const columns = [
+      section.columnOneHeading || section.columnOneBody,
+      section.columnTwoHeading || section.columnTwoBody,
+      section.columnThreeHeading || section.columnThreeBody,
+    ];
+    return columns.slice(0, section.columnCount === "three" ? 3 : 2).every(Boolean);
+  }
+  return Boolean(section.body || section.heading || section.buttonLabel);
+}
+
+export function CmsPageSections({
   sections,
   externalButtonUrl,
 }: {
   sections?: PastorWoodCmsSection[];
   externalButtonUrl?: (value: string) => string | null;
 }) {
-  const renderedSections = (sections ?? []).filter((section) => section.body || section.heading || section.buttonLabel);
+  const renderedSections = (sections ?? []).filter(isRenderableCmsSection);
 
   if (renderedSections.length === 0) {
     return null;
@@ -431,9 +471,13 @@ function CmsPageSections({
 
   return (
     <section className="pw-section pw-cms-sections">
-      {renderedSections.map((section) => {
+      {renderedSections.map((section, index) => {
         const isCta = section.component === "page-sections.cta-section";
         const isImageText = section.component === "page-sections.image-text-section";
+        const isGallery = section.component === "page-sections.gallery-section";
+        const isEmbed = section.component === "page-sections.embed-section";
+        const isForm = section.component === "page-sections.form-section";
+        const isColumns = section.component === "page-sections.columns-section";
         const imageFirst = isImageText && section.imageSide === "left";
         const buttonHref = externalButtonUrl
           ? externalButtonUrl(section.buttonUrl ?? "") || ""
@@ -449,9 +493,91 @@ function CmsPageSections({
         const image = isImageText && section.image ? (
           <img src={section.image.url} alt={imageDescription} title={imageDescription} />
         ) : null;
+        const sectionKey = `${section.component}-${section.id ?? index}`;
+        const headingId = `cms-section-${section.id ?? index}-title`;
+        const embedUrl = isEmbed ? safeCmsEmbedUrl(section.embedUrl ?? "") : "";
+        const columns = [
+          { heading: section.columnOneHeading, body: section.columnOneBody },
+          { heading: section.columnTwoHeading, body: section.columnTwoBody },
+          { heading: section.columnThreeHeading, body: section.columnThreeBody },
+        ].slice(0, section.columnCount === "three" ? 3 : 2);
+
+        if (isGallery) {
+          const images = section.images ?? [];
+          if (!images.length) return null;
+          return (
+            <article className="pw-cms-gallery" key={sectionKey}>
+              {copy}
+              <ul className={`pw-cms-gallery__grid pw-cms-gallery__grid--${section.galleryColumns || "three"}`} aria-label={section.heading ? `${section.heading} images` : "Image gallery"}>
+                {images.map((galleryImage, imageIndex) => (
+                  <li key={galleryImage.id ?? `${galleryImage.url}-${imageIndex}`}>
+                    <img src={galleryImage.url} alt={galleryImage.alternativeText || ""} loading="lazy" decoding="async" />
+                  </li>
+                ))}
+              </ul>
+            </article>
+          );
+        }
+
+        if (isEmbed) {
+          if (!embedUrl || !section.embedTitle) return null;
+          return (
+            <article className="pw-cms-embed" key={sectionKey}>
+              {copy}
+              <div className={`pw-cms-embed__frame pw-cms-embed__frame--${section.embedAspectRatio || "landscape"}`}>
+                <iframe
+                  src={embedUrl}
+                  title={section.embedTitle}
+                  loading="lazy"
+                  allow="accelerometer; autoplay; encrypted-media; picture-in-picture"
+                  allowFullScreen
+                  referrerPolicy="strict-origin-when-cross-origin"
+                  sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"
+                />
+              </div>
+            </article>
+          );
+        }
+
+        if (isForm) {
+          if (!section.heading || (section.formType !== "contact" && section.formType !== "newsletter")) return null;
+          const labelledCopy = (
+            <div className="pw-cms-form__intro">
+              {section.eyebrow ? <p className="pw-kicker">{section.eyebrow}</p> : null}
+              <h2 id={headingId}>{section.heading}</h2>
+              <RichTextContent value={section.body ?? ""} />
+            </div>
+          );
+          return (
+            <article className={`pw-cms-form pw-cms-form--${section.formType}`} aria-labelledby={headingId} key={sectionKey}>
+              {labelledCopy}
+              {section.formType === "contact"
+                ? <PublicContactForm sourcePath="" showIntro={false} labelledBy={headingId} />
+                : <DevotionalSignupForm sourcePath="" labelledBy={headingId} />}
+            </article>
+          );
+        }
+
+        if (isColumns) {
+          const populatedColumns = columns.filter((column) => column.heading || column.body);
+          if (populatedColumns.length < 2) return null;
+          return (
+            <article className="pw-cms-columns" key={sectionKey}>
+              {copy}
+              <div className={`pw-cms-columns__grid pw-cms-columns__grid--${populatedColumns.length}`}>
+                {populatedColumns.map((column, columnIndex) => (
+                  <section className="pw-cms-columns__column" key={columnIndex}>
+                    {column.heading ? <h3>{column.heading}</h3> : null}
+                    <RichTextContent value={column.body ?? ""} />
+                  </section>
+                ))}
+              </div>
+            </article>
+          );
+        }
 
         return (
-          <article className={isCta ? "pw-donate-panel" : isImageText ? `pw-image-text pw-image-text--${section.imageSide || "right"}` : "pw-story-section"} key={`${section.component}-${section.heading}-${section.eyebrow}`}>
+          <article className={isCta ? "pw-donate-panel" : isImageText ? `pw-image-text pw-image-text--${section.imageSide || "right"}` : "pw-story-section"} key={sectionKey}>
             {imageFirst ? image : null}
             {copy}
             {!imageFirst ? image : null}
@@ -468,16 +594,16 @@ function CmsPageSections({
 function AboutPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
   const heroTitle = cmsPage?.heroTitle || "Jim Wood";
   const heroBody = cmsPage?.heroBody || "Founder of Wears Valley Ranch, pastor, author, and host of Abiding in Christ.";
-  const textSections = (cmsPage?.sections ?? []).filter((section) => (section.component === "page-sections.text-section" || section.component === "page-sections.image-text-section") && section.body);
+  const hasCmsSections = Boolean(cmsPage?.sections?.length);
 
   return (
     <>
       <PageHero eyebrow="Life and Ministry" title={heroTitle} body={heroBody} />
-      <section className="pw-section pw-story">
-        <div className="pw-story__copy">
-          {textSections.length > 0 ? (
-            <CmsPageSections sections={textSections} />
-          ) : (
+      {hasCmsSections ? (
+        <CmsPageSections sections={cmsPage?.sections} />
+      ) : (
+        <section className="pw-section pw-story">
+          <div className="pw-story__copy">
             <>
               <p>Jim Wood is the Founder of Wears Valley Ranch. Growing up in Montreat, North Carolina, Jim began preaching at age fifteen. After graduating from Gordon College in Massachusetts, Jim married Susan McDonald of Shreveport, Louisiana.</p>
               <p>They began married life at French Camp Academy in Mississippi, where they were house parents and teachers for two years. From French Camp, Jim returned to New England and attended Gordon-Conwell Theological Seminary where he earned an M.A. in Church History.</p>
@@ -486,14 +612,12 @@ function AboutPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
               <p>Having served as Executive Director of Wears Valley Ranch for nearly 30 years, Jim retired from this capacity in December 2020. He remains as the Ranch&apos;s Founder, continuing his ministry of teaching and preaching at the Ranch, on radio and elsewhere.</p>
               <p>Jim&apos;s radio program, Abiding in Christ, airs weekdays on SiriusXM 131 satellite radio and is available on podcast. He and his wife, Susan, have authored 14 books and often lead seminars on marriage and parenting.</p>
             </>
-          )}
-        </div>
-        {textSections.length > 0 ? null : (
+          </div>
           <div className="pw-story__images">
             <Image src="/images/pastor-wood.jpg" alt="Pastor Jim Wood" width={768} height={960} />
           </div>
-        )}
-      </section>
+        </section>
+      )}
     </>
   );
 }
@@ -568,13 +692,16 @@ function WrittenResourcesPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null 
 function ContactPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
   const heroTitle = cmsPage?.heroTitle || "Get in touch";
   const heroBody = cmsPage?.heroBody || "Feedback, prayer requests, and speaking invitations are welcome.";
+  const hasManagedContactForm = cmsPage?.sections?.some(
+    (section) => section.component === "page-sections.form-section" && section.formType === "contact",
+  );
 
   return (
     <>
       <PageHero eyebrow="Reach Us" title={heroTitle} body={heroBody} />
       {cmsPage?.sections?.length ? <CmsPageSections sections={cmsPage.sections} /> : null}
       <ContactSection />
-      <PublicContactForm sourcePath="/contact/" />
+      {hasManagedContactForm ? null : <PublicContactForm sourcePath="/contact/" />}
     </>
   );
 }

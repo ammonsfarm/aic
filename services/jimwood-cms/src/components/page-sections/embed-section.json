@@ -1,0 +1,36 @@
+{
+  "collectionName": "components_page_sections_embed_sections",
+  "info": {
+    "displayName": "Embed Section"
+  },
+  "options": {},
+  "attributes": {
+    "eyebrow": {
+      "type": "string"
+    },
+    "heading": {
+      "type": "string"
+    },
+    "body": {
+      "type": "richtext"
+    },
+    "embedUrl": {
+      "type": "string",
+      "required": true
+    },
+    "embedTitle": {
+      "type": "string",
+      "required": true
+    },
+    "embedAspectRatio": {
+      "type": "enumeration",
+      "default": "landscape",
+      "enum": [
+        "landscape",
+        "standard",
+        "square"
+      ]
+    }
+  },
+  "config": {}
+}

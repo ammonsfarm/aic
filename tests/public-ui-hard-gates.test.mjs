@@ -50,9 +50,9 @@ test("legacy policy content cannot replace the current subscription notice", () 
   assert.match(publicSite, /\{cmsPage\?\.sections\?\.length \? <CmsPageSections[\s\S]*?<SubscriptionPrivacyNotice \/>/);
 });
 
-test("About uses sanitized CMS rich text and hides its static portrait when CMS text exists", () => {
+test("About uses sanitized CMS sections and hides its static portrait when managed sections exist", () => {
   assert.match(publicSite, /dangerouslySetInnerHTML=\{\{ __html: sanitizeCmsHtml\(value\) \}\}/);
-  assert.match(publicSite, /\{textSections\.length > 0 \? null : \([\s\S]*?pastor-wood\.jpg/);
+  assert.match(publicSite, /\{hasCmsSections \? \([\s\S]*?<CmsPageSections sections=\{cmsPage\?\.sections\} \/>[\s\S]*?\) : \([\s\S]*?pastor-wood\.jpg/);
 });
 
 test("every fixed public route declares route-specific metadata and a canonical path", () => {

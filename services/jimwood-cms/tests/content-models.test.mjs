@@ -160,6 +160,34 @@ test("page identity remains a unique immutable-facing key in the content contrac
   assert.equal(model.attributes.pageKey.unique, true);
 });
 
+test("page builder exposes bounded gallery, embed, form, and column components", async () => {
+  const model = await schema("page");
+  const components = model.attributes.sections.components;
+  for (const component of [
+    "page-sections.gallery-section",
+    "page-sections.embed-section",
+    "page-sections.form-section",
+    "page-sections.columns-section",
+  ]) {
+    assert.ok(components.includes(component), `${component} is missing from the page dynamic zone`);
+  }
+
+  const gallery = JSON.parse(await text("src/components/page-sections/gallery-section.json"));
+  assert.equal(gallery.attributes.images.type, "media");
+  assert.equal(gallery.attributes.images.multiple, true);
+  assert.deepEqual(gallery.attributes.images.allowedTypes, ["images"]);
+
+  const embed = JSON.parse(await text("src/components/page-sections/embed-section.json"));
+  assert.equal(embed.attributes.embedUrl.required, true);
+  assert.equal(embed.attributes.embedTitle.required, true);
+
+  const form = JSON.parse(await text("src/components/page-sections/form-section.json"));
+  assert.deepEqual(form.attributes.formType.enum, ["contact", "newsletter"]);
+
+  const columns = JSON.parse(await text("src/components/page-sections/columns-section.json"));
+  assert.deepEqual(columns.attributes.columnCount.enum, ["two", "three"]);
+});
+
 test("no runtime secret file is versioned in the service source", async () => {
   await assert.rejects(readFile(resolve(root, ".env"), "utf8"), { code: "ENOENT" });
   const example = await text(".env.example");

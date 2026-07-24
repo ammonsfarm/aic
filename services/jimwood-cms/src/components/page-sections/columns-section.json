@@ -1,0 +1,45 @@
+{
+  "collectionName": "components_page_sections_columns_sections",
+  "info": {
+    "displayName": "Columns Section"
+  },
+  "options": {},
+  "attributes": {
+    "eyebrow": {
+      "type": "string"
+    },
+    "heading": {
+      "type": "string"
+    },
+    "body": {
+      "type": "richtext"
+    },
+    "columnCount": {
+      "type": "enumeration",
+      "default": "two",
+      "enum": [
+        "two",
+        "three"
+      ]
+    },
+    "columnOneHeading": {
+      "type": "string"
+    },
+    "columnOneBody": {
+      "type": "richtext"
+    },
+    "columnTwoHeading": {
+      "type": "string"
+    },
+    "columnTwoBody": {
+      "type": "richtext"
+    },
+    "columnThreeHeading": {
+      "type": "string"
+    },
+    "columnThreeBody": {
+      "type": "richtext"
+    }
+  },
+  "config": {}
+}

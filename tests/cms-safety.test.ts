@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { safeCmsHref, safeCmsImageSrc, sanitizeCmsHtml } from "@/lib/cms-html";
+import { safeCmsEmbedUrl, safeCmsHref, safeCmsImageSrc, sanitizeCmsHtml } from "@/lib/cms-html";
 import { safeExternalDonationUrl } from "@/lib/public-donation";
 import {
   assertAllowedPageSlug,
@@ -98,6 +98,18 @@ describe("CMS HTML sanitizer", () => {
       expect(sanitizeCmsHtml(`<p>Before</p><img src="${source}" alt="Pastor Jim"><p>After</p>`)).toContain(`src="${source}"`);
     }
     expect(sanitizeCmsHtml('<img src="https://gallery.mailchimp.com/tracker.jpg"><img src="javascript:alert(1)">')).not.toContain("img");
+  });
+
+  it("normalizes supported video embeds and rejects arbitrary frames", () => {
+    expect(safeCmsEmbedUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ"))
+      .toBe("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ");
+    expect(safeCmsEmbedUrl("https://youtu.be/dQw4w9WgXcQ?t=12"))
+      .toBe("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ");
+    expect(safeCmsEmbedUrl("https://vimeo.com/123456789"))
+      .toBe("https://player.vimeo.com/video/123456789");
+    expect(safeCmsEmbedUrl("https://evil.example/embed/video")).toBe("");
+    expect(safeCmsEmbedUrl("http://youtube.com/watch?v=dQw4w9WgXcQ")).toBe("");
+    expect(safeCmsEmbedUrl("https://user:pass@vimeo.com/123456789")).toBe("");
   });
 
   it("restricts external donation destinations to approved hosts and path", () => {

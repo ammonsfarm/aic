@@ -39,6 +39,9 @@ vi.mock("@/lib/cms-page-validation", () => ({
 
 vi.mock("@/lib/cms-html", () => ({
   safeCmsHref: (value: string) => value && !value.toLowerCase().startsWith("javascript:") ? value : null,
+  safeCmsEmbedUrl: (value: string) => value.includes("youtube.com/watch?v=dQw4w9WgXcQ")
+    ? "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"
+    : "",
 }));
 
 vi.mock("@/lib/strapi", () => ({
@@ -158,6 +161,80 @@ beforeEach(() => {
 });
 
 describe("page editor upload cleanup", () => {
+  it("builds validated gallery, embed, form, and column section payloads", async () => {
+    mocks.createManagedPage.mockResolvedValue({
+      documentId: "page-builder",
+      updatedAt: "2026-07-23T12:00:00.000Z",
+    });
+    const formData = basePageForm();
+    formData.set("newSectionCount", "4");
+
+    formData.set("newSection0Component", "page-sections.gallery-section");
+    formData.set("newSection0Heading", "Ministry gallery");
+    formData.append("newSection0GalleryImageLibraryId", "101");
+    formData.append("newSection0GalleryImageLibraryId", "102");
+    formData.set("newSection0GalleryColumns", "four");
+
+    formData.set("newSection1Component", "page-sections.embed-section");
+    formData.set("newSection1Heading", "Watch");
+    formData.set("newSection1EmbedUrl", "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    formData.set("newSection1EmbedTitle", "Pastor Wood teaching on grace");
+    formData.set("newSection1EmbedAspectRatio", "landscape");
+
+    formData.set("newSection2Component", "page-sections.form-section");
+    formData.set("newSection2Heading", "Contact the ministry");
+    formData.set("newSection2FormType", "contact");
+
+    formData.set("newSection3Component", "page-sections.columns-section");
+    formData.set("newSection3Heading", "Ways to listen");
+    formData.set("newSection3ColumnCount", "two");
+    formData.set("newSection3Column1Heading", "Radio");
+    formData.set("newSection3Column1Body", "<p>Weekday broadcasts.</p>");
+    formData.set("newSection3Column2Heading", "Podcast");
+    formData.set("newSection3Column2Body", "<p>Listen on demand.</p>");
+
+    await expect(createStrapiPageAction(formData)).rejects.toThrow("REDIRECT:");
+
+    const input = mocks.createManagedPage.mock.calls[0][0] as { sections: Array<Record<string, unknown>> };
+    expect(input.sections).toEqual([
+      expect.objectContaining({
+        __component: "page-sections.gallery-section",
+        images: [101, 102],
+        galleryColumns: "four",
+      }),
+      expect.objectContaining({
+        __component: "page-sections.embed-section",
+        embedUrl: "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ",
+        embedTitle: "Pastor Wood teaching on grace",
+      }),
+      expect.objectContaining({
+        __component: "page-sections.form-section",
+        formType: "contact",
+      }),
+      expect.objectContaining({
+        __component: "page-sections.columns-section",
+        columnCount: "two",
+        columnOneHeading: "Radio",
+        columnTwoHeading: "Podcast",
+      }),
+    ]);
+    expect(mocks.assertReusableMediaSelection.mock.calls).toEqual([
+      [101, "image/*"],
+      [102, "image/*"],
+    ]);
+  });
+
+  it("rejects unsupported embed providers before creating a page", async () => {
+    const formData = basePageForm();
+    formData.set("newSectionCount", "1");
+    formData.set("newSection0Component", "page-sections.embed-section");
+    formData.set("newSection0EmbedUrl", "https://evil.example/video");
+    formData.set("newSection0EmbedTitle", "Untrusted video");
+
+    await expect(createStrapiPageAction(formData)).rejects.toThrow("valid YouTube or Vimeo");
+    expect(mocks.createManagedPage).not.toHaveBeenCalled();
+  });
+
   it("removes multiple new uploads when later page validation fails", async () => {
     mocks.fetchWithTimeout
       .mockResolvedValueOnce(new Response(JSON.stringify([{ id: 10 }]), { status: 200 }))
@@ -168,9 +245,12 @@ describe("page editor upload cleanup", () => {
     formData.set("section0Component", "page-sections.image-text-section");
     formData.set("section0Heading", "Section");
     formData.set("section0ImageFile", imageFile("section.png"));
-    formData.set("section0ButtonUrl", "javascript:alert(1)");
+    formData.set("sectionCount", "2");
+    formData.set("section1Component", "page-sections.embed-section");
+    formData.set("section1EmbedUrl", "https://evil.example/video");
+    formData.set("section1EmbedTitle", "Untrusted video");
 
-    await expect(createStrapiPageAction(formData)).rejects.toThrow("Section button URL");
+    await expect(createStrapiPageAction(formData)).rejects.toThrow("valid YouTube or Vimeo");
     expect(mocks.deleteStructuredFile.mock.calls.map(([fileId]) => fileId)).toEqual([10, 11]);
     expect(mocks.createManagedPage).not.toHaveBeenCalled();
   });

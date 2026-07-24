@@ -19,7 +19,7 @@ import {
 import { requireContentManagerApiUser } from "@/lib/rbac";
 import { STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag } from "@/lib/strapi";
 import { STRAPI_PUBLIC_MEDIA_CACHE_TAG } from "@/lib/strapi-cache-tags";
-import { safeCmsHref } from "@/lib/cms-html";
+import { safeCmsEmbedUrl, safeCmsHref } from "@/lib/cms-html";
 import { fetchWithTimeout, strapiUploadTimeoutMs } from "@/lib/strapi-request";
 import {
   assertReusableMediaSelection,
@@ -45,6 +45,17 @@ const PAGE_PATH_BY_KEY: Record<string, string> = {
 };
 const MAX_SECTION_IMAGE_BYTES = 15 * 1024 * 1024;
 const ALLOWED_SECTION_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"]);
+const MAX_GALLERY_IMAGES = 12;
+const MAX_SECTION_RICH_TEXT_LENGTH = 100_000;
+const PAGE_SECTION_COMPONENTS = new Set([
+  "page-sections.text-section",
+  "page-sections.image-text-section",
+  "page-sections.cta-section",
+  "page-sections.gallery-section",
+  "page-sections.embed-section",
+  "page-sections.form-section",
+  "page-sections.columns-section",
+]);
 
 function formString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -81,6 +92,28 @@ function formDateTime(formData: FormData, key: string) {
 
 function formBoolean(formData: FormData, key: string) {
   return formData.get(key) === "on";
+}
+
+function sectionString(formData: FormData, key: string, label: string, maxLength: number) {
+  const value = formString(formData, key);
+  if (value.length > maxLength) {
+    throw new Error(`${label} must be ${maxLength.toLocaleString()} characters or fewer.`);
+  }
+  return value;
+}
+
+function positiveIntegerValues(formData: FormData, key: string) {
+  return formData.getAll(key).map((value) => {
+    const parsed = typeof value === "string" ? Number(value.trim()) : Number.NaN;
+    if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+      throw new Error("A gallery image identifier is invalid.");
+    }
+    return parsed;
+  });
+}
+
+function uniqueNumbers(values: number[]) {
+  return [...new Set(values)];
 }
 
 function strapiBaseUrl() {
@@ -157,51 +190,23 @@ async function sectionPayload(
 ) {
   const component = formString(formData, `${keyPrefix}Component`);
   const remove = formBoolean(formData, `${keyPrefix}Remove`);
-  const eyebrow = formString(formData, `${keyPrefix}Eyebrow`);
-  const heading = formString(formData, `${keyPrefix}Heading`);
-  const body = formString(formData, `${keyPrefix}Body`);
-  const buttonLabel = formString(formData, `${keyPrefix}ButtonLabel`);
+  if (remove || !component) {
+    return null;
+  }
+  if (!PAGE_SECTION_COMPONENTS.has(component)) {
+    throw new Error(`The section type “${component}” is not supported.`);
+  }
+
+  const eyebrow = sectionString(formData, `${keyPrefix}Eyebrow`, "Section intro label", 120);
+  const heading = sectionString(formData, `${keyPrefix}Heading`, "Section title", 240);
+  const body = sectionString(formData, `${keyPrefix}Body`, "Section content", MAX_SECTION_RICH_TEXT_LENGTH);
+  const buttonLabel = sectionString(formData, `${keyPrefix}ButtonLabel`, "Section button text", 120);
   const requestedButtonUrl = formString(formData, `${keyPrefix}ButtonUrl`);
-  const existingImageId = formNumber(formData, `${keyPrefix}ImageId`);
-  const selectedImageId = formNumber(formData, `${keyPrefix}ImageLibraryId`);
-  const imageFile = formData.get(`${keyPrefix}ImageFile`);
-  const hasImageUpload = imageFile instanceof File && imageFile.size > 0;
-  if (formString(formData, `${keyPrefix}ImageId`) && (!Number.isSafeInteger(existingImageId) || Number(existingImageId) <= 0)) {
-    throw new Error("The retained section image identifier is invalid.");
-  }
-  if (formString(formData, `${keyPrefix}ImageLibraryId`) && !selectedImageId) {
-    throw new Error("Choose a valid existing section image.");
-  }
-  if (hasImageUpload && selectedImageId) {
-    throw new Error("Choose either an existing section image or a new upload, not both.");
-  }
-  if (selectedImageId) {
-    await assertReusableMediaSelection(selectedImageId, "image/*");
-  }
-  if (existingImageId && !allowedCurrentImageIds.has(existingImageId)) {
-    await assertReusableMediaSelection(existingImageId, "image/*");
-  }
-  const uploadedImageId = hasImageUpload && imageFile instanceof File ? await uploadSectionImage(imageFile) : null;
-  if (uploadedImageId) {
-    uploads.track(uploadedImageId);
-  }
-  const imageId = uploadedImageId ?? selectedImageId ?? existingImageId;
-  const imageSide = formString(formData, `${keyPrefix}ImageSide`) || "right";
-  const imageDescription = formString(formData, `${keyPrefix}ImageDescription`);
   const id = formNumber(formData, `${keyPrefix}Id`);
   const order = formNumber(formData, `${keyPrefix}Order`) ?? 0;
   const buttonUrl = safeCmsHref(requestedButtonUrl);
   if (requestedButtonUrl && (!buttonUrl || buttonUrl.startsWith("mailto:") || buttonUrl.startsWith("tel:") || buttonUrl.startsWith("#"))) {
     throw new Error(`Section button URL “${requestedButtonUrl}” is not allowed.`);
-  }
-
-  if (remove || !component) {
-    return null;
-  }
-
-  const hasContent = Boolean(eyebrow || heading || body || buttonLabel || buttonUrl || imageId);
-  if (!hasContent) {
-    return null;
   }
 
   const base: Record<string, unknown> = {
@@ -218,14 +223,138 @@ async function sectionPayload(
   if (component === "page-sections.cta-section") {
     base.buttonLabel = buttonLabel;
     base.buttonUrl = buttonUrl;
+    if (!eyebrow && !heading && !body && !buttonLabel && !buttonUrl) return null;
   }
 
   if (component === "page-sections.image-text-section") {
+    const existingImageId = formNumber(formData, `${keyPrefix}ImageId`);
+    const selectedImageId = formNumber(formData, `${keyPrefix}ImageLibraryId`);
+    const imageFile = formData.get(`${keyPrefix}ImageFile`);
+    const hasImageUpload = imageFile instanceof File && imageFile.size > 0;
+    if (formString(formData, `${keyPrefix}ImageId`) && (!Number.isSafeInteger(existingImageId) || Number(existingImageId) <= 0)) {
+      throw new Error("The retained section image identifier is invalid.");
+    }
+    if (formString(formData, `${keyPrefix}ImageLibraryId`) && !selectedImageId) {
+      throw new Error("Choose a valid existing section image.");
+    }
+    if (hasImageUpload && selectedImageId) {
+      throw new Error("Choose either an existing section image or a new upload, not both.");
+    }
+    if (selectedImageId) {
+      await assertReusableMediaSelection(selectedImageId, "image/*");
+    }
+    if (existingImageId && !allowedCurrentImageIds.has(existingImageId)) {
+      await assertReusableMediaSelection(existingImageId, "image/*");
+    }
+    const uploadedImageId = hasImageUpload && imageFile instanceof File ? await uploadSectionImage(imageFile) : null;
+    if (uploadedImageId) {
+      uploads.track(uploadedImageId);
+    }
+    const imageId = uploadedImageId ?? selectedImageId ?? existingImageId;
+    const imageSide = formString(formData, `${keyPrefix}ImageSide`) || "right";
+    const imageDescription = sectionString(formData, `${keyPrefix}ImageDescription`, "Image description", 500);
     base.imageSide = imageSide === "left" || imageSide === "right" || imageSide === "none" ? imageSide : "right";
     base.imageDescription = imageDescription;
     if (imageId) {
       base.image = imageId;
     }
+    if (!eyebrow && !heading && !body && !imageId) return null;
+  }
+
+  if (component === "page-sections.gallery-section") {
+    const currentImageIds = uniqueNumbers(positiveIntegerValues(formData, `${keyPrefix}GalleryImageId`));
+    const removedImageIds = new Set(positiveIntegerValues(formData, `${keyPrefix}GalleryRemoveImageId`));
+    const selectedImageIds = uniqueNumbers(positiveIntegerValues(formData, `${keyPrefix}GalleryImageLibraryId`));
+    const files = formData.getAll(`${keyPrefix}GalleryImageFiles`)
+      .filter((value): value is File => value instanceof File && value.size > 0);
+
+    if (currentImageIds.some((imageId) => !allowedCurrentImageIds.has(imageId))) {
+      throw new Error("A retained gallery image is not part of the current page.");
+    }
+    if ([...removedImageIds].some((imageId) => !currentImageIds.includes(imageId))) {
+      throw new Error("A gallery image removal is invalid.");
+    }
+    const retainedImageIds = currentImageIds.filter((imageId) => !removedImageIds.has(imageId));
+    if (uniqueNumbers([...retainedImageIds, ...selectedImageIds]).length + files.length > MAX_GALLERY_IMAGES) {
+      throw new Error(`Gallery sections can contain at most ${MAX_GALLERY_IMAGES} images.`);
+    }
+    for (const imageId of selectedImageIds) {
+      await assertReusableMediaSelection(imageId, "image/*");
+    }
+    const uploadedImageIds: number[] = [];
+    for (const file of files) {
+      const imageId = await uploadSectionImage(file);
+      if (imageId) {
+        uploads.track(imageId);
+        uploadedImageIds.push(imageId);
+      }
+    }
+    const imageIds = uniqueNumbers([
+      ...retainedImageIds,
+      ...selectedImageIds,
+      ...uploadedImageIds,
+    ]);
+    if (!imageIds.length) {
+      throw new Error("Gallery sections require at least one image.");
+    }
+    if (imageIds.length > MAX_GALLERY_IMAGES) {
+      throw new Error(`Gallery sections can contain at most ${MAX_GALLERY_IMAGES} images.`);
+    }
+    const galleryColumns = formString(formData, `${keyPrefix}GalleryColumns`);
+    base.images = imageIds;
+    base.galleryColumns = galleryColumns === "two" || galleryColumns === "four" ? galleryColumns : "three";
+  }
+
+  if (component === "page-sections.embed-section") {
+    const requestedEmbedUrl = formString(formData, `${keyPrefix}EmbedUrl`);
+    const embedUrl = safeCmsEmbedUrl(requestedEmbedUrl);
+    const embedTitle = sectionString(formData, `${keyPrefix}EmbedTitle`, "Embedded video title", 200);
+    const embedAspectRatio = formString(formData, `${keyPrefix}EmbedAspectRatio`);
+    if (!embedUrl) {
+      throw new Error("Embed sections require a valid YouTube or Vimeo video URL.");
+    }
+    if (!embedTitle) {
+      throw new Error("Embed sections require a descriptive video title for screen readers.");
+    }
+    base.embedUrl = embedUrl;
+    base.embedTitle = embedTitle;
+    base.embedAspectRatio = embedAspectRatio === "standard" || embedAspectRatio === "square"
+      ? embedAspectRatio
+      : "landscape";
+  }
+
+  if (component === "page-sections.form-section") {
+    const formType = formString(formData, `${keyPrefix}FormType`);
+    if (formType !== "contact" && formType !== "newsletter") {
+      throw new Error("Form sections must use the contact or newsletter form.");
+    }
+    if (!heading) {
+      throw new Error("Form sections require a section title.");
+    }
+    base.formType = formType;
+  }
+
+  if (component === "page-sections.columns-section") {
+    const columnCount = formString(formData, `${keyPrefix}ColumnCount`) === "three" ? "three" : "two";
+    const columns = [1, 2, 3].map((column) => ({
+      heading: sectionString(formData, `${keyPrefix}Column${column}Heading`, `Column ${column} title`, 200),
+      body: sectionString(formData, `${keyPrefix}Column${column}Body`, `Column ${column} content`, MAX_SECTION_RICH_TEXT_LENGTH),
+    }));
+    const requiredColumns = columnCount === "three" ? columns : columns.slice(0, 2);
+    if (requiredColumns.some((column) => !column.heading && !column.body)) {
+      throw new Error(`${columnCount === "three" ? "Three-column" : "Two-column"} sections require content in every displayed column.`);
+    }
+    base.columnCount = columnCount;
+    base.columnOneHeading = columns[0].heading;
+    base.columnOneBody = columns[0].body;
+    base.columnTwoHeading = columns[1].heading;
+    base.columnTwoBody = columns[1].body;
+    base.columnThreeHeading = columnCount === "three" ? columns[2].heading : "";
+    base.columnThreeBody = columnCount === "three" ? columns[2].body : "";
+  }
+
+  if (component === "page-sections.text-section" && !eyebrow && !heading && !body) {
+    return null;
   }
 
   return { order, section: base };
@@ -392,6 +521,7 @@ export async function saveStrapiPageAction(documentId: string, formData: FormDat
     allowedImageIds: new Set([
       ...(existingPage.socialImage?.id ? [existingPage.socialImage.id] : []),
       ...existingPage.sections.flatMap((section) => section.image?.id ? [section.image.id] : []),
+      ...existingPage.sections.flatMap((section) => section.images.flatMap((image) => image.id ? [image.id] : [])),
     ]),
   };
   const uploads = createNewUploadCleanup(deleteStructuredFile);

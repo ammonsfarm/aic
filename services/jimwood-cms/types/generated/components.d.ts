@@ -76,6 +76,73 @@ export interface PageSectionsCtaSection extends Struct.ComponentSchema {
   };
 }
 
+export interface PageSectionsColumnsSection extends Struct.ComponentSchema {
+  collectionName: 'components_page_sections_columns_sections';
+  info: {
+    displayName: 'Columns Section';
+  };
+  attributes: {
+    body: Schema.Attribute.RichText;
+    columnCount: Schema.Attribute.Enumeration<['two', 'three']> &
+      Schema.Attribute.DefaultTo<'two'>;
+    columnOneBody: Schema.Attribute.RichText;
+    columnOneHeading: Schema.Attribute.String;
+    columnThreeBody: Schema.Attribute.RichText;
+    columnThreeHeading: Schema.Attribute.String;
+    columnTwoBody: Schema.Attribute.RichText;
+    columnTwoHeading: Schema.Attribute.String;
+    eyebrow: Schema.Attribute.String;
+    heading: Schema.Attribute.String;
+  };
+}
+
+export interface PageSectionsEmbedSection extends Struct.ComponentSchema {
+  collectionName: 'components_page_sections_embed_sections';
+  info: {
+    displayName: 'Embed Section';
+  };
+  attributes: {
+    body: Schema.Attribute.RichText;
+    embedAspectRatio: Schema.Attribute.Enumeration<
+      ['landscape', 'standard', 'square']
+    > &
+      Schema.Attribute.DefaultTo<'landscape'>;
+    embedTitle: Schema.Attribute.String & Schema.Attribute.Required;
+    embedUrl: Schema.Attribute.String & Schema.Attribute.Required;
+    eyebrow: Schema.Attribute.String;
+    heading: Schema.Attribute.String;
+  };
+}
+
+export interface PageSectionsFormSection extends Struct.ComponentSchema {
+  collectionName: 'components_page_sections_form_sections';
+  info: {
+    displayName: 'Form Section';
+  };
+  attributes: {
+    body: Schema.Attribute.RichText;
+    eyebrow: Schema.Attribute.String;
+    formType: Schema.Attribute.Enumeration<['contact', 'newsletter']> &
+      Schema.Attribute.Required;
+    heading: Schema.Attribute.String & Schema.Attribute.Required;
+  };
+}
+
+export interface PageSectionsGallerySection extends Struct.ComponentSchema {
+  collectionName: 'components_page_sections_gallery_sections';
+  info: {
+    displayName: 'Gallery Section';
+  };
+  attributes: {
+    body: Schema.Attribute.RichText;
+    eyebrow: Schema.Attribute.String;
+    galleryColumns: Schema.Attribute.Enumeration<['two', 'three', 'four']> &
+      Schema.Attribute.DefaultTo<'three'>;
+    heading: Schema.Attribute.String;
+    images: Schema.Attribute.Media<'images', true> & Schema.Attribute.Required;
+  };
+}
+
 export interface PageSectionsImageTextSection extends Struct.ComponentSchema {
   collectionName: 'components_page_sections_image_text_sections';
   info: {
@@ -132,6 +199,10 @@ declare module '@strapi/strapi' {
       'content.scripture-reference': ContentScriptureReference;
       'navigation.navigation-item': NavigationNavigationItem;
       'page-sections.cta-section': PageSectionsCtaSection;
+      'page-sections.columns-section': PageSectionsColumnsSection;
+      'page-sections.embed-section': PageSectionsEmbedSection;
+      'page-sections.form-section': PageSectionsFormSection;
+      'page-sections.gallery-section': PageSectionsGallerySection;
       'page-sections.image-text-section': PageSectionsImageTextSection;
       'page-sections.text-section': PageSectionsTextSection;
       'seo.metadata': SeoMetadata;

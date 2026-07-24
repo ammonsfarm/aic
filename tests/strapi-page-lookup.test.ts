@@ -90,6 +90,71 @@ describe("dynamic CMS page lookup semantics", () => {
     expect(init.next?.tags).toContain(strapiPageCacheTag("custom-page"));
   });
 
+  it("normalizes gallery, embed, form, and column sections from published Strapi data", async () => {
+    process.env.STRAPI_URL = "http://127.0.0.1:1337";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      data: [{
+        documentId: "page-builder",
+        pageKey: "page-builder",
+        slug: "page-builder",
+        title: "Page builder",
+        active: true,
+        sections: [
+          {
+            id: 1,
+            __component: "page-sections.gallery-section",
+            heading: "Gallery",
+            galleryColumns: "four",
+            images: [
+              { id: 11, documentId: "image-11", url: "/uploads/one.jpg", alternativeText: "One", name: "one.jpg" },
+              { id: 12, documentId: "image-12", url: "/uploads/two.jpg", alternativeText: "", name: "two.jpg" },
+            ],
+          },
+          {
+            id: 2,
+            __component: "page-sections.embed-section",
+            embedUrl: "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ",
+            embedTitle: "Teaching video",
+            embedAspectRatio: "standard",
+          },
+          {
+            id: 3,
+            __component: "page-sections.form-section",
+            heading: "Contact us",
+            formType: "contact",
+          },
+          {
+            id: 4,
+            __component: "page-sections.columns-section",
+            columnCount: "three",
+            columnOneHeading: "One",
+            columnOneBody: "<p>First</p>",
+            columnTwoHeading: "Two",
+            columnTwoBody: "<p>Second</p>",
+            columnThreeHeading: "Three",
+            columnThreeBody: "<p>Third</p>",
+          },
+        ],
+      }],
+    }), { status: 200 })));
+
+    const result = await getStrapiPageBySlugResult("page-builder");
+
+    expect(result).toMatchObject({
+      status: "found",
+      page: {
+        sections: [
+          { component: "page-sections.gallery-section", galleryColumns: "four", images: [{ id: 11 }, { id: 12 }] },
+          { component: "page-sections.embed-section", embedAspectRatio: "standard" },
+          { component: "page-sections.form-section", formType: "contact" },
+          { component: "page-sections.columns-section", columnCount: "three", columnThreeHeading: "Three" },
+        ],
+      },
+    });
+    const [url] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [URL];
+    expect(url.searchParams.get("populate[socialImage]")).toBe("true");
+  });
+
   it("uses a tombstone to suppress a stale page during an outage", async () => {
     process.env.STRAPI_URL = "http://127.0.0.1:1337";
     projection.identity.mockResolvedValue({ status: "not-found" });

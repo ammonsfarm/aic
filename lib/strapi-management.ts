@@ -191,10 +191,27 @@ function normalizeMedia(media: unknown): StrapiMedia | null {
   };
 }
 
+function normalizeMediaList(media: unknown) {
+  const wrapper = asRecord(media);
+  const values = Array.isArray(media)
+    ? media
+    : Array.isArray(wrapper.data)
+      ? wrapper.data
+      : [];
+  return values.flatMap((item) => {
+    const normalized = normalizeMedia(item);
+    return normalized ? [normalized] : [];
+  });
+}
+
 function normalizeSection(section: unknown): StrapiPageSection | null {
   const source = asRecord(section);
   const component = getString(source.__component);
   const imageSide = getString(source.imageSide);
+  const galleryColumns = getString(source.galleryColumns);
+  const embedAspectRatio = getString(source.embedAspectRatio);
+  const formType = getString(source.formType);
+  const columnCount = getString(source.columnCount);
 
   if (!component) {
     return null;
@@ -211,6 +228,19 @@ function normalizeSection(section: unknown): StrapiPageSection | null {
     imageSide: imageSide === "none" || imageSide === "left" || imageSide === "right" ? imageSide : "",
     imageDescription: getString(source.imageDescription),
     image: normalizeMedia(source.image),
+    images: normalizeMediaList(source.images),
+    galleryColumns: galleryColumns === "two" || galleryColumns === "four" ? galleryColumns : "three",
+    embedUrl: getString(source.embedUrl),
+    embedTitle: getString(source.embedTitle),
+    embedAspectRatio: embedAspectRatio === "standard" || embedAspectRatio === "square" ? embedAspectRatio : "landscape",
+    formType: formType === "contact" || formType === "newsletter" ? formType : "",
+    columnCount: columnCount === "three" ? "three" : "two",
+    columnOneHeading: getString(source.columnOneHeading),
+    columnOneBody: getString(source.columnOneBody),
+    columnTwoHeading: getString(source.columnTwoHeading),
+    columnTwoBody: getString(source.columnTwoBody),
+    columnThreeHeading: getString(source.columnThreeHeading),
+    columnThreeBody: getString(source.columnThreeBody),
   };
 }
 
@@ -483,7 +513,9 @@ export async function getManagedStrapiPage(documentId: string) {
   const createUrl = (status: StrapiPublicationStatus) => {
     const url = setStatus(new URL(`/api/pages/${documentId}`, baseUrl), status);
     url.searchParams.set("populate[sections][populate]", "*");
-    url.searchParams.set("populate[socialImage]", "*");
+    // A wildcard on Strapi upload files attempts to populate the polymorphic
+    // `related` field and is rejected. The media relation itself is sufficient.
+    url.searchParams.set("populate[socialImage]", "true");
     return url;
   };
 

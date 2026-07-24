@@ -1,16 +1,27 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState, type FormEvent } from "react";
+import { useId, useRef, useState, type FormEvent } from "react";
 
 import { SUBSCRIPTION_CONSENT_TEXT, SUBSCRIPTION_CONSENT_VERSION } from "@/lib/public-subscription-contract";
 
-export function DevotionalSignupForm({ sourcePath = "/" }: { sourcePath?: string }) {
+export function DevotionalSignupForm({
+  sourcePath = "/",
+  labelledBy,
+}: {
+  sourcePath?: string;
+  labelledBy?: string;
+}) {
   const [startedAt, setStartedAt] = useState(() => Date.now());
   const [status, setStatus] = useState<{ kind: "idle" | "busy" | "success" | "error"; message: string }>({ kind: "idle", message: "" });
   const [fieldErrors, setFieldErrors] = useState<{ email?: string; consent?: string }>({});
   const emailRef = useRef<HTMLInputElement>(null);
   const consentRef = useRef<HTMLInputElement>(null);
+  const generatedId = useId().replace(/:/g, "");
+  const emailId = `devotional-email-${generatedId}`;
+  const emailErrorId = `${emailId}-error`;
+  const consentId = `devotional-consent-${generatedId}`;
+  const consentErrorId = `${consentId}-error`;
 
   function focusField(field: "email" | "consent") {
     window.requestAnimationFrame(() => (field === "email" ? emailRef : consentRef).current?.focus());
@@ -47,7 +58,7 @@ export function DevotionalSignupForm({ sourcePath = "/" }: { sourcePath?: string
           consent,
           consentVersion: SUBSCRIPTION_CONSENT_VERSION,
           website: data.get("website"),
-          sourcePath,
+          sourcePath: sourcePath || window.location.pathname,
           startedAt,
         }),
       });
@@ -71,12 +82,12 @@ export function DevotionalSignupForm({ sourcePath = "/" }: { sourcePath?: string
   }
 
   return (
-    <form className="pw-subscribe-form" onSubmit={submit} noValidate>
+    <form className="pw-subscribe-form" onSubmit={submit} noValidate aria-labelledby={labelledBy}>
       <div className="pw-subscribe-form__row">
-        <label htmlFor="devotional-email">Email address</label>
+        <label htmlFor={emailId}>Email address</label>
         <input
           ref={emailRef}
-          id="devotional-email"
+          id={emailId}
           name="email"
           type="email"
           inputMode="email"
@@ -84,29 +95,29 @@ export function DevotionalSignupForm({ sourcePath = "/" }: { sourcePath?: string
           maxLength={254}
           required
           aria-invalid={Boolean(fieldErrors.email)}
-          aria-describedby={fieldErrors.email ? "devotional-email-error" : undefined}
+          aria-describedby={fieldErrors.email ? emailErrorId : undefined}
           onInput={() => setFieldErrors((current) => ({ ...current, email: undefined }))}
         />
         <button className="pw-button pw-button--light" type="submit" disabled={status.kind === "busy"}>
           {status.kind === "busy" ? "Subscribing…" : "Subscribe"}
         </button>
-        {fieldErrors.email ? <p id="devotional-email-error" className="pw-subscribe-form__field-error">{fieldErrors.email}</p> : null}
+        {fieldErrors.email ? <p id={emailErrorId} className="pw-subscribe-form__field-error">{fieldErrors.email}</p> : null}
       </div>
-      <label className="pw-subscribe-form__consent" htmlFor="devotional-consent">
+      <label className="pw-subscribe-form__consent" htmlFor={consentId}>
         <input
           ref={consentRef}
-          id="devotional-consent"
+          id={consentId}
           name="consent"
           type="checkbox"
           value="yes"
           required
           aria-invalid={Boolean(fieldErrors.consent)}
-          aria-describedby={fieldErrors.consent ? "devotional-consent-error" : undefined}
+          aria-describedby={fieldErrors.consent ? consentErrorId : undefined}
           onChange={() => setFieldErrors((current) => ({ ...current, consent: undefined }))}
         />
         <span>{SUBSCRIPTION_CONSENT_TEXT} Read our <Link href="/privacy-terms-conditions/">privacy information</Link>.</span>
       </label>
-      {fieldErrors.consent ? <p id="devotional-consent-error" className="pw-subscribe-form__field-error">{fieldErrors.consent}</p> : null}
+      {fieldErrors.consent ? <p id={consentErrorId} className="pw-subscribe-form__field-error">{fieldErrors.consent}</p> : null}
       <label className="pw-honeypot" aria-hidden="true">
         Website
         <input name="website" type="text" tabIndex={-1} autoComplete="off" />

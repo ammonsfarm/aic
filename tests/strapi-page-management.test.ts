@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   assertManagedStrapiPageSlugAvailable,
+  getManagedStrapiPage,
   getManagedStrapiPageSummary,
   listManagedStrapiPages,
   listManagedStrapiPagesPage,
@@ -37,6 +38,43 @@ afterEach(() => {
 });
 
 describe("managed Strapi page inventory", () => {
+  it("populates page media without expanding the forbidden upload-file related field", async () => {
+    const draft = {
+      data: {
+        ...page("page-builder", "Page builder"),
+        socialImage: { id: 19, url: "/uploads/share.jpg", name: "share.jpg" },
+        sections: [{
+          id: 7,
+          __component: "page-sections.gallery-section",
+          heading: "Gallery",
+          images: [
+            { id: 21, url: "/uploads/one.jpg", name: "one.jpg", alternativeText: "First image" },
+            { id: 22, url: "/uploads/two.jpg", name: "two.jpg", alternativeText: "Second image" },
+          ],
+          galleryColumns: "two",
+        }],
+      },
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(draft), { status: 200 }))
+      .mockResolvedValueOnce(new Response("not published", { status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getManagedStrapiPage("page-builder");
+
+    expect(result?.socialImage?.id).toBe(19);
+    expect(result?.sections[0]).toMatchObject({
+      component: "page-sections.gallery-section",
+      galleryColumns: "two",
+      images: [{ id: 21 }, { id: 22 }],
+    });
+    for (const [url] of fetchMock.mock.calls as Array<[URL]>) {
+      expect(url.searchParams.get("populate[socialImage]")).toBe("true");
+      expect(url.searchParams.get("populate[sections][populate]")).toBe("*");
+      expect(url.toString()).not.toContain("socialImage%5D=%2A");
+    }
+  });
+
   it("reports draft, published, and archived page state for the shared workflow dashboard", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(payload([], 8, 1, 1))

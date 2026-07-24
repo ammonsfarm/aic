@@ -35,7 +35,7 @@ export default async function NewStrapiPage() {
         <div>
           <p className="eyebrow">Content / Site Pages</p>
           <h1>New public page</h1>
-          <p>Create the page first with the basic page details. After it is created, you can add page sections one at a time.</p>
+          <p>Create the page first with the basic page details. After it is created, you can add text, image, gallery, video, form, call-to-action, and column sections.</p>
         </div>
         <div className="button-row">
           <Link className="button button--ghost" href="/content/site-pages">
@@ -149,7 +149,7 @@ export default async function NewStrapiPage() {
 
           <section className="notice-card">
             <strong>Sections come next.</strong>
-            <p>After you create the page, open it again to add Text, Image + Text, or Call to Action sections one at a time.</p>
+            <p>After you create the page, open it again to build its sections and preview them before publishing.</p>
           </section>
 
           <label>

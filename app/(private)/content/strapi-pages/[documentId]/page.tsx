@@ -23,6 +23,10 @@ const SECTION_COMPONENTS = [
   { value: "page-sections.text-section", label: "Text" },
   { value: "page-sections.image-text-section", label: "Image + Text" },
   { value: "page-sections.cta-section", label: "Call to Action" },
+  { value: "page-sections.gallery-section", label: "Gallery" },
+  { value: "page-sections.embed-section", label: "Video Embed" },
+  { value: "page-sections.form-section", label: "Form" },
+  { value: "page-sections.columns-section", label: "Columns" },
 ];
 
 function formatDate(value: string) {
@@ -114,6 +118,19 @@ function SectionFields({ section, index, mediaOptions }: { section: StrapiPageSe
         imageName={section.image?.name || "current image"}
         imageUrl={section.image?.url}
         imageAlt={section.image?.alternativeText || section.heading}
+        images={section.images}
+        galleryColumns={section.galleryColumns}
+        embedUrl={section.embedUrl}
+        embedTitle={section.embedTitle}
+        embedAspectRatio={section.embedAspectRatio}
+        formType={section.formType}
+        columnCount={section.columnCount}
+        columnOneHeading={section.columnOneHeading}
+        columnOneBody={section.columnOneBody}
+        columnTwoHeading={section.columnTwoHeading}
+        columnTwoBody={section.columnTwoBody}
+        columnThreeHeading={section.columnThreeHeading}
+        columnThreeBody={section.columnThreeBody}
         mediaOptions={mediaOptions}
       />
     </fieldset>
@@ -348,7 +365,7 @@ export default async function EditStrapiPage({
             <div>
               <p className="eyebrow">Sections</p>
               <h2>Page sections</h2>
-              <p className="muted-copy">Edit, delete, reorder, or add sections. Use Text, Image + Text, or Call to Action based on what the page needs.</p>
+              <p className="muted-copy">Edit, delete, reorder, or add text, image, call-to-action, gallery, video, form, and column sections.</p>
             </div>
             {page.sections.map((section, index) => (
               <SectionFields key={`${section.component}-${section.id ?? index}`} section={section} index={index} mediaOptions={imageOptions} />

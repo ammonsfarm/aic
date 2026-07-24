@@ -23,6 +23,19 @@ export type StrapiPageSection = {
   imageSide: "none" | "left" | "right" | "";
   imageDescription: string;
   image: StrapiMedia | null;
+  images: StrapiMedia[];
+  galleryColumns: "two" | "three" | "four";
+  embedUrl: string;
+  embedTitle: string;
+  embedAspectRatio: "landscape" | "standard" | "square";
+  formType: "contact" | "newsletter" | "";
+  columnCount: "two" | "three";
+  columnOneHeading: string;
+  columnOneBody: string;
+  columnTwoHeading: string;
+  columnTwoBody: string;
+  columnThreeHeading: string;
+  columnThreeBody: string;
 };
 
 export type StrapiPage = {
@@ -124,6 +137,19 @@ function normalizeMedia(media: unknown): StrapiMedia | null {
   };
 }
 
+function normalizeMediaList(media: unknown) {
+  const wrapper = media && typeof media === "object" ? media as Record<string, unknown> : {};
+  const values = Array.isArray(media)
+    ? media
+    : Array.isArray(wrapper.data)
+      ? wrapper.data
+      : [];
+  return values.flatMap((item) => {
+    const normalized = normalizeMedia(item);
+    return normalized ? [normalized] : [];
+  });
+}
+
 function normalizePageSection(section: unknown): StrapiPageSection | null {
   if (!section || typeof section !== "object") {
     return null;
@@ -131,6 +157,10 @@ function normalizePageSection(section: unknown): StrapiPageSection | null {
 
   const source = section as Record<string, unknown>;
   const imageSide = getString(source.imageSide);
+  const galleryColumns = getString(source.galleryColumns);
+  const embedAspectRatio = getString(source.embedAspectRatio);
+  const formType = getString(source.formType);
+  const columnCount = getString(source.columnCount);
 
   return {
     id: typeof source.id === "number" ? source.id : undefined,
@@ -143,6 +173,19 @@ function normalizePageSection(section: unknown): StrapiPageSection | null {
     imageSide: imageSide === "none" || imageSide === "left" || imageSide === "right" ? imageSide : "",
     imageDescription: getString(source.imageDescription),
     image: normalizeMedia(source.image),
+    images: normalizeMediaList(source.images),
+    galleryColumns: galleryColumns === "two" || galleryColumns === "four" ? galleryColumns : "three",
+    embedUrl: getString(source.embedUrl),
+    embedTitle: getString(source.embedTitle),
+    embedAspectRatio: embedAspectRatio === "standard" || embedAspectRatio === "square" ? embedAspectRatio : "landscape",
+    formType: formType === "contact" || formType === "newsletter" ? formType : "",
+    columnCount: columnCount === "three" ? "three" : "two",
+    columnOneHeading: getString(source.columnOneHeading),
+    columnOneBody: getString(source.columnOneBody),
+    columnTwoHeading: getString(source.columnTwoHeading),
+    columnTwoBody: getString(source.columnTwoBody),
+    columnThreeHeading: getString(source.columnThreeHeading),
+    columnThreeBody: getString(source.columnThreeBody),
   };
 }
 
@@ -256,7 +299,7 @@ export async function getStrapiPageByPageKeyResult(pageKey: string): Promise<Str
   url.searchParams.set("status", "published");
   url.searchParams.set("pagination[pageSize]", "1");
   url.searchParams.set("populate[sections][populate]", "*");
-  url.searchParams.set("populate[socialImage]", "*");
+  url.searchParams.set("populate[socialImage]", "true");
 
   const live = await fetchStrapiPagesResult(url, [STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag(pageKey)]);
   if (live.status === "found") return live;
@@ -290,7 +333,7 @@ export async function getStrapiPageBySlugResult(slug: string): Promise<StrapiPag
   url.searchParams.set("status", "published");
   url.searchParams.set("pagination[pageSize]", "1");
   url.searchParams.set("populate[sections][populate]", "*");
-  url.searchParams.set("populate[socialImage]", "*");
+  url.searchParams.set("populate[socialImage]", "true");
 
   const live = await fetchStrapiPagesResult(url, [STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag(slug)]);
   if (live.status === "found" || live.status === "not-found") return live;

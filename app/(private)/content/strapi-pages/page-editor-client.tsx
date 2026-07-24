@@ -9,6 +9,7 @@ import type { FormEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { isSiblingEditorForm } from "@/lib/unsaved-editor-guard";
+import type { StrapiMedia } from "@/lib/strapi";
 import type { ReusableMediaOption } from "@/lib/strapi-structured-management";
 
 type PageCoreFieldsProps = {
@@ -23,6 +24,7 @@ type RichTextAreaProps = {
   defaultValue?: string;
   rows?: number;
   helpText?: string;
+  label?: string;
 };
 
 type PageEditorFormProps = {
@@ -46,6 +48,19 @@ type ExistingSectionBodyProps = {
   imageName: string;
   imageUrl?: string;
   imageAlt?: string;
+  images: StrapiMedia[];
+  galleryColumns: "two" | "three" | "four";
+  embedUrl: string;
+  embedTitle: string;
+  embedAspectRatio: "landscape" | "standard" | "square";
+  formType: "contact" | "newsletter" | "";
+  columnCount: "two" | "three";
+  columnOneHeading: string;
+  columnOneBody: string;
+  columnTwoHeading: string;
+  columnTwoBody: string;
+  columnThreeHeading: string;
+  columnThreeBody: string;
   mediaOptions: ReusableMediaOption[];
 };
 
@@ -64,6 +79,26 @@ const SECTION_OPTIONS = [
     value: "page-sections.cta-section",
     label: "Call to Action",
     description: "Use this for a short message with a button.",
+  },
+  {
+    value: "page-sections.gallery-section",
+    label: "Gallery",
+    description: "Show up to 12 public images in a responsive grid.",
+  },
+  {
+    value: "page-sections.embed-section",
+    label: "Video Embed",
+    description: "Add an accessible YouTube or Vimeo video.",
+  },
+  {
+    value: "page-sections.form-section",
+    label: "Form",
+    description: "Add the ministry contact or newsletter form.",
+  },
+  {
+    value: "page-sections.columns-section",
+    label: "Columns",
+    description: "Arrange related content in two or three columns.",
   },
 ] as const;
 
@@ -323,7 +358,7 @@ export function PageCoreFields({ initialTitle = "", initialSlug = "", initialPag
   );
 }
 
-export function RichTextArea({ name, defaultValue = "", rows = 10, helpText }: RichTextAreaProps) {
+export function RichTextArea({ name, defaultValue = "", rows = 10, helpText, label = "Main content" }: RichTextAreaProps) {
   const [value, setValue] = useState(markdownToHtml(defaultValue));
   const valueInputRef = useRef<HTMLInputElement>(null);
   const editor = useEditor({
@@ -363,7 +398,7 @@ export function RichTextArea({ name, defaultValue = "", rows = 10, helpText }: R
 
   return (
     <div className="rich-text-field">
-      <span>Main content</span>
+      <span>{label}</span>
       <input ref={valueInputRef} type="hidden" name={name} value={value} />
       <div className="rich-text-control rich-text-control--editor" data-empty={!value.trim()}>
         <div className="rich-text-toolbar" aria-label="Rich text formatting tools">
@@ -507,6 +542,190 @@ function ImageSectionFields({
   );
 }
 
+function GallerySectionFields({
+  prefix,
+  images = [],
+  galleryColumns = "three",
+  mediaOptions,
+}: {
+  prefix: string;
+  images?: StrapiMedia[];
+  galleryColumns?: "two" | "three" | "four";
+  mediaOptions: ReusableMediaOption[];
+}) {
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+  return (
+    <fieldset className="editor-field-group gallery-editor">
+      <legend>Gallery images</legend>
+      <p className="muted-copy">Use between 1 and 12 images. Current images keep their order; newly selected or uploaded images are added after them.</p>
+      {images.length ? (
+        <div className="gallery-editor__current" aria-label="Current gallery images">
+          {images.map((image, index) => image.id ? (
+            <label className="gallery-editor__image" key={image.id}>
+              <input type="hidden" name={`${prefix}GalleryImageId`} value={image.id} />
+              <img src={image.url} alt={image.alternativeText || ""} />
+              <span>{image.name || `Gallery image ${index + 1}`}</span>
+              <span className="checkbox-row">
+                <input name={`${prefix}GalleryRemoveImageId`} type="checkbox" value={image.id} />
+                Remove
+              </span>
+            </label>
+          ) : null)}
+        </div>
+      ) : null}
+      <div className="editor-grid editor-grid--two">
+        <label>
+          <span>Add existing public images</span>
+          <select
+            name={`${prefix}GalleryImageLibraryId`}
+            multiple
+            size={Math.min(7, Math.max(4, mediaOptions.length))}
+            value={selectedIds}
+            onChange={(event) => setSelectedIds(Array.from(event.target.selectedOptions, (option) => option.value))}
+          >
+            {mediaOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}{option.altText ? "" : " — no image description"}
+              </option>
+            ))}
+          </select>
+          <small>Hold Command or Control to select more than one. Only published public images are listed.</small>
+        </label>
+        <label>
+          <span>Or upload new images</span>
+          <input name={`${prefix}GalleryImageFiles`} type="file" accept="image/*" multiple />
+          <small>JPEG, PNG, WebP, GIF, or AVIF. Each file must be 15 MB or smaller.</small>
+        </label>
+        <label>
+          <span>Images per row</span>
+          <select name={`${prefix}GalleryColumns`} defaultValue={galleryColumns}>
+            <option value="two">Two</option>
+            <option value="three">Three</option>
+            <option value="four">Four</option>
+          </select>
+          <small>The layout automatically collapses on smaller screens.</small>
+        </label>
+      </div>
+      <p className="muted-copy">Image descriptions come from Media Library. Images without a description are treated as decorative by screen readers.</p>
+    </fieldset>
+  );
+}
+
+function EmbedSectionFields({
+  prefix,
+  embedUrl = "",
+  embedTitle = "",
+  embedAspectRatio = "landscape",
+}: {
+  prefix: string;
+  embedUrl?: string;
+  embedTitle?: string;
+  embedAspectRatio?: "landscape" | "standard" | "square";
+}) {
+  return (
+    <div className="editor-grid editor-grid--two">
+      <label>
+        <span>YouTube or Vimeo URL</span>
+        <input name={`${prefix}EmbedUrl`} type="url" defaultValue={embedUrl} placeholder="https://www.youtube.com/watch?v=…" required />
+        <small>Only secure YouTube and Vimeo video links are accepted. The saved URL is converted to the provider&apos;s embed URL.</small>
+      </label>
+      <label>
+        <span>Video title</span>
+        <input name={`${prefix}EmbedTitle`} defaultValue={embedTitle} maxLength={200} required />
+        <small>Required for people using screen readers. Describe the video, not the provider.</small>
+      </label>
+      <label>
+        <span>Video shape</span>
+        <select name={`${prefix}EmbedAspectRatio`} defaultValue={embedAspectRatio}>
+          <option value="landscape">Widescreen (16:9)</option>
+          <option value="standard">Standard (4:3)</option>
+          <option value="square">Square (1:1)</option>
+        </select>
+      </label>
+    </div>
+  );
+}
+
+function FormSectionFields({
+  prefix,
+  formType = "",
+}: {
+  prefix: string;
+  formType?: "contact" | "newsletter" | "";
+}) {
+  return (
+    <label>
+      <span>Form</span>
+      <select name={`${prefix}FormType`} defaultValue={formType} required>
+        <option value="">Choose a form</option>
+        <option value="contact">Ministry contact form</option>
+        <option value="newsletter">Weekly devotional newsletter signup</option>
+      </select>
+      <small>These forms use the existing protected submission, consent, spam prevention, and delivery workflows.</small>
+    </label>
+  );
+}
+
+function ColumnsSectionFields({
+  prefix,
+  columnCount = "two",
+  columnOneHeading = "",
+  columnOneBody = "",
+  columnTwoHeading = "",
+  columnTwoBody = "",
+  columnThreeHeading = "",
+  columnThreeBody = "",
+}: {
+  prefix: string;
+  columnCount?: "two" | "three";
+  columnOneHeading?: string;
+  columnOneBody?: string;
+  columnTwoHeading?: string;
+  columnTwoBody?: string;
+  columnThreeHeading?: string;
+  columnThreeBody?: string;
+}) {
+  const [count, setCount] = useState<"two" | "three">(columnCount);
+  const columns = [
+    { heading: columnOneHeading, body: columnOneBody },
+    { heading: columnTwoHeading, body: columnTwoBody },
+    { heading: columnThreeHeading, body: columnThreeBody },
+  ];
+
+  return (
+    <fieldset className="editor-field-group columns-editor">
+      <legend>Column content</legend>
+      <label>
+        <span>Number of columns</span>
+        <select name={`${prefix}ColumnCount`} value={count} onChange={(event) => setCount(event.target.value === "three" ? "three" : "two")}>
+          <option value="two">Two</option>
+          <option value="three">Three</option>
+        </select>
+        <small>Columns stack into one reading order on small screens.</small>
+      </label>
+      <div className={`columns-editor__grid columns-editor__grid--${count}`}>
+        {columns.slice(0, count === "three" ? 3 : 2).map((column, index) => (
+          <fieldset className="columns-editor__column" key={index}>
+            <legend>Column {index + 1}</legend>
+            <label>
+              <span>Column title</span>
+              <input name={`${prefix}Column${index + 1}Heading`} defaultValue={column.heading} maxLength={200} />
+            </label>
+            <RichTextArea
+              name={`${prefix}Column${index + 1}Body`}
+              defaultValue={column.body}
+              rows={5}
+              label={`Column ${index + 1} content`}
+              helpText="Add a title, content, or both for every displayed column."
+            />
+          </fieldset>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
 export function ExistingSectionTypeFields({
   prefix,
   component,
@@ -518,10 +737,27 @@ export function ExistingSectionTypeFields({
   imageName,
   imageUrl,
   imageAlt,
+  images,
+  galleryColumns,
+  embedUrl,
+  embedTitle,
+  embedAspectRatio,
+  formType,
+  columnCount,
+  columnOneHeading,
+  columnOneBody,
+  columnTwoHeading,
+  columnTwoBody,
+  columnThreeHeading,
+  columnThreeBody,
   mediaOptions,
 }: ExistingSectionBodyProps) {
   const isImageText = component === "page-sections.image-text-section";
   const isCta = component === "page-sections.cta-section";
+  const isGallery = component === "page-sections.gallery-section";
+  const isEmbed = component === "page-sections.embed-section";
+  const isForm = component === "page-sections.form-section";
+  const isColumns = component === "page-sections.columns-section";
 
   return (
     <>
@@ -558,6 +794,22 @@ export function ExistingSectionTypeFields({
           </label>
         </div>
       ) : null}
+
+      {isGallery ? <GallerySectionFields prefix={prefix} images={images} galleryColumns={galleryColumns} mediaOptions={mediaOptions} /> : null}
+      {isEmbed ? <EmbedSectionFields prefix={prefix} embedUrl={embedUrl} embedTitle={embedTitle} embedAspectRatio={embedAspectRatio} /> : null}
+      {isForm ? <FormSectionFields prefix={prefix} formType={formType} /> : null}
+      {isColumns ? (
+        <ColumnsSectionFields
+          prefix={prefix}
+          columnCount={columnCount}
+          columnOneHeading={columnOneHeading}
+          columnOneBody={columnOneBody}
+          columnTwoHeading={columnTwoHeading}
+          columnTwoBody={columnTwoBody}
+          columnThreeHeading={columnThreeHeading}
+          columnThreeBody={columnThreeBody}
+        />
+      ) : null}
     </>
   );
 }
@@ -585,6 +837,10 @@ function AddSectionSlot({
   const selectedType = slot.selectedType;
   const isImageText = selectedType === "page-sections.image-text-section";
   const isCta = selectedType === "page-sections.cta-section";
+  const isGallery = selectedType === "page-sections.gallery-section";
+  const isEmbed = selectedType === "page-sections.embed-section";
+  const isForm = selectedType === "page-sections.form-section";
+  const isColumns = selectedType === "page-sections.columns-section";
   const prefix = `newSection${index}`;
 
   return (
@@ -652,6 +908,11 @@ function AddSectionSlot({
               </label>
             </div>
           ) : null}
+
+          {isGallery ? <GallerySectionFields prefix={prefix} mediaOptions={mediaOptions} /> : null}
+          {isEmbed ? <EmbedSectionFields prefix={prefix} /> : null}
+          {isForm ? <FormSectionFields prefix={prefix} /> : null}
+          {isColumns ? <ColumnsSectionFields prefix={prefix} /> : null}
         </fieldset>
       )}
     </div>

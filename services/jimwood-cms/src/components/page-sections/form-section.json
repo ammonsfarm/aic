@@ -1,0 +1,28 @@
+{
+  "collectionName": "components_page_sections_form_sections",
+  "info": {
+    "displayName": "Form Section"
+  },
+  "options": {},
+  "attributes": {
+    "eyebrow": {
+      "type": "string"
+    },
+    "heading": {
+      "type": "string",
+      "required": true
+    },
+    "body": {
+      "type": "richtext"
+    },
+    "formType": {
+      "type": "enumeration",
+      "required": true,
+      "enum": [
+        "contact",
+        "newsletter"
+      ]
+    }
+  },
+  "config": {}
+}

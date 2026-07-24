@@ -1,0 +1,36 @@
+{
+  "collectionName": "components_page_sections_gallery_sections",
+  "info": {
+    "displayName": "Gallery Section"
+  },
+  "options": {},
+  "attributes": {
+    "eyebrow": {
+      "type": "string"
+    },
+    "heading": {
+      "type": "string"
+    },
+    "body": {
+      "type": "richtext"
+    },
+    "images": {
+      "type": "media",
+      "multiple": true,
+      "required": true,
+      "allowedTypes": [
+        "images"
+      ]
+    },
+    "galleryColumns": {
+      "type": "enumeration",
+      "default": "three",
+      "enum": [
+        "two",
+        "three",
+        "four"
+      ]
+    }
+  },
+  "config": {}
+}

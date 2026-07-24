@@ -98,6 +98,41 @@ export function safeCmsImageSrc(value: string) {
   }
 }
 
+export function safeCmsEmbedUrl(value: string) {
+  const source = value.trim();
+  if (!source || source.length > 2048 || /[\u0000-\u001f\\]/.test(source) || source.startsWith("//")) return "";
+
+  try {
+    const parsed = new URL(source);
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password) return "";
+    const host = parsed.hostname.toLowerCase();
+
+    if (host === "youtu.be" || host === "youtube.com" || host === "www.youtube.com" || host === "m.youtube.com" || host === "www.youtube-nocookie.com") {
+      const pathParts = parsed.pathname.split("/").filter(Boolean);
+      const candidate = host === "youtu.be"
+        ? pathParts[0]
+        : parsed.pathname === "/watch"
+          ? parsed.searchParams.get("v")
+          : ["embed", "shorts", "live"].includes(pathParts[0] || "")
+            ? pathParts[1]
+            : "";
+      const videoId = candidate?.trim() || "";
+      return /^[A-Za-z0-9_-]{11}$/.test(videoId)
+        ? `https://www.youtube-nocookie.com/embed/${videoId}`
+        : "";
+    }
+
+    if (host === "vimeo.com" || host === "www.vimeo.com" || host === "player.vimeo.com") {
+      const videoId = parsed.pathname.split("/").filter(Boolean).reverse().find((part) => /^\d{6,12}$/.test(part)) || "";
+      return videoId ? `https://player.vimeo.com/video/${videoId}` : "";
+    }
+
+    return "";
+  } catch {
+    return "";
+  }
+}
+
 export function sanitizeCmsHtml(value: string) {
   const source = /<[a-z][\s\S]*>/i.test(value) ? value : legacyMarkdownToHtml(value);
 
