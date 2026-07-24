@@ -89,7 +89,11 @@ export function CanonicalEpisodeMediaPicker({
               type="search"
               value={query}
               maxLength={160}
-              onChange={(event) => setQuery(event.target.value)}
+              onInput={(event) => event.stopPropagation()}
+              onChange={(event) => {
+                event.stopPropagation();
+                setQuery(event.target.value);
+              }}
             />
           </label>
           <div className="editor-form__actions">

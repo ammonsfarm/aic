@@ -366,6 +366,9 @@ test("media upload is bounded and private visibility is part of the editor contr
   assert.match(actions, /must use one source: canonical episode audio, an existing Strapi item, or a new upload/);
   assert.match(actions, /assertCanonicalEpisodeMediaSelection/);
   assert.match(form, /CanonicalEpisodeMediaPicker/);
+  const canonicalPicker = await source("components/canonical-episode-media-picker.tsx");
+  assert.match(canonicalPicker, /onInput=\{\(event\) => event\.stopPropagation\(\)\}/);
+  assert.match(canonicalPicker, /onChange=\{\(event\) => \{[\s\S]*?event\.stopPropagation\(\);[\s\S]*?setQuery/);
   assert.match(pageActions, /Choose either an existing section image or a new upload/);
 });
 
