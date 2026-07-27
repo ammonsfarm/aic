@@ -58,6 +58,24 @@ describe("episode reprocess action", () => {
     expect(mocks.redirect).toHaveBeenCalledWith(expect.stringContaining("/podcast/episodes?range=30d&trackId=123"));
   });
 
+  it("returns an Administrator to the episode listening page", async () => {
+    const formData = new FormData();
+    formData.set("confirmReprocess", "confirmed");
+    formData.set("reprocessNote", "Correct a major transcript mistake");
+
+    await expect(queueEpisodeReprocessAction(
+      "993652885",
+      "/episodes/993652885",
+      formData,
+    )).rejects.toThrow(/REDIRECT:\/episodes\/993652885\?reprocessQueued=1#episode-reprocess/);
+
+    expect(mocks.queueEpisodeReprocessByTrackId).toHaveBeenCalledWith(
+      "993652885",
+      admin,
+      "Correct a major transcript mistake",
+    );
+  });
+
   it("does not queue without explicit destructive-action confirmation", async () => {
     const formData = new FormData();
     formData.set("reprocessNote", "Correct transcript");

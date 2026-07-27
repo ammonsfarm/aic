@@ -7,6 +7,11 @@ import { TranscriptReader } from "@/components/transcript-reader";
 import { requireInternalReadConsoleUser } from "@/lib/console-access";
 import { getEpisodeDetail } from "@/lib/podcast-data";
 import { canGenerateForRole, canMutateForRole } from "@/lib/rbac";
+import {
+  getEpisodeReprocessContextByTrackId,
+  type EpisodeReprocessContext,
+} from "@/lib/strapi-structured-management";
+import { queueEpisodeReprocessAction } from "@/app/podcast/episodes/actions";
 
 function formatDate(value: string | null) {
   if (!value) {
@@ -26,10 +31,15 @@ function formatDate(value: string | null) {
 
 export default async function EpisodeDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ trackId: string }>;
+  searchParams: Promise<{
+    reprocessQueued?: string;
+    reprocessError?: string;
+  }>;
 }) {
-  const { trackId } = await params;
+  const [{ trackId }, pageParams] = await Promise.all([params, searchParams]);
   const appUser = await requireInternalReadConsoleUser();
   const detail = await getEpisodeDetail(trackId);
 
@@ -54,6 +64,19 @@ export default async function EpisodeDetailPage({
       </>
     );
   }
+
+  const isAdministrator = appUser.role === "Admin";
+  let reprocessContext: EpisodeReprocessContext | null = null;
+  let reprocessLookupError = "";
+  if (isAdministrator) {
+    try {
+      reprocessContext = await getEpisodeReprocessContextByTrackId(trackId);
+    } catch (cause) {
+      console.error("Episode reprocess status lookup failed", cause);
+      reprocessLookupError = "The Strapi processing queue is temporarily unavailable.";
+    }
+  }
+  const episodeHref = `/episodes/${encodeURIComponent(detail.episode.trackId)}`;
 
   const groupedByType = new Map<string, typeof detail.intelligenceItems>();
   for (const item of detail.intelligenceItems) {
@@ -164,6 +187,59 @@ export default async function EpisodeDetailPage({
               trackId={detail.episode.trackId}
             />
           </section>
+
+          {isAdministrator ? (
+            <section className="detail-section" id="episode-reprocess">
+              <p className="eyebrow">Administrator action</p>
+              <h3>Reprocess this episode</h3>
+              {pageParams.reprocessQueued === "1" ? (
+                <div className="notice-card notice-card--success" role="status">
+                  <strong>Full reprocessing queued</strong>
+                  <p>The background worker will rebuild the transcript, vectors, intelligence, and database records.</p>
+                </div>
+              ) : null}
+              {pageParams.reprocessError ? (
+                <p className="empty-state empty-state--error" role="alert">{pageParams.reprocessError}</p>
+              ) : null}
+              {reprocessLookupError ? (
+                <p className="empty-state empty-state--error" role="alert">{reprocessLookupError}</p>
+              ) : !reprocessContext ? (
+                <p className="empty-state" role="status">
+                  No matching Strapi episode exists for Track ID {detail.episode.trackId}; reprocessing cannot be queued here.
+                </p>
+              ) : reprocessContext.processing?.status === "queued" || reprocessContext.processing?.status === "running" ? (
+                <p className="notice-card" role="status">
+                  Episode processing is already {reprocessContext.processing.status}. A second request cannot be queued.
+                </p>
+              ) : (
+                <form
+                  className="editor-grid editor-grid--two"
+                  action={queueEpisodeReprocessAction.bind(null, detail.episode.trackId, episodeHref)}
+                >
+                  <p className="muted-copy">
+                    This queues a destructive rebuild of transcript-derived data. The worker retranscribes the canonical MinIO
+                    audio, recreates transcript and intelligence vectors, and reloads the episode data in PostgreSQL.
+                  </p>
+                  <label>
+                    <span>Reason for reprocessing</span>
+                    <input
+                      name="reprocessNote"
+                      required
+                      maxLength={2000}
+                      placeholder="For example: transcript quality correction"
+                    />
+                  </label>
+                  <label className="checkbox-row checkbox-row--form">
+                    <input name="confirmReprocess" type="checkbox" value="confirmed" required />
+                    <span>I understand this replaces the current transcript-derived data.</span>
+                  </label>
+                  <div className="editor-form__actions">
+                    <button className="button" type="submit">Reprocess episode</button>
+                  </div>
+                </form>
+              )}
+            </section>
+          ) : null}
 
           {detail.intelligenceItems.length > 0 ? (
             <details className="detail-section detail-section--collapsible">
