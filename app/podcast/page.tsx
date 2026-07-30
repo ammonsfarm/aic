@@ -31,6 +31,10 @@ function formatCount(value: number) {
   return countFormat.format(value);
 }
 
+function formatDownloads(value: number | null) {
+  return value === null ? "Not loaded" : formatCount(value);
+}
+
 function formatDate(value: string | null) {
   if (!value) {
     return "No date";
@@ -146,13 +150,17 @@ function LineChart({ rows }: { rows: PodcastStatsDashboard["dailyTrend"] }) {
   const width = 760;
   const height = 260;
   const padding = { top: 18, right: 28, bottom: 36, left: 56 };
-  const maxDownloads = Math.max(...rows.map((row) => row.downloads), 1);
+  const loadedRows = rows.filter((row): row is typeof row & { downloads: number } => row.downloads !== null);
+  const maxDownloads = Math.max(...loadedRows.map((row) => row.downloads), 1);
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
-  const points = rows.map((row, index) => {
+  const points = rows.flatMap((row, index) => {
+    if (row.downloads === null) {
+      return [];
+    }
     const x = padding.left + (rows.length <= 1 ? 0 : (index / (rows.length - 1)) * chartWidth);
     const y = padding.top + chartHeight - (row.downloads / maxDownloads) * chartHeight;
-    return { x, y };
+    return [{ x, y }];
   });
   const areaPath =
     points.length > 0
@@ -161,6 +169,16 @@ function LineChart({ rows }: { rows: PodcastStatsDashboard["dailyTrend"] }) {
         } Z`
       : "";
   const labelIndexes = rows.length > 1 ? [0, Math.floor((rows.length - 1) / 2), rows.length - 1] : [0];
+  const unavailableStartIndex = rows.findIndex((row) => row.downloads === null);
+  const unavailableCount = rows.filter((row) => row.downloads === null).length;
+  const unavailableStartX =
+    unavailableStartIndex < 0
+      ? null
+      : padding.left + (
+          rows.length <= 1
+            ? 0
+            : Math.max(0, (unavailableStartIndex - 0.5) / (rows.length - 1)) * chartWidth
+        );
 
   return (
     <div className="chart-frame">
@@ -171,7 +189,7 @@ function LineChart({ rows }: { rows: PodcastStatsDashboard["dailyTrend"] }) {
       >
         <title id="daily-downloads-chart-title">Daily downloads line chart</title>
         <desc id="daily-downloads-chart-description">
-          {`${rows.length} daily values from ${formatDate(rows[0].activityDate)} through ${formatDate(rows[rows.length - 1].activityDate)}. Exact values follow in an accessible table.`}
+          {`${loadedRows.length} loaded daily values and ${unavailableCount} not-loaded dates from ${formatDate(rows[0].activityDate)} through ${formatDate(rows[rows.length - 1].activityDate)}. Exact values and availability follow in an accessible table.`}
         </desc>
         <line x1={padding.left} y1={padding.top} x2={padding.left} y2={padding.top + chartHeight} className="chart-axis" />
         <line
@@ -192,18 +210,37 @@ function LineChart({ rows }: { rows: PodcastStatsDashboard["dailyTrend"] }) {
             </g>
           );
         })}
+        {unavailableStartX === null ? null : (
+          <>
+            <rect
+              x={unavailableStartX}
+              y={padding.top}
+              width={padding.left + chartWidth - unavailableStartX}
+              height={chartHeight}
+              className="chart-unavailable"
+            />
+            <text
+              x={unavailableStartX + (padding.left + chartWidth - unavailableStartX) / 2}
+              y={padding.top + 24}
+              textAnchor="middle"
+              className="chart-unavailable-label"
+            >
+              Not loaded
+            </text>
+          </>
+        )}
         {areaPath ? <path d={areaPath} className="line-chart-area" /> : null}
-        <path d={smoothPath(points)} className="line-chart-path" />
+        {points.length > 0 ? <path d={smoothPath(points)} className="line-chart-path" /> : null}
         {labelIndexes.map((index) => {
           const row = rows[index];
-          const point = points[index];
 
-          if (!row || !point) {
+          if (!row) {
             return null;
           }
+          const x = padding.left + (rows.length <= 1 ? 0 : (index / (rows.length - 1)) * chartWidth);
 
           return (
-            <text key={`${row.activityDate}-label`} x={point.x} y={height - 8} textAnchor="middle" className="chart-label">
+            <text key={`${row.activityDate}-label`} x={x} y={height - 8} textAnchor="middle" className="chart-label">
               {formatCompactDate(row.activityDate)}
             </text>
           );
@@ -221,11 +258,16 @@ function LineChart({ rows }: { rows: PodcastStatsDashboard["dailyTrend"] }) {
           {rows.map((row) => (
             <tr key={`${row.activityDate}-accessible-value`}>
               <th scope="row">{formatDate(row.activityDate)}</th>
-              <td>{formatCount(row.downloads)}</td>
+              <td>{formatDownloads(row.downloads)}</td>
             </tr>
           ))}
         </tbody>
       </table>
+      {unavailableCount > 0 ? (
+        <p className="chart-availability-note">
+          {unavailableCount} {unavailableCount === 1 ? "date is" : "dates are"} not loaded and excluded from totals and comparisons.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -333,16 +375,31 @@ export default async function PodcastStatsPage({
           <section className="signal-board stats-hero">
             <div>
               <p className="eyebrow">{dashboard.range.label}</p>
-              <h2>{formatCount(dashboard.counts.rangeDownloads)} downloads</h2>
+              <h2>
+                {dashboard.counts.rangeDownloads === null
+                  ? "Downloads not loaded"
+                  : `${formatCount(dashboard.counts.rangeDownloads)} downloads`}
+              </h2>
               <p>
-                Daily Podtrac activity from {formatDate(dashboard.range.startDate)} through {formatDate(dashboard.range.endDate)}.
+                {dashboard.coverage.loadedStartDate && dashboard.coverage.loadedEndDate
+                  ? `Loaded Podtrac activity from ${formatDate(dashboard.coverage.loadedStartDate)} through ${formatDate(dashboard.coverage.loadedEndDate)}.`
+                  : "No dates in this selected window are loaded."}{" "}
                 Imported history total is {formatCount(dashboard.counts.allTimeDownloads)} downloads.
               </p>
+              {dashboard.coverage.unavailableStartDate && dashboard.coverage.unavailableEndDate ? (
+                <p className="note">
+                  {formatDate(dashboard.coverage.unavailableStartDate)} through {formatDate(dashboard.coverage.unavailableEndDate)} is not loaded
+                  {" "}({dashboard.coverage.unavailableDays} {dashboard.coverage.unavailableDays === 1 ? "day" : "days"}) and is excluded from totals and comparisons.
+                </p>
+              ) : null}
               <p className="note">
-                Prior period: {formatCount(dashboard.comparison.previousDownloads)} downloads
-                {dashboard.comparison.changePercent === null
-                  ? " (no percentage available)"
-                  : ` · ${dashboard.comparison.changePercent >= 0 ? "+" : ""}${dashboard.comparison.changePercent.toFixed(1)}%`}.
+                {dashboard.comparison.previousDownloads === null
+                  ? "No comparable loaded period is available."
+                  : `Prior comparable loaded period: ${formatCount(dashboard.comparison.previousDownloads)} downloads${
+                      dashboard.comparison.changePercent === null
+                        ? " (no percentage available)"
+                        : ` · ${dashboard.comparison.changePercent >= 0 ? "+" : ""}${dashboard.comparison.changePercent.toFixed(1)}%`
+                    }.`}
               </p>
             </div>
             <div className="status-list status-list--wide">
@@ -363,10 +420,10 @@ export default async function PodcastStatsPage({
 
           <DataFreshnessNotice label="Podtrac statistics" freshness={dashboard.freshness} />
 
-          {isAdministrator && dashboard.range.startDate && dashboard.range.endDate ? (
+          {isAdministrator && dashboard.coverage.loadedStartDate && dashboard.coverage.loadedEndDate ? (
             <div className="podcast-subnav" aria-label="Podcast CSV exports">
-              <a className="button button--ghost" href={`/api/admin/podcast/export?report=daily&startDate=${dashboard.range.startDate}&endDate=${dashboard.range.endDate}`}>Export daily CSV</a>
-              <a className="button button--ghost" href={`/api/admin/podcast/export?report=episodes&startDate=${dashboard.range.startDate}&endDate=${dashboard.range.endDate}`}>Export episodes CSV</a>
+              <a className="button button--ghost" href={`/api/admin/podcast/export?report=daily&startDate=${dashboard.coverage.loadedStartDate}&endDate=${dashboard.coverage.loadedEndDate}`}>Export daily CSV</a>
+              <a className="button button--ghost" href={`/api/admin/podcast/export?report=episodes&startDate=${dashboard.coverage.loadedStartDate}&endDate=${dashboard.coverage.loadedEndDate}`}>Export episodes CSV</a>
             </div>
           ) : null}
 

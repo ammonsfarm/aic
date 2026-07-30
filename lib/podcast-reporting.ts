@@ -17,6 +17,15 @@ export type DataFreshness = {
   state: "current" | "stale" | "missing";
 };
 
+export type ReportCoverage = {
+  loadedStartDate: string | null;
+  loadedEndDate: string | null;
+  loadedDays: number;
+  unavailableStartDate: string | null;
+  unavailableEndDate: string | null;
+  unavailableDays: number;
+};
+
 export const podcastRangeOptions: Array<{ key: PodcastRangeKey; label: string }> = [
   { key: "30d", label: "30 days" },
   { key: "60d", label: "60 days" },
@@ -141,6 +150,66 @@ export function previousReportRange(range: ReportDateRange): { startDate: string
   const dayCount = reportDaysBetween(range.startDate, range.endDate) + 1;
   const endDate = addReportDays(range.startDate, -1);
   return { startDate: addReportDays(endDate, -(dayCount - 1)), endDate };
+}
+
+export function reportCoverage(range: ReportDateRange): ReportCoverage {
+  const startDate = normalizeReportDate(range.startDate);
+  const endDate = normalizeReportDate(range.endDate);
+  const currentThrough = normalizeReportDate(range.maxDate);
+
+  if (!startDate || !endDate || startDate > endDate) {
+    return {
+      loadedStartDate: null,
+      loadedEndDate: null,
+      loadedDays: 0,
+      unavailableStartDate: null,
+      unavailableEndDate: null,
+      unavailableDays: 0,
+    };
+  }
+
+  const requestedDays = reportDaysBetween(startDate, endDate) + 1;
+  if (!currentThrough || currentThrough < startDate) {
+    return {
+      loadedStartDate: null,
+      loadedEndDate: null,
+      loadedDays: 0,
+      unavailableStartDate: startDate,
+      unavailableEndDate: endDate,
+      unavailableDays: requestedDays,
+    };
+  }
+
+  const loadedEndDate = currentThrough < endDate ? currentThrough : endDate;
+  const loadedDays = reportDaysBetween(startDate, loadedEndDate) + 1;
+  const unavailableStartDate = loadedEndDate < endDate ? addReportDays(loadedEndDate, 1) : null;
+
+  return {
+    loadedStartDate: startDate,
+    loadedEndDate,
+    loadedDays,
+    unavailableStartDate,
+    unavailableEndDate: unavailableStartDate ? endDate : null,
+    unavailableDays: requestedDays - loadedDays,
+  };
+}
+
+export function previousReportCoverageRange(
+  coverage: Pick<ReportCoverage, "loadedStartDate" | "loadedEndDate">,
+  minDate?: string | null,
+): { startDate: string; endDate: string } | null {
+  if (!coverage.loadedStartDate || !coverage.loadedEndDate) {
+    return null;
+  }
+
+  const dayCount = reportDaysBetween(coverage.loadedStartDate, coverage.loadedEndDate) + 1;
+  const endDate = addReportDays(coverage.loadedStartDate, -1);
+  const startDate = addReportDays(endDate, -(dayCount - 1));
+  const normalizedMinDate = normalizeReportDate(minDate);
+  if (normalizedMinDate && startDate < normalizedMinDate) {
+    return null;
+  }
+  return { startDate, endDate };
 }
 
 export function calculateFreshness({

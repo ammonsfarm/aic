@@ -3576,6 +3576,21 @@ input:disabled {
   box-shadow: inset 0 0 0 1px oklch(52% 0.058 156 / 45%);
 }
 
+.trend-row--unavailable {
+  cursor: default;
+  background: var(--parchment-warm);
+}
+
+.trend-row--unavailable .trend-row__bar {
+  border-style: dashed;
+  background: var(--parchment);
+}
+
+.trend-row--unavailable strong {
+  color: var(--soft-ink-muted);
+  font-weight: 650;
+}
+
 .trend-row span,
 .trend-row strong {
   font-size: 0.82rem;
@@ -3727,6 +3742,25 @@ input:disabled {
 .chart-grid {
   stroke: var(--line-soft);
   stroke-width: 1;
+}
+
+.chart-unavailable {
+  fill: var(--parchment-warm);
+  opacity: 0.92;
+}
+
+.chart-unavailable-label {
+  fill: var(--soft-ink-muted);
+  font-size: 0.74rem;
+  font-weight: 750;
+}
+
+.chart-availability-note {
+  margin: 0;
+  border-top: 1px solid var(--line);
+  padding: 9px 12px;
+  color: var(--soft-ink-muted);
+  font-size: 0.78rem;
 }
 
 .chart-label {

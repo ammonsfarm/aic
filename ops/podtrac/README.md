@@ -13,6 +13,11 @@ source is kept here so the automation is versioned with `ammonsfarm/aic`.
   existing AIC endpoint at `192.168.1.106:5432`; inherited database variables
   cannot repoint it.
 - Does not use SQLite for current ingest, fixes, staging, or sync.
+- Commits one bounded `podtrac_sync_runs` attempt before provider access, then
+  completes it atomically with the import or marks it failed in a separate
+  transaction after rollback. Persisted failures contain only a safe category
+  (including fixed HTTP 401/403 classification), never response bodies,
+  credentials, cookies, URLs, or database error text.
 - Catches up automatically from the latest Podtrac activity date in Postgres,
   with a seven-day lookback and a forty-five-day maximum window.
 
@@ -56,7 +61,8 @@ cd /Users/van/firebase/aic_podcast
   --auth-mode chrome
 ```
 
-Use `--dry-run` to fetch and report counts without writing to Postgres.
+Use `--dry-run` to fetch and report counts without writing to Postgres,
+including no sync-attempt insert or update.
 
 The Mac runtime does not depend on `/mnt/storage/aic/.env`, which is a farm-host
 path. Its explicitly supplied local `.env` must contain credentials for the same

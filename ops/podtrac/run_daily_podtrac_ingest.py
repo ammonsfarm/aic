@@ -60,6 +60,19 @@ LIBPQ_ROUTING_ENV_KEYS = (
     "PGSSLMODE",
 )
 DATABASE_ROUTING_ENV_KEYS = (*LIBPQ_ROUTING_ENV_KEYS, "DATABASE_URL")
+MAX_ATTEMPT_ERROR_LENGTH = 240
+
+
+class PodtracRequestError(RuntimeError):
+    """A provider request failed without retaining response or credential data."""
+
+
+class PodtracAuthenticationError(PodtracRequestError):
+    def __init__(self, status: int):
+        if status not in {401, 403}:
+            raise ValueError("Podtrac authentication status must be HTTP 401 or 403.")
+        self.status = status
+        super().__init__(f"Podtrac authentication failed with HTTP {status}.")
 
 
 def is_database_routing_key(key: str) -> bool:
@@ -194,7 +207,7 @@ def parse_headers_from_curl(path: Path) -> dict[str, str]:
     headers.setdefault("Accept", "application/json, text/plain, */*")
     headers.setdefault("Content-Type", "application/json")
     if "Cookie" not in headers:
-        raise SystemExit(
+        raise RuntimeError(
             f"{path} does not include a Cookie header. Refresh it from an authenticated "
             "Podtrac Network request in Chrome using Copy as cURL."
         )
@@ -214,15 +227,11 @@ def fetch_json(url: str, headers: dict[str, str], data: list[str] | None = None)
         with urlopen(request, timeout=90) as response:
             return json.loads(response.read().decode("utf-8"))
     except HTTPError as error:
-        body_text = error.read().decode("utf-8", errors="replace")
         if error.code in {401, 403}:
-            raise RuntimeError(
-                f"Podtrac authentication failed with HTTP {error.code}. "
-                "Refresh podtrac-auth.curl from Chrome."
-            ) from error
-        raise RuntimeError(f"Podtrac request failed with HTTP {error.code}: {body_text[:500]}") from error
+            raise PodtracAuthenticationError(error.code) from error
+        raise PodtracRequestError(f"Podtrac request failed with HTTP {error.code}.") from error
     except URLError as error:
-        raise RuntimeError(f"Podtrac network error: {error}") from error
+        raise PodtracRequestError("Podtrac network request failed.") from error
 
 
 def chrome_prepare_tab() -> None:
@@ -274,11 +283,8 @@ end tell
     if not envelope.get("ok"):
         status = int(envelope.get("status") or 0)
         if status in {401, 403}:
-            raise RuntimeError(
-                f"Podtrac Chrome session is not authenticated, HTTP {status}. "
-                "Open Podtrac in Chrome and sign in."
-            )
-        raise RuntimeError(f"Podtrac Chrome fetch failed, HTTP {status}: {str(envelope.get('text') or '')[:500]}")
+            raise PodtracAuthenticationError(status)
+        raise PodtracRequestError(f"Podtrac Chrome fetch failed with HTTP {status}.")
     return json.loads(str(envelope.get("text") or "{}"))
 
 
@@ -439,6 +445,45 @@ def choose_window(pg: psycopg.Connection, args: argparse.Namespace) -> tuple[dat
     return start, end
 
 
+def sync_attempt_source(start: date, end: date) -> str:
+    return f"direct-podtrac-api:{start.isoformat()}:{end.isoformat()}"
+
+
+def sync_attempt_failure_text(error: Exception, phase: str) -> str:
+    if isinstance(error, PodtracAuthenticationError):
+        return str(error)[:MAX_ATTEMPT_ERROR_LENGTH]
+
+    safe_phase = "report fetch" if phase == "fetch" else "database import"
+    error_kind = re.sub(r"[^A-Za-z0-9_.-]", "", type(error).__name__)[:80] or "Error"
+    return f"Podtrac {safe_phase} failed ({error_kind})."[:MAX_ATTEMPT_ERROR_LENGTH]
+
+
+def create_sync_attempt(args: argparse.Namespace, source: str) -> int:
+    with connect_pg(args) as pg:
+        with pg.cursor() as cur:
+            sync_id = cur.execute(
+                "insert into podtrac_sync_runs(source_sqlite_path) values (%s) returning id",
+                (source,),
+            ).fetchone()[0]
+        pg.commit()
+    return int(sync_id)
+
+
+def fail_sync_attempt(args: argparse.Namespace, sync_id: int, error: Exception, phase: str) -> None:
+    safe_error = sync_attempt_failure_text(error, phase)
+    with connect_pg(args) as pg:
+        with pg.cursor() as cur:
+            cur.execute(
+                """
+                update podtrac_sync_runs
+                   set completed_at=now(), status='failed', error=%s
+                 where id=%s and status='running'
+                """,
+                (safe_error, sync_id),
+            )
+        pg.commit()
+
+
 def run_id_from_now() -> int:
     # podtrac_import_runs.run_id is a PostgreSQL integer, so keep this under
     # the 32-bit ceiling while still making direct API runs easy to order.
@@ -447,6 +492,7 @@ def run_id_from_now() -> int:
 
 def upsert_podtrac(
     pg: psycopg.Connection,
+    sync_id: int,
     payloads: dict[str, ReportPayload],
     start: date,
     end: date,
@@ -495,147 +541,139 @@ def upsert_podtrac(
             """,
             (run_id, imported_at, json.dumps([source]), json.dumps(summary, sort_keys=True)),
         )
-        sync_id = cur.execute(
-            "insert into podtrac_sync_runs(source_sqlite_path) values (%s) returning id",
-            ("direct-podtrac-api",),
-        ).fetchone()[0]
+        # Delete the fetched date window after all reports have been fetched.
+        cur.execute("delete from podtrac_daily_activity where activity_date between %s and %s", (start, end))
+        cur.execute("delete from podtrac_activity_by_country where activity_date between %s and %s", (start, end))
+        cur.execute("delete from podtrac_activity_by_client where activity_date between %s and %s", (start, end))
 
-        try:
-            # Delete the fetched date window after all reports have been fetched.
-            cur.execute("delete from podtrac_daily_activity where activity_date between %s and %s", (start, end))
-            cur.execute("delete from podtrac_activity_by_country where activity_date between %s and %s", (start, end))
-            cur.execute("delete from podtrac_activity_by_client where activity_date between %s and %s", (start, end))
+        episodes_payload = []
+        for row in payloads["episode"].row_totals:
+            podtrac_id = str(row["rowID"])
+            title = row.get("title") or podtrac_id
+            publish_date = str(row.get("publicationDate") or "")[:10] or None
+            match = choose_match(title, publish_date or "", by_title, fuzzy_threshold)
+            if match.status == "matched":
+                counts["matched_episodes"] += 1
+            episodes_payload.append(
+                (
+                    podtrac_id,
+                    title,
+                    publish_date,
+                    run_id,
+                    imported_at,
+                    match.track_id,
+                    match.title,
+                    match.publish_date,
+                    match.status,
+                    match.method,
+                    match.score,
+                    match.notes,
+                    normalize_title(title),
+                )
+            )
+        episode_sql = """
+            insert into podtrac_episodes(
+                podtrac_episode_id, title, publish_date, import_run_id, imported_at,
+                track_id, matched_episode_title, matched_episode_publish_date,
+                match_status, match_method, match_score, match_notes, title_normalized, updated_at
+            ) values (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now()
+            )
+            on conflict(podtrac_episode_id) do update set
+                title=excluded.title,
+                publish_date=excluded.publish_date,
+                import_run_id=excluded.import_run_id,
+                imported_at=excluded.imported_at,
+                track_id=excluded.track_id,
+                matched_episode_title=excluded.matched_episode_title,
+                matched_episode_publish_date=excluded.matched_episode_publish_date,
+                match_status=excluded.match_status,
+                match_method=excluded.match_method,
+                match_score=excluded.match_score,
+                match_notes=excluded.match_notes,
+                title_normalized=excluded.title_normalized,
+                updated_at=now()
+        """
+        for batch in chunks(episodes_payload, batch_size):
+            cur.executemany(episode_sql, batch)
+        counts["episodes"] = len(episodes_payload)
+        counts["unmatched_episodes"] = counts["episodes"] - counts["matched_episodes"]
 
-            episodes_payload = []
-            for row in payloads["episode"].row_totals:
-                podtrac_id = str(row["rowID"])
-                title = row.get("title") or podtrac_id
-                publish_date = str(row.get("publicationDate") or "")[:10] or None
-                match = choose_match(title, publish_date or "", by_title, fuzzy_threshold)
-                if match.status == "matched":
-                    counts["matched_episodes"] += 1
-                episodes_payload.append(
-                    (
-                        podtrac_id,
-                        title,
-                        publish_date,
-                        run_id,
-                        imported_at,
-                        match.track_id,
-                        match.title,
-                        match.publish_date,
-                        match.status,
-                        match.method,
-                        match.score,
-                        match.notes,
-                        normalize_title(title),
-                    )
-                )
-            episode_sql = """
-                insert into podtrac_episodes(
-                    podtrac_episode_id, title, publish_date, import_run_id, imported_at,
-                    track_id, matched_episode_title, matched_episode_publish_date,
-                    match_status, match_method, match_score, match_notes, title_normalized, updated_at
-                ) values (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now()
-                )
-                on conflict(podtrac_episode_id) do update set
-                    title=excluded.title,
-                    publish_date=excluded.publish_date,
+        for table, report, id_col, count_key in (
+            ("podtrac_countries", "country", "podtrac_country_id", "countries"),
+            ("podtrac_clients", "client", "podtrac_client_id", "clients"),
+        ):
+            rows = [
+                (str(row["rowID"]), row.get("title") or str(row["rowID"]), run_id, imported_at)
+                for row in payloads[report].row_totals
+            ]
+            sql = f"""
+                insert into {table}({id_col}, name, import_run_id, imported_at, updated_at)
+                values (%s, %s, %s, %s, now())
+                on conflict({id_col}) do update set
+                    name=excluded.name,
                     import_run_id=excluded.import_run_id,
                     imported_at=excluded.imported_at,
-                    track_id=excluded.track_id,
-                    matched_episode_title=excluded.matched_episode_title,
-                    matched_episode_publish_date=excluded.matched_episode_publish_date,
-                    match_status=excluded.match_status,
-                    match_method=excluded.match_method,
-                    match_score=excluded.match_score,
-                    match_notes=excluded.match_notes,
-                    title_normalized=excluded.title_normalized,
                     updated_at=now()
             """
-            for batch in chunks(episodes_payload, batch_size):
-                cur.executemany(episode_sql, batch)
-            counts["episodes"] = len(episodes_payload)
-            counts["unmatched_episodes"] = counts["episodes"] - counts["matched_episodes"]
+            for batch in chunks(rows, batch_size):
+                cur.executemany(sql, batch)
+            counts[count_key] = len(rows)
 
-            for table, report, id_col, count_key in (
-                ("podtrac_countries", "country", "podtrac_country_id", "countries"),
-                ("podtrac_clients", "client", "podtrac_client_id", "clients"),
-            ):
-                rows = [
-                    (str(row["rowID"]), row.get("title") or str(row["rowID"]), run_id, imported_at)
-                    for row in payloads[report].row_totals
-                ]
-                sql = f"""
-                    insert into {table}({id_col}, name, import_run_id, imported_at, updated_at)
-                    values (%s, %s, %s, %s, now())
-                    on conflict({id_col}) do update set
-                        name=excluded.name,
-                        import_run_id=excluded.import_run_id,
-                        imported_at=excluded.imported_at,
-                        updated_at=now()
-                """
-                for batch in chunks(rows, batch_size):
-                    cur.executemany(sql, batch)
-                counts[count_key] = len(rows)
+        activity_specs = (
+            ("episode", "podtrac_daily_activity", "podtrac_episode_id", "daily_activity"),
+            ("country", "podtrac_activity_by_country", "podtrac_country_id", "country_activity"),
+            ("client", "podtrac_activity_by_client", "podtrac_client_id", "client_activity"),
+        )
+        for report, table, id_col, count_key in activity_specs:
+            rows = []
+            for row_id, date_counts in payloads[report].cells.items():
+                for activity_date, count in date_counts.items():
+                    rows.append((activity_date, row_id, int(count or 0), run_id, imported_at))
+            sql = f"""
+                insert into {table}(activity_date, {id_col}, download_count, import_run_id, imported_at, updated_at)
+                values (%s, %s, %s, %s, %s, now())
+                on conflict(activity_date, {id_col}) do update set
+                    download_count=excluded.download_count,
+                    import_run_id=excluded.import_run_id,
+                    imported_at=excluded.imported_at,
+                    updated_at=now()
+            """
+            for batch in chunks(rows, batch_size):
+                cur.executemany(sql, batch)
+            counts[count_key] = len(rows)
 
-            activity_specs = (
-                ("episode", "podtrac_daily_activity", "podtrac_episode_id", "daily_activity"),
-                ("country", "podtrac_activity_by_country", "podtrac_country_id", "country_activity"),
-                ("client", "podtrac_activity_by_client", "podtrac_client_id", "client_activity"),
-            )
-            for report, table, id_col, count_key in activity_specs:
-                rows = []
-                for row_id, date_counts in payloads[report].cells.items():
-                    for activity_date, count in date_counts.items():
-                        rows.append((activity_date, row_id, int(count or 0), run_id, imported_at))
-                sql = f"""
-                    insert into {table}(activity_date, {id_col}, download_count, import_run_id, imported_at, updated_at)
-                    values (%s, %s, %s, %s, %s, now())
-                    on conflict(activity_date, {id_col}) do update set
-                        download_count=excluded.download_count,
-                        import_run_id=excluded.import_run_id,
-                        imported_at=excluded.imported_at,
-                        updated_at=now()
-                """
-                for batch in chunks(rows, batch_size):
-                    cur.executemany(sql, batch)
-                counts[count_key] = len(rows)
-
-            cur.execute(
-                """
-                update podtrac_sync_runs set completed_at=now(), status='completed',
-                    import_runs_count=1,
-                    metadata_count=0,
-                    episodes_count=%s,
-                    countries_count=%s,
-                    clients_count=%s,
-                    daily_activity_count=%s,
-                    country_activity_count=%s,
-                    client_activity_count=%s,
-                    matched_episodes_count=%s,
-                    unmatched_episodes_count=%s
-                where id=%s
-                """,
-                (
-                    counts["episodes"],
-                    counts["countries"],
-                    counts["clients"],
-                    counts["daily_activity"],
-                    counts["country_activity"],
-                    counts["client_activity"],
-                    counts["matched_episodes"],
-                    counts["unmatched_episodes"],
-                    sync_id,
-                ),
-            )
-        except Exception as error:
-            cur.execute(
-                "update podtrac_sync_runs set completed_at=now(), status='failed', error=%s where id=%s",
-                (str(error), sync_id),
-            )
-            raise
+        cur.execute(
+            """
+            update podtrac_sync_runs set completed_at=now(), status='completed',
+                import_run_id=%s,
+                import_runs_count=1,
+                metadata_count=0,
+                episodes_count=%s,
+                countries_count=%s,
+                clients_count=%s,
+                daily_activity_count=%s,
+                country_activity_count=%s,
+                client_activity_count=%s,
+                matched_episodes_count=%s,
+                unmatched_episodes_count=%s
+            where id=%s and status='running'
+            """,
+            (
+                run_id,
+                counts["episodes"],
+                counts["countries"],
+                counts["clients"],
+                counts["daily_activity"],
+                counts["country_activity"],
+                counts["client_activity"],
+                counts["matched_episodes"],
+                counts["unmatched_episodes"],
+                sync_id,
+            ),
+        )
+        if cur.rowcount != 1:
+            raise RuntimeError("Podtrac sync attempt is no longer running.")
     counts["run_id"] = run_id
     counts["sync_id"] = int(sync_id)
     return counts
@@ -691,17 +729,22 @@ def validate_server_admin_runtime(args: argparse.Namespace) -> None:
         raise RuntimeError("Server admin Podtrac ingest requires --auth-mode curl.")
 
 
-def main() -> int:
-    args = parse_args()
-    validate_server_admin_runtime(args)
+def run(args: argparse.Namespace) -> int:
     load_env(args.env_file)
-    headers = parse_headers_from_curl(args.curl_file) if args.auth_mode == "curl" else {}
     started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     with connect_pg(args) as pg:
         start, end = choose_window(pg, args)
 
-    payloads = {report: fetch_report(report, start, end, headers, args.sleep, args.auth_mode) for report in REPORTS}
-    source = f"direct-podtrac-api:{start.isoformat()}:{end.isoformat()}"
+    source = sync_attempt_source(start, end)
+    sync_id = None if args.dry_run else create_sync_attempt(args, source)
+    try:
+        headers = parse_headers_from_curl(args.curl_file) if args.auth_mode == "curl" else {}
+        payloads = {report: fetch_report(report, start, end, headers, args.sleep, args.auth_mode) for report in REPORTS}
+    except Exception as error:
+        if sync_id is not None:
+            fail_sync_attempt(args, sync_id, error, "fetch")
+        raise
+
     result = {
         "started_at": started_at,
         "date_window": {"start": start.isoformat(), "end": end.isoformat()},
@@ -721,19 +764,40 @@ def main() -> int:
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
 
-    with connect_pg(args) as pg:
-        try:
-            counts = upsert_podtrac(pg, payloads, start, end, source, args.fuzzy_threshold, args.batch_size)
-            pg.commit()
-        except Exception:
-            pg.rollback()
-            raise
+    assert sync_id is not None
+    try:
+        with connect_pg(args) as pg:
+            try:
+                counts = upsert_podtrac(
+                    pg,
+                    sync_id,
+                    payloads,
+                    start,
+                    end,
+                    source,
+                    args.fuzzy_threshold,
+                    args.batch_size,
+                )
+                pg.commit()
+            except Exception:
+                pg.rollback()
+                raise
+    except Exception as error:
+        fail_sync_attempt(args, sync_id, error, "database")
+        raise
+
     result["counts"] = counts
     result["completed_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     log_path = write_log(args.log_dir, int(counts["run_id"]), result)
     print(json.dumps(result, indent=2, sort_keys=True))
     print(f"Wrote {log_path}", flush=True)
     return 0
+
+
+def main() -> int:
+    args = parse_args()
+    validate_server_admin_runtime(args)
+    return run(args)
 
 
 if __name__ == "__main__":

@@ -5,7 +5,12 @@ import {
   calculateSuccessfulCheckFreshness,
   type SuccessfulCheckFreshness,
 } from "@/lib/operational-freshness";
-import { calculateFreshness, type DataFreshness } from "@/lib/podcast-reporting";
+import {
+  calculateFreshness,
+  normalizeReportDate,
+  reportDaysBetween,
+  type DataFreshness,
+} from "@/lib/podcast-reporting";
 
 export const retryablePipelineStages = ["daily-ingest", "podtrac-import", "transcript-edits"] as const;
 export type RetryablePipelineStage = (typeof retryablePipelineStages)[number];
@@ -244,13 +249,17 @@ function boundedText(value: unknown, maxLength: number): string {
 
 export function podtracAuthenticationStatus(
   latestRun: Pick<PodtracRunRow, "status" | "started_at" | "completed_at" | "error"> | null | undefined,
+  {
+    asOfDate = new Date().toISOString().slice(0, 10),
+    maxAgeDays = 2,
+  }: { asOfDate?: string; maxAgeDays?: number } = {},
 ) {
   if (!latestRun) {
     return { state: "unknown" as const, checkedAt: null, message: "No authoritative Podtrac sync run has been recorded." };
   }
 
   const checkedAt = latestRun.completed_at ?? latestRun.started_at;
-  const authError = /(?:authentication failed|http\s+(?:401|403)|unauthori[sz]ed|forbidden)/i.test(latestRun.error);
+  const authError = /(?:\bpodtrac\b.{0,100}\b(?:authentication failed|not authenticated|unauthori[sz]ed|forbidden)\b|http\s+(?:401|403)(?!\d))/i.test(latestRun.error);
   if (latestRun.status === "failed" && authError) {
     return {
       state: "auth-error" as const,
@@ -260,6 +269,21 @@ export function podtracAuthenticationStatus(
   }
 
   if (latestRun.status === "completed") {
+    const checkedDate = normalizeReportDate(checkedAt?.slice(0, 10));
+    const normalizedAsOfDate = normalizeReportDate(asOfDate);
+    const ageDays =
+      checkedDate && normalizedAsOfDate
+        ? reportDaysBetween(checkedDate, normalizedAsOfDate)
+        : null;
+    if (ageDays === null || ageDays > Math.max(0, Math.trunc(maxAgeDays))) {
+      return {
+        state: "unknown" as const,
+        checkedAt,
+        message: ageDays === null
+          ? "The latest successful Podtrac authentication check has no valid timestamp."
+          : `The latest successful Podtrac authentication check is ${ageDays} days old and no longer proves current access.`,
+      };
+    }
     return { state: "ok" as const, checkedAt, message: "The latest authoritative Podtrac sync run completed without an authentication error." };
   }
 
@@ -301,19 +325,28 @@ export async function getOperationalDashboard({ limit = 20 }: { limit?: number }
            psr.started_at::text,
            psr.completed_at::text,
            psr.error,
-           pir.run_id::text as import_run_id,
-           pir.imported_at as import_started_at,
-           pir.summary #>> '{date_window,end}' as imported_through
+           coalesce(exact_pir.run_id, legacy_pir.run_id)::text as import_run_id,
+           coalesce(exact_pir.imported_at, legacy_pir.imported_at) as import_started_at,
+           coalesce(
+             exact_pir.summary #>> '{date_window,end}',
+             legacy_pir.summary #>> '{date_window,end}'
+           ) as imported_through
          from podtrac_sync_runs psr
+         left join podtrac_import_runs exact_pir
+           on psr.status = 'completed'
+          and exact_pir.run_id = psr.import_run_id
          left join lateral (
            select run_id, imported_at, summary
              from podtrac_import_runs
-            where updated_at between psr.started_at - interval '10 minutes'
+            where psr.import_run_id is null
+              and psr.status = 'completed'
+              and coalesce(psr.source_sqlite_path, '') not like 'direct-podtrac-api:%'
+              and updated_at between psr.started_at - interval '10 minutes'
                                  and coalesce(psr.completed_at, psr.started_at) + interval '10 minutes'
             order by updated_at desc
             limit 1
-         ) pir on true
-         order by psr.id desc
+         ) legacy_pir on true
+         order by psr.started_at desc, psr.id desc
          limit $1`,
         [safeLimit],
       ),

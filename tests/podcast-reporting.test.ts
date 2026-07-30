@@ -4,7 +4,9 @@ import {
   calculateFreshness,
   parsePodcastRange,
   percentageChange,
+  previousReportCoverageRange,
   previousReportRange,
+  reportCoverage,
   resolveReportDateRange,
   rowsToCsv,
 } from "@/lib/podcast-reporting";
@@ -35,6 +37,65 @@ describe("podcast report ranges", () => {
     expect(range.startDate).toBe("2026-07-01");
     expect(range.endDate).toBe("2026-07-10");
     expect(previousReportRange(range)).toEqual({ startDate: "2026-06-21", endDate: "2026-06-30" });
+  });
+
+  it("separates loaded dates from trailing not-loaded dates and compares equal loaded spans", () => {
+    const range = resolveReportDateRange({
+      key: "30d",
+      minDate: "2025-01-01",
+      maxDate: "2026-07-13",
+      today: "2026-07-22",
+    });
+    const coverage = reportCoverage(range);
+
+    expect(coverage).toEqual({
+      loadedStartDate: "2026-06-23",
+      loadedEndDate: "2026-07-13",
+      loadedDays: 21,
+      unavailableStartDate: "2026-07-14",
+      unavailableEndDate: "2026-07-22",
+      unavailableDays: 9,
+    });
+    expect(previousReportCoverageRange(coverage)).toEqual({
+      startDate: "2026-06-02",
+      endDate: "2026-06-22",
+    });
+    expect(previousReportCoverageRange(coverage, "2026-06-23")).toBeNull();
+  });
+
+  it("represents a wholly unavailable requested window without reversed query dates", () => {
+    const coverage = reportCoverage({
+      key: "custom",
+      label: "2026-07-14 through 2026-07-22",
+      startDate: "2026-07-14",
+      endDate: "2026-07-22",
+      minDate: "2025-01-01",
+      maxDate: "2026-07-13",
+    });
+
+    expect(coverage).toMatchObject({
+      loadedStartDate: null,
+      loadedEndDate: null,
+      loadedDays: 0,
+      unavailableStartDate: "2026-07-14",
+      unavailableEndDate: "2026-07-22",
+      unavailableDays: 9,
+    });
+    expect(previousReportCoverageRange(coverage)).toBeNull();
+  });
+
+  it("omits a prior comparison when the equal span predates loaded history", () => {
+    const coverage = reportCoverage({
+      key: "30d",
+      label: "30 days",
+      startDate: "2026-07-01",
+      endDate: "2026-07-22",
+      minDate: "2026-07-01",
+      maxDate: "2026-07-13",
+    });
+
+    expect(coverage.loadedStartDate).toBe("2026-07-01");
+    expect(previousReportCoverageRange(coverage, "2026-07-01")).toBeNull();
   });
 
   it("reports stale and missing data explicitly", () => {

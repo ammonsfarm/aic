@@ -20,6 +20,10 @@ function formatCount(value: number) {
   return countFormat.format(value);
 }
 
+function formatDownloads(value: number | null) {
+  return value === null ? "Not loaded" : formatCount(value);
+}
+
 function formatDate(value: string | null) {
   if (!value) {
     return "No date";
@@ -111,7 +115,7 @@ function EpisodeTrend({
   trackId,
   selectedDownloadDate,
 }: {
-  rows: Array<{ activityDate: string; downloads: number }>;
+  rows: Array<{ activityDate: string; downloads: number | null }>;
   state: ReportLinkState;
   trackId?: string;
   selectedDownloadDate: string | null;
@@ -120,11 +124,21 @@ function EpisodeTrend({
     return <p className="empty-state">No daily episode downloads are available for this reporting window.</p>;
   }
 
-  const maxDownloads = Math.max(...rows.map((row) => row.downloads), 1);
+  const maxDownloads = Math.max(...rows.flatMap((row) => row.downloads === null ? [] : [row.downloads]), 1);
 
   return (
     <div className="episode-trend-list">
       {rows.map((row) => {
+        if (row.downloads === null) {
+          return (
+            <div className="trend-row trend-row--unavailable" key={row.activityDate}>
+              <span>{formatDate(row.activityDate)}</span>
+              <div className="trend-row__bar" aria-hidden="true" />
+              <strong>Not loaded</strong>
+            </div>
+          );
+        }
+
         const selected = row.activityDate === selectedDownloadDate;
         return (
           <Link
@@ -135,7 +149,7 @@ function EpisodeTrend({
           >
             <span>{formatDate(row.activityDate)}</span>
             <div className="trend-row__bar" aria-hidden="true">
-              <i style={{ width: `${Math.max(3, Math.round((row.downloads / maxDownloads) * 100))}%` }} />
+              <i style={{ width: row.downloads === 0 ? "0%" : `${Math.max(3, Math.round((row.downloads / maxDownloads) * 100))}%` }} />
             </div>
             <strong>{formatCount(row.downloads)}</strong>
           </Link>
@@ -250,7 +264,7 @@ export default async function EpisodeStatisticsPage({
   const selected = dashboard.selectedEpisode;
   const activeSummary = selected ?? dashboard.summary;
   const activeTrend = selected ? dashboard.selectedDailyTrend : dashboard.dailyTrend;
-  const maxEpisodeDownloads = Math.max(...dashboard.episodes.map((episode) => episode.rangeDownloads), 1);
+  const maxEpisodeDownloads = Math.max(...dashboard.episodes.map((episode) => episode.rangeDownloads ?? 0), 1);
   const selectedEpisodeHref = selected
     ? episodeStatsHref({
         state: reportState,
@@ -284,13 +298,27 @@ export default async function EpisodeStatisticsPage({
         >
           <DataFreshnessNotice label="Podtrac episode statistics" freshness={dashboard.freshness} />
           <p className="note">
-            Selected period: {formatCount(dashboard.summary.rangeDownloads)} downloads. Previous comparable period: {formatCount(dashboard.comparison.previousDownloads)}
-            {dashboard.comparison.changePercent === null ? "." : ` (${dashboard.comparison.changePercent >= 0 ? "+" : ""}${dashboard.comparison.changePercent.toFixed(1)}%).`}
+            {dashboard.summary.rangeDownloads === null
+              ? "The selected window has no loaded download dates."
+              : `Selected loaded period: ${formatCount(dashboard.summary.rangeDownloads)} downloads.`}{" "}
+            {dashboard.comparison.previousDownloads === null
+              ? "No comparable loaded period is available."
+              : `Previous comparable loaded period: ${formatCount(dashboard.comparison.previousDownloads)}${
+                  dashboard.comparison.changePercent === null
+                    ? " downloads."
+                    : ` downloads (${dashboard.comparison.changePercent >= 0 ? "+" : ""}${dashboard.comparison.changePercent.toFixed(1)}%).`
+                }`}
           </p>
-          {isAdministrator && dashboard.range.startDate && dashboard.range.endDate ? (
+          {dashboard.coverage.unavailableStartDate && dashboard.coverage.unavailableEndDate ? (
+            <p className="note episode-coverage-note">
+              {formatDate(dashboard.coverage.unavailableStartDate)} through {formatDate(dashboard.coverage.unavailableEndDate)} is not loaded
+              {" "}({dashboard.coverage.unavailableDays} {dashboard.coverage.unavailableDays === 1 ? "day" : "days"}) and is excluded from totals and comparisons.
+            </p>
+          ) : null}
+          {isAdministrator && dashboard.coverage.loadedStartDate && dashboard.coverage.loadedEndDate ? (
             <div className="podcast-subnav">
-              <a className="button button--ghost" href={`/api/admin/podcast/export?report=episodes&startDate=${dashboard.range.startDate}&endDate=${dashboard.range.endDate}`}>Export episodes CSV</a>
-              <a className="button button--ghost" href={`/api/admin/podcast/export?report=daily&startDate=${dashboard.range.startDate}&endDate=${dashboard.range.endDate}`}>Export daily CSV</a>
+              <a className="button button--ghost" href={`/api/admin/podcast/export?report=episodes&startDate=${dashboard.coverage.loadedStartDate}&endDate=${dashboard.coverage.loadedEndDate}`}>Export episodes CSV</a>
+              <a className="button button--ghost" href={`/api/admin/podcast/export?report=daily&startDate=${dashboard.coverage.loadedStartDate}&endDate=${dashboard.coverage.loadedEndDate}`}>Export daily CSV</a>
             </div>
           ) : null}
           {episodeOperational ? (
@@ -381,8 +409,8 @@ export default async function EpisodeStatisticsPage({
                       Imported downloads
                     </span>
                     <span>
-                      <strong>{formatCount(activeSummary.rangeDownloads)}</strong>
-                      {dashboard.range.label} downloads
+                      <strong>{formatDownloads(activeSummary.rangeDownloads)}</strong>
+                      Loaded {dashboard.range.label.toLowerCase()} downloads
                     </span>
                     <span>
                       <strong>{formatDate(activeSummary.lastActivityDate)}</strong>
@@ -491,15 +519,22 @@ export default async function EpisodeStatisticsPage({
                         <small>{formatDate(episode.publishDate)}</small>
                       </span>
                       <span className="episode-stat-row__bar" aria-hidden="true">
-                        <i style={{ width: `${Math.max(2, Math.round((episode.rangeDownloads / maxEpisodeDownloads) * 100))}%` }} />
+                        <i
+                          style={{
+                            width:
+                              episode.rangeDownloads === null || episode.rangeDownloads === 0
+                                ? "0%"
+                                : `${Math.max(2, Math.round((episode.rangeDownloads / maxEpisodeDownloads) * 100))}%`,
+                          }}
+                        />
                       </span>
                       <span>
                         <strong>{formatCount(episode.importedDownloads)}</strong>
                         <small>imported</small>
                       </span>
                       <span>
-                        <strong>{formatCount(episode.rangeDownloads)}</strong>
-                        <small>{dashboard.range.label}</small>
+                        <strong>{formatDownloads(episode.rangeDownloads)}</strong>
+                        <small>loaded {dashboard.range.label.toLowerCase()}</small>
                       </span>
                     </Link>
                   );

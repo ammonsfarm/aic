@@ -59,6 +59,57 @@ describe("admin operation database workflows", () => {
     expect(String(extentSql)).toContain("as ingest_last_successful_check_date");
   });
 
+  it("keeps a recent failed auth attempt ahead of historical completed imports without borrowing coverage", async () => {
+    mocks.queryRows.mockImplementation(async (sql: string) => {
+      if (sql.includes("from podtrac_sync_runs psr")) {
+        return [
+          {
+            id: "72",
+            status: "failed",
+            started_at: "2026-07-29T08:15:00Z",
+            completed_at: "2026-07-29T08:15:05Z",
+            error: "Podtrac authentication failed with HTTP 401.",
+            import_run_id: null,
+            import_started_at: null,
+            imported_through: null,
+          },
+          {
+            id: "60",
+            status: "completed",
+            started_at: "2026-07-13T08:15:00Z",
+            completed_at: "2026-07-13T08:16:00Z",
+            error: "",
+            import_run_id: "123",
+            import_started_at: "2026-07-13T08:15:30Z",
+            imported_through: "2026-07-13",
+          },
+        ];
+      }
+      if (sql.includes("as podtrac_current_through")) {
+        return [{
+          podtrac_current_through: "2026-07-13",
+          ingest_last_successful_check_date: "2026-07-29",
+        }];
+      }
+      return [];
+    });
+
+    const dashboard = await getOperationalDashboard();
+    expect(dashboard.podtracAuth.state).toBe("auth-error");
+    expect(dashboard.freshness.podtrac.dataCurrentThrough).toBe("2026-07-13");
+    expect(dashboard.runs.filter((run) => run.source === "podtrac-import")).toEqual([
+      expect.objectContaining({ id: "72", status: "failed", dataCurrentThrough: null }),
+      expect.objectContaining({ id: "123", status: "completed", dataCurrentThrough: "2026-07-13" }),
+    ]);
+
+    const [podtracSql] = mocks.queryRows.mock.calls.find(([sql]) => String(sql).includes("from podtrac_sync_runs psr"))!;
+    expect(String(podtracSql)).toContain("exact_pir.run_id = psr.import_run_id");
+    expect(String(podtracSql)).toMatch(/left join podtrac_import_runs exact_pir\s+on psr\.status = 'completed'\s+and exact_pir\.run_id = psr\.import_run_id/);
+    expect(String(podtracSql)).toContain("psr.status = 'completed'");
+    expect(String(podtracSql)).toContain("coalesce(psr.source_sqlite_path, '') not like 'direct-podtrac-api:%'");
+    expect(String(podtracSql)).toContain("order by psr.started_at desc, psr.id desc");
+  });
+
   it("queues an allowlisted retry and audit row in one transaction", async () => {
     mocks.clientQuery.mockImplementation(async (sql: string) => {
       if (sql.includes("returning id::text, stage")) {

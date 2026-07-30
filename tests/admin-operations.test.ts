@@ -51,16 +51,50 @@ describe("admin operation boundaries", () => {
       error: "Podtrac authentication failed with HTTP 401",
     }).state).toBe("auth-error");
     expect(podtracAuthenticationStatus({
+      status: "failed",
+      started_at: "2026-07-21T08:15:00Z",
+      completed_at: "2026-07-21T08:15:05Z",
+      error: "Podtrac request failed with HTTP 403.",
+    }).state).toBe("auth-error");
+    expect(podtracAuthenticationStatus({
       status: "completed",
       started_at: "2026-07-22T08:15:00Z",
       completed_at: "2026-07-22T08:16:00Z",
       error: "",
-    })).toMatchObject({ state: "ok", checkedAt: "2026-07-22T08:16:00Z" });
+    }, { asOfDate: "2026-07-22" })).toMatchObject({ state: "ok", checkedAt: "2026-07-22T08:16:00Z" });
+    expect(podtracAuthenticationStatus({
+      status: "completed",
+      started_at: "2026-07-13T08:15:00Z",
+      completed_at: "2026-07-13T08:16:00Z",
+      error: "",
+    }, { asOfDate: "2026-07-30" })).toMatchObject({
+      state: "unknown",
+      checkedAt: "2026-07-13T08:16:00Z",
+      message: expect.stringContaining("no longer proves current access"),
+    });
     expect(podtracAuthenticationStatus({
       status: "failed",
       started_at: "2026-07-22T08:15:00Z",
       completed_at: "2026-07-22T08:16:00Z",
       error: "database connection timed out",
+    }).state).toBe("unknown");
+    expect(podtracAuthenticationStatus({
+      status: "failed",
+      started_at: "2026-07-22T08:15:00Z",
+      completed_at: "2026-07-22T08:16:00Z",
+      error: "upstream returned HTTP 4010",
+    }).state).toBe("unknown");
+    expect(podtracAuthenticationStatus({
+      status: "failed",
+      started_at: "2026-07-22T08:15:00Z",
+      completed_at: "2026-07-22T08:16:00Z",
+      error: 'password authentication failed for user "aic_user"',
+    }).state).toBe("unknown");
+    expect(podtracAuthenticationStatus({
+      status: "failed",
+      started_at: "2026-07-22T08:15:00Z",
+      completed_at: "2026-07-22T08:16:00Z",
+      error: "operation forbidden by database policy",
     }).state).toBe("unknown");
     expect(podtracAuthenticationStatus(null).state).toBe("unknown");
   });
