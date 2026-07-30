@@ -34,7 +34,10 @@ function safeHttpsProviderUrl(value: string | undefined | null, allowlist: Set<s
   }
 }
 
-export function safeExternalDonationUrl(value: string | undefined | null) {
+export function safeExternalDonationUrl(
+  value: string | undefined | null,
+  environment: NodeJS.ProcessEnv = process.env,
+) {
   const candidate = value?.trim();
   if (!candidate) return null;
   try {
@@ -43,36 +46,45 @@ export function safeExternalDonationUrl(value: string | undefined | null) {
     // pastorwood.org is this application after cutover. A self-link cannot be
     // treated as an external payment processor, even in previews or tests.
     if (PASTORWOOD_HOSTS.has(parsed.hostname.toLowerCase())) return null;
-    return safeHttpsProviderUrl(candidate, configuredHosts(process.env.PASTORWOOD_DONATION_ALLOWED_HOSTS));
+    return safeHttpsProviderUrl(candidate, configuredHosts(environment.PASTORWOOD_DONATION_ALLOWED_HOSTS));
   } catch {
     return null;
   }
 }
 
-export function safeExternalDonorDashboardUrl(value: string | undefined | null) {
+export function safeExternalDonorDashboardUrl(
+  value: string | undefined | null,
+  environment: NodeJS.ProcessEnv = process.env,
+) {
   const candidate = value?.trim();
   if (!candidate) return null;
   try {
     const parsed = new URL(candidate);
     if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.port || parsed.hash) return null;
     if (PASTORWOOD_HOSTS.has(parsed.hostname.toLowerCase())) return null;
-    return safeHttpsProviderUrl(candidate, configuredHosts(process.env.PASTORWOOD_DONOR_DASHBOARD_ALLOWED_HOSTS));
+    return safeHttpsProviderUrl(candidate, configuredHosts(environment.PASTORWOOD_DONOR_DASHBOARD_ALLOWED_HOSTS));
   } catch {
     return null;
   }
 }
 
-export function getPublicDonationUrl(cmsValue?: string | null) {
+export function getPublicDonationUrl(
+  cmsValue?: string | null,
+  environment: NodeJS.ProcessEnv = process.env,
+) {
   return (
-    safeExternalDonationUrl(cmsValue) ||
-    safeExternalDonationUrl(process.env.PASTORWOOD_DONATION_URL)
+    safeExternalDonationUrl(cmsValue, environment) ||
+    safeExternalDonationUrl(environment.PASTORWOOD_DONATION_URL, environment)
   );
 }
 
-export function getPublicDonorDashboardUrl(cmsValue?: string | null) {
+export function getPublicDonorDashboardUrl(
+  cmsValue?: string | null,
+  environment: NodeJS.ProcessEnv = process.env,
+) {
   return (
-    safeExternalDonorDashboardUrl(cmsValue) ||
-    safeExternalDonorDashboardUrl(process.env.PASTORWOOD_DONOR_DASHBOARD_URL)
+    safeExternalDonorDashboardUrl(cmsValue, environment) ||
+    safeExternalDonorDashboardUrl(environment.PASTORWOOD_DONOR_DASHBOARD_URL, environment)
   );
 }
 

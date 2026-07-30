@@ -1,12 +1,15 @@
 import Link from "next/link";
 
 import { AdminConsole } from "@/components/admin-console";
-import { DataFreshnessNotice, SuccessfulCheckFreshnessNotice } from "@/components/data-freshness";
+import { SuccessfulCheckFreshnessNotice } from "@/components/data-freshness";
+import { ProviderReadiness } from "@/components/provider-readiness";
 import { RoutePanel } from "@/components/route-panel";
 import { getOperationalDashboard } from "@/lib/admin-operations";
 import { getSupportedAgentModels } from "@/lib/agent-models";
 import { getAgentSettingsView, type AgentSettingsView } from "@/lib/agent-settings";
+import { buildProviderReadiness, summarizePublicProviderEvidence } from "@/lib/provider-readiness";
 import { listAppUsers, requireAdministrator } from "@/lib/rbac";
+import { getStrapiSiteSettings } from "@/lib/strapi-site-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -48,16 +51,21 @@ async function getAdminSettings() {
 export default async function AdminPage() {
   await requireAdministrator("/overview");
   const settings = await getAdminSettings();
-  const [users, modelCatalog, operations] = await Promise.all([
+  const [users, modelCatalog, operations, siteSettings] = await Promise.all([
     listAppUsers(),
     getSupportedAgentModels(settings.provider),
     getOperationalDashboard({ limit: 10 }),
+    getStrapiSiteSettings(),
   ]);
+  const readiness = buildProviderReadiness({
+    publicEvidence: summarizePublicProviderEvidence(siteSettings),
+    podtrac: operations,
+  });
 
   return (
     <RoutePanel
       eyebrow="Admin"
-      title="Security and agent settings"
+      title="Security, readiness, and agent settings"
       aside={
         <div className="research-aside">
           <p>
@@ -65,6 +73,7 @@ export default async function AdminPage() {
           </p>
           <div className="research-aside__list" aria-label="Admin scope">
             <span>Agent provider, model, and System API_KEY</span>
+            <span>Public launch gates and provider readiness without secret values</span>
             <span>RAG retrieval budgets and cited source caps</span>
             <span>User, Content Manager, Research User, Read Only, and Admin role assignment</span>
             <span>Per-user research and episode history</span>
@@ -72,6 +81,7 @@ export default async function AdminPage() {
         </div>
       }
     >
+      <ProviderReadiness items={readiness} />
       <section className="admin-section" id="system-health">
         <div className="admin-section__header">
           <div>
@@ -82,11 +92,6 @@ export default async function AdminPage() {
         </div>
         <div className="split-board split-board--wide">
           <SuccessfulCheckFreshnessNotice label="Daily ingest" freshness={operations.freshness.ingest} />
-          <DataFreshnessNotice label="Podtrac" freshness={operations.freshness.podtrac} />
-          <div className={operations.podtracAuth.state === "auth-error" ? "status-item status-item--warn" : "status-item"} role={operations.podtracAuth.state === "auth-error" ? "alert" : "status"}>
-            <strong>Podtrac authentication: {operations.podtracAuth.state}</strong>
-            <span>{operations.podtracAuth.message}</span>
-          </div>
         </div>
         <div className="status-list status-list--compact">
           <span><strong>Queued retries</strong>{operations.retries.filter((item) => item.status === "queued").length}</span>

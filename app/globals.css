@@ -2249,6 +2249,85 @@ input:disabled {
   margin-bottom: 0;
 }
 
+.readiness-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.readiness-card {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--parchment-warm);
+}
+
+.readiness-card--configured {
+  border-color: oklch(72% 0.045 150);
+}
+
+.readiness-card--missing,
+.readiness-card--invalid,
+.readiness-card--stale,
+.readiness-card--unverified,
+.readiness-card--host-check-required {
+  border-color: oklch(70% 0.09 28);
+}
+
+.readiness-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.readiness-card__header h3,
+.readiness-card p {
+  margin: 0;
+}
+
+.readiness-card p {
+  color: var(--soft-ink);
+  line-height: 1.5;
+}
+
+.readiness-card small {
+  color: var(--soft-ink-muted);
+  line-height: 1.45;
+}
+
+.readiness-card__keys {
+  display: grid;
+  gap: 5px;
+  padding-top: 4px;
+}
+
+.readiness-card__keys > strong {
+  color: var(--soft-ink);
+  font-size: 0.74rem;
+}
+
+.readiness-card__keys > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.readiness-card__keys code {
+  max-width: 100%;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--parchment);
+  color: var(--soft-ink);
+  font-size: 0.68rem;
+  overflow-wrap: anywhere;
+}
+
 .admin-form,
 .admin-role-form {
   display: grid;
@@ -4293,6 +4372,7 @@ input:focus {
 	  .admin-role-form,
 	  .admin-form__group-head,
 	  .admin-limit-grid,
+	  .readiness-grid,
 	  .writing-detail-grid,
 	  .split-board,
 	  .split-board--wide { grid-template-columns: 1fr; }

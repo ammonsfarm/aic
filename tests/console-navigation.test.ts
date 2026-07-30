@@ -35,6 +35,8 @@ describe("role-aware console navigation", () => {
       "/pipeline",
       "/admin",
     ]);
+    const admin = consoleNavForRole("Admin").find((item) => item.href === "/admin");
+    expect(admin?.children?.map((item) => item.href)).toContain("/admin#provider-readiness");
     expect(consoleHomeHref("Admin")).toBe("/overview");
   });
 

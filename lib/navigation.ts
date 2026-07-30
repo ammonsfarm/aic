@@ -142,13 +142,18 @@ export const consoleNav: ConsoleNavItem[] = [
   {
     href: "/admin",
     label: "Admin",
-    description: "Agent settings and user roles.",
+    description: "Provider readiness, agent settings, and user roles.",
     roles: administratorRoles,
     children: [
       {
         href: "/admin",
         label: "Admin overview",
         description: "Review secured console settings.",
+      },
+      {
+        href: "/admin#provider-readiness",
+        label: "Provider readiness",
+        description: "Review public launch gates and safe provider state.",
       },
       {
         href: "/admin#agent-settings",

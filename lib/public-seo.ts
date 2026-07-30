@@ -4,8 +4,8 @@ import { safeCmsHref, safeCmsImageSrc } from "@/lib/cms-html";
 
 const DEFAULT_PUBLIC_ORIGIN = "https://www.pastorwood.org";
 
-export function publicSiteOrigin() {
-  const candidate = process.env.PASTORWOOD_PUBLIC_URL?.trim() || DEFAULT_PUBLIC_ORIGIN;
+export function publicSiteOrigin(environment: NodeJS.ProcessEnv = process.env) {
+  const candidate = environment.PASTORWOOD_PUBLIC_URL?.trim() || DEFAULT_PUBLIC_ORIGIN;
   try {
     const parsed = new URL(candidate);
     return parsed.protocol === "https:" ? parsed.origin : DEFAULT_PUBLIC_ORIGIN;
@@ -14,8 +14,8 @@ export function publicSiteOrigin() {
   }
 }
 
-export function isPublicIndexingEnabled() {
-  return process.env.PASTORWOOD_ALLOW_INDEXING === "true" && publicSiteOrigin() === DEFAULT_PUBLIC_ORIGIN;
+export function isPublicIndexingEnabled(environment: NodeJS.ProcessEnv = process.env) {
+  return environment.PASTORWOOD_ALLOW_INDEXING === "true" && publicSiteOrigin(environment) === DEFAULT_PUBLIC_ORIGIN;
 }
 
 export function canonicalPublicUrl(pathname: string) {
