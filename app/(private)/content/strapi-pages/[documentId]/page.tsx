@@ -7,6 +7,7 @@ import {
   listManagedStrapiPages,
   type ManagedStrapiPage,
 } from "@/lib/strapi-management";
+import { pastorWoodPublicCmsCutoverEnabled } from "@/lib/pastorwood-public-cms-cutover";
 import { listReusableMediaOptions, type ReusableMediaOption } from "@/lib/strapi-structured-management";
 import type { StrapiPageSection } from "@/lib/strapi";
 import {
@@ -197,13 +198,20 @@ export default async function EditStrapiPage({
     );
   }
 
+  const publicCutoverReady = pastorWoodPublicCmsCutoverEnabled();
+  const publishedMessage = publicCutoverReady
+    ? "The latest page content is now public."
+    : "The page is published in CMS, but public CMS routing is disabled in this pre-cutover environment. Use the protected draft preview until the reviewed cutover is enabled.";
+  const createdPublishedMessage = publicCutoverReady
+    ? "The new page is now public."
+    : "The new page is published in CMS, but public CMS routing is disabled in this pre-cutover environment. Use the protected draft preview until the reviewed cutover is enabled.";
   const saveAction = saveStrapiPageAction.bind(null, page.documentId);
   const notice = {
     "draft-saved": ["Draft saved", "The draft was saved. The public page was not changed."],
-    published: ["Published", "The latest page content is now public."],
+    published: [publicCutoverReady ? "Published" : "Published in CMS", publishedMessage],
     unpublished: ["Unpublished", "The public version was removed. The draft is still available here."],
     "created-draft": ["Draft created", "The new page is private until you publish it."],
-    "created-published": ["Created and published", "The new page is now public."],
+    "created-published": [publicCutoverReady ? "Created and published" : "Created and published in CMS", createdPublishedMessage],
     archived: ["Archived", "The page is retained with its history but is no longer public."],
     restored: ["Restored", "The page is active as a draft and can be published when ready."],
     "rolled-back": ["Revision restored", "The selected revision is now the current draft. Review it before publishing."],
@@ -250,9 +258,14 @@ export default async function EditStrapiPage({
           <div className="button-row">
             <Link className="button button--ghost" href="/content/site-pages">Back to pages</Link>
             <Link className="button button--ghost" href={`/preview/site-pages/${page.documentId}`} target="_blank">Preview draft</Link>
-            {page.publicationStatus === "published" ? <Link className="button button--ghost" href={publicPath(page)} target="_blank">View public page</Link> : null}
+            {page.publicationStatus === "published" && publicCutoverReady ? <Link className="button button--ghost" href={publicPath(page)} target="_blank">View public page</Link> : null}
           </div>
         </div>
+        {page.publicationStatus === "published" && !publicCutoverReady ? (
+          <p className="muted-copy" role="status">
+            Published in CMS. Public CMS routing is disabled in this pre-cutover environment. Use Preview draft until the reviewed cutover is enabled.
+          </p>
+        ) : null}
 
         <PageEditorForm action={saveAction}>
           <input type="hidden" name="expectedUpdatedAt" value={page.updatedAt} />
