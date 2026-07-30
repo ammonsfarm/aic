@@ -154,6 +154,22 @@ function formatDate(value: string | null) {
   }).format(parsed);
 }
 
+function SegmentedEmail({ value }: { value: string }) {
+  const separatorIndex = value.lastIndexOf("@");
+
+  if (separatorIndex <= 0 || separatorIndex === value.length - 1) {
+    return value;
+  }
+
+  return (
+    <span>
+      <span>{value.slice(0, separatorIndex)}</span>
+      <span>@</span>
+      <span>{value.slice(separatorIndex + 1)}</span>
+    </span>
+  );
+}
+
 function effortDefault(levels: AgentModelOption["reasoningEffortLevels"], current: AgentSettings["reasoningEffort"]) {
   if (current && levels.includes(current)) {
     return current;
@@ -457,8 +473,12 @@ export function AdminConsole({ initialSettings, initialUsers, initialModelCatalo
           </span>
           <span>
             <strong>Last settings update</strong>
-            {formatDate(settings.updatedAt)}
-            {settings.updatedBy ? ` by ${settings.updatedBy}` : ""}
+            <span>
+              {formatDate(settings.updatedAt)}
+              {settings.updatedBy ? (
+                <> by <SegmentedEmail value={settings.updatedBy} /></>
+              ) : null}
+            </span>
           </span>
         </div>
 
@@ -508,7 +528,7 @@ export function AdminConsole({ initialSettings, initialUsers, initialModelCatalo
           {users.map((user) => (
             <div className="admin-user-table__row" role="row" key={user.email}>
               <span role="cell">
-                <strong>{user.email}</strong>
+                <strong><SegmentedEmail value={user.email} /></strong>
                 <small>{user.name || "Name not recorded"}</small>
               </span>
               <span role="cell">
