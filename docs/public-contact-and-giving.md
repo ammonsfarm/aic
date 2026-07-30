@@ -24,14 +24,19 @@ Abuse-attempt records are eligible for bounded cleanup after 30 days. Messages m
 
 ## Inbox and notification truth
 
-Administrators and Content Managers can use `/content/inbox` to filter messages, open private details, update the audited workflow status, and export a private CSV. Neither the UI nor the CSV exposes request fingerprints.
+Administrators and Content Managers can use `/content/inbox` to filter messages, open private details, update the audited workflow status, and export a private CSV. Neither the UI nor the CSV exposes request fingerprints. The existing notification state, detail, notified timestamp, and audited message history explain whether delivery is not configured, queued or retrying, accepted by SMTP, or terminally failed.
 
-This repository has no configured mail-delivery adapter. New messages therefore use `notification_status = 'not_configured'` and remain durably available in the protected inbox. The public response confirms receipt and storage, not email delivery. A future provider integration must update the durable notification status rather than inferring delivery from configuration alone.
+SMTP delivery is disabled by default. While `CONTACT_EMAIL_DELIVERY_ENABLED=false`, or while any required SMTP setting is absent or invalid, accepted messages use `notification_status = 'not_configured'`, create no impossible outbox work, and remain durably available in the protected inbox. The public response confirms receipt and storage, never email delivery.
+
+To enable delivery, set all of these values in the canonical `/mnt/storage/aic/.env`: `CONTACT_EMAIL_DELIVERY_ENABLED`, `CONTACT_EMAIL_SMTP_HOST`, `CONTACT_EMAIL_SMTP_PORT`, `CONTACT_EMAIL_SMTP_USERNAME`, `CONTACT_EMAIL_SMTP_PASSWORD`, `CONTACT_EMAIL_SMTP_STARTTLS`, `CONTACT_EMAIL_FROM`, and one plain-mailbox `CONTACT_EMAIL_TO`. STARTTLS is required for remote hosts; plaintext SMTP is accepted only for a loopback relay. Do not place credentials in systemd unit files.
+
+When the gate and complete configuration are ready, contact capture inserts the message, received event, and `public_contact_notification_outbox` row in one PostgreSQL statement. `aic-contact-email-worker.timer` claims work with `SKIP LOCKED`, uses bounded exponential retry, recovers stale claims, stops after eight unsuccessful attempts, and writes provider-result events plus truthful `notification_status` and `notification_detail`. SMTP acceptance means the configured server accepted the message for delivery; it does not prove recipient delivery. Recovery is intentionally at-least-once, with a stable per-contact `Message-ID` to help downstream duplicate suppression after an interrupted attempt.
 
 ## Required rollout order
 
 1. Set `CONTACT_RATE_LIMIT_SECRET` and any approved giving/dashboard allowlists in the existing server environment.
-2. Apply the normal PostgreSQL migrations to the existing configured database.
-3. Build and deploy Strapi so the separate donor-dashboard site-setting field is available.
-4. Build and deploy the Next.js service.
-5. Verify public contact submission, inbox visibility, status audit, CSV export, both external giving links, and mobile/keyboard behavior in the deployed browser surface.
+2. Leave contact email disabled until an SMTP account, sender, and destination are approved; then add the complete contract above to the canonical environment.
+3. Apply the normal PostgreSQL migrations to the existing configured database.
+4. Build and deploy Strapi so the separate donor-dashboard site-setting field is available.
+5. Build and deploy the Next.js service; the deploy path installs the contact-email timer only when its gate and full configuration pass readiness checks.
+6. Verify public contact submission, inbox visibility, status audit, CSV export, both external giving links, and mobile/keyboard behavior in the deployed browser surface. When email is enabled, also verify the timer and one provider acceptance without exposing message content or credentials in logs.

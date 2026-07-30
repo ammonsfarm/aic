@@ -198,6 +198,51 @@ class DatabaseTargetContractTests(unittest.TestCase):
             self.assertNotIn("LD_PRELOAD", child)
             self.assertNotIn("STRAPI_URL", child)
 
+    def test_contact_email_provider_values_are_file_authoritative_and_clear_inherited_state(self) -> None:
+        module = load_database_env_module()
+        provider = (
+            "CONTACT_EMAIL_DELIVERY_ENABLED=true\n"
+            "CONTACT_EMAIL_SMTP_HOST=smtp.example.org\n"
+            "CONTACT_EMAIL_SMTP_PORT=587\n"
+            "CONTACT_EMAIL_SMTP_USERNAME=canonical-user\n"
+            "CONTACT_EMAIL_SMTP_PASSWORD=canonical-password-value\n"
+            "CONTACT_EMAIL_SMTP_STARTTLS=true\n"
+            "CONTACT_EMAIL_FROM=contact@example.org\n"
+            "CONTACT_EMAIL_TO=office@example.org\n"
+        )
+        hostile = {
+            key: "inherited-value"
+            for key in module.CONTACT_EMAIL_PROVIDER_ENV_KEYS
+        }
+        hostile.update({
+            "DATABASE_URL": "postgresql://wrong.invalid/copied_database",
+            "PGHOST": "wrong.invalid",
+        })
+        with tempfile.TemporaryDirectory() as directory:
+            canonical_file = Path(directory) / "aic.env"
+            canonical_file.write_text(canonical_env_text() + provider, encoding="utf-8")
+            with patch.dict(os.environ, hostile, clear=True):
+                values = module.load_canonical_aic_env(canonical_file, allow_test_path=True)
+                self.assertEqual(os.environ["CONTACT_EMAIL_SMTP_HOST"], "smtp.example.org")
+                self.assertEqual(os.environ["CONTACT_EMAIL_SMTP_USERNAME"], "canonical-user")
+                self.assertEqual(os.environ["CONTACT_EMAIL_SMTP_PASSWORD"], "canonical-password-value")
+                self.assertEqual(values["CONTACT_EMAIL_TO"], "office@example.org")
+                self.assertFalse(any(key == "DATABASE_URL" or key.startswith("PG") for key in os.environ))
+
+    def test_duplicate_contact_provider_secret_is_rejected(self) -> None:
+        module = load_database_env_module()
+        with tempfile.TemporaryDirectory() as directory:
+            canonical_file = Path(directory) / "aic.env"
+            canonical_file.write_text(
+                canonical_env_text()
+                + "CONTACT_EMAIL_DELIVERY_ENABLED=false\n"
+                + "CONTACT_EMAIL_SMTP_PASSWORD=one\n"
+                + "CONTACT_EMAIL_SMTP_PASSWORD=two\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(RuntimeError, "duplicate sensitive key: CONTACT_EMAIL_SMTP_PASSWORD"):
+                module.load_canonical_aic_env(canonical_file, allow_test_path=True)
+
     def test_supplemental_podcast_env_cannot_become_a_database_authority(self) -> None:
         module = load_database_env_module()
         canonical = {

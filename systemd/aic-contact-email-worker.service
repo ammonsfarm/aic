@@ -1,0 +1,41 @@
+[Unit]
+Description=AIC public contact SMTP notification worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ammonsfarm
+Group=ammonsfarm
+WorkingDirectory=/mnt/storage/aic
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+UnsetEnvironment=DB_HOST DB_PORT DB_NAME DB_USER DB_PASSWORD DATABASE_URL
+UnsetEnvironment=PGHOST PGHOSTADDR PGPORT PGDATABASE PGUSER PGPASSWORD PGPASSFILE PGSERVICE PGSERVICEFILE PGOPTIONS PGTARGETSESSIONATTRS PGSSLMODE
+UnsetEnvironment=CONTACT_EMAIL_DELIVERY_ENABLED CONTACT_EMAIL_SMTP_HOST CONTACT_EMAIL_SMTP_PORT CONTACT_EMAIL_SMTP_USERNAME CONTACT_EMAIL_SMTP_PASSWORD CONTACT_EMAIL_SMTP_STARTTLS CONTACT_EMAIL_FROM CONTACT_EMAIL_TO
+UnsetEnvironment=PYTHONPATH PYTHONHOME LD_PRELOAD LD_LIBRARY_PATH BASH_ENV ENV NODE_OPTIONS
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/mnt/storage/aic
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0077
+ExecStart=/mnt/storage/aic/.venv-pg/bin/python /mnt/storage/aic/scripts/process_contact_email_outbox.py --env-file /mnt/storage/aic/.env --limit 25
+TimeoutStartSec=10m
+Nice=5
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6

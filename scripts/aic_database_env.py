@@ -58,6 +58,20 @@ SUBSCRIPTION_PROVIDER_ENV_KEYS = (
     "SUBSCRIPTION_RATE_LIMIT_SECRET",
     "SUBSCRIPTION_UNSUBSCRIBE_SECRET",
 )
+CONTACT_EMAIL_PROVIDER_ENV_KEYS = (
+    "CONTACT_EMAIL_DELIVERY_ENABLED",
+    "CONTACT_EMAIL_SMTP_HOST",
+    "CONTACT_EMAIL_SMTP_PORT",
+    "CONTACT_EMAIL_SMTP_USERNAME",
+    "CONTACT_EMAIL_SMTP_PASSWORD",
+    "CONTACT_EMAIL_SMTP_STARTTLS",
+    "CONTACT_EMAIL_FROM",
+    "CONTACT_EMAIL_TO",
+)
+WORKER_PROVIDER_ENV_KEYS = (
+    *SUBSCRIPTION_PROVIDER_ENV_KEYS,
+    *CONTACT_EMAIL_PROVIDER_ENV_KEYS,
+)
 ENV_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 SENSITIVE_ENV_SUFFIXES = (
     "_API_KEY",
@@ -131,7 +145,7 @@ def _parse_env_file(path: Path) -> dict[str, str]:
         raise RuntimeError(f"Canonical AIC environment is missing: {path}")
 
     values: dict[str, str] = {}
-    sensitive_keys = {*DATABASE_ENV_KEYS, *DATABASE_ROUTING_ENV_KEYS}
+    sensitive_keys = {*DATABASE_ENV_KEYS, *DATABASE_ROUTING_ENV_KEYS, *WORKER_PROVIDER_ENV_KEYS}
     seen_sensitive: set[str] = set()
     for raw_line in path.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
@@ -189,13 +203,13 @@ def load_canonical_aic_env(
             key in DATABASE_ENV_KEYS
             or is_database_routing_key(key)
             or key in STRAPI_MUTATION_ENV_KEYS
-            or key in SUBSCRIPTION_PROVIDER_ENV_KEYS
+            or key in WORKER_PROVIDER_ENV_KEYS
         ):
             os.environ.pop(key, None)
     for key in DATABASE_ENV_KEYS:
         os.environ[key] = values[key]
     for key, value in values.items():
-        if key in (*STRAPI_MUTATION_ENV_KEYS, *SUBSCRIPTION_PROVIDER_ENV_KEYS):
+        if key in (*STRAPI_MUTATION_ENV_KEYS, *WORKER_PROVIDER_ENV_KEYS):
             os.environ[key] = value
         elif key not in DATABASE_ENV_KEYS:
             os.environ.setdefault(key, value)

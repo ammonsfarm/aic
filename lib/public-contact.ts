@@ -3,6 +3,7 @@ import "server-only";
 import { createHmac, randomUUID } from "node:crypto";
 
 import { queryRows } from "@/lib/db";
+import { contactEmailDeliveryReady } from "@/lib/contact-email-config";
 import {
   CONTACT_ARCHIVED_RETENTION_DAYS,
   CONTACT_ATTEMPT_RETENTION_DAYS,
@@ -256,6 +257,7 @@ export async function capturePublicContactMessage(
   if (!rates[0]?.accepted) return { ok: false, reason: "rate-limited" };
 
   const messageId = randomUUID();
+  const emailDeliveryReady = contactEmailDeliveryReady();
   const rows = await queryRows<{ public_id: string }>(
     `
       with inserted as (
@@ -265,16 +267,28 @@ export async function capturePublicContactMessage(
           notification_status, notification_detail
         )
         values ($1::uuid, $2, $3, $4, nullif($5, ''), nullif($6, ''), $7, $8,
-                $9, $10, now(), $11, $12, $13, 'not_configured',
-                'No notification provider is configured; review this message in the protected inbox.')
+                $9, $10, now(), $11, $12, $13,
+                case when $14::boolean then 'pending' else 'not_configured' end,
+                case when $14::boolean
+                  then 'Email notification queued for delivery.'
+                  else 'Email delivery is disabled or incomplete; review this message in the protected inbox.'
+                end)
         returning id, public_id
       ), event as (
         insert into public_contact_message_events(contact_message_id, event_type, actor_type, metadata)
         select id, 'received', 'public_form', jsonb_build_object('sourcePath', $11::text)
         from inserted
         returning contact_message_id
+      ), queued as (
+        insert into public_contact_notification_outbox(contact_message_id, status, available_at)
+        select id, 'queued', now()
+        from inserted
+        where $14::boolean
+        returning contact_message_id
       )
-      select public_id::text from inserted
+      select inserted.public_id::text
+      from inserted
+      left join queued on queued.contact_message_id = inserted.id
     `,
     [
       messageId,
@@ -290,6 +304,7 @@ export async function capturePublicContactMessage(
       input.sourcePath,
       ipHash,
       userAgentHash,
+      emailDeliveryReady,
     ],
   );
   if (rows[0]?.public_id !== messageId) throw new Error("Contact message was not durably stored.");

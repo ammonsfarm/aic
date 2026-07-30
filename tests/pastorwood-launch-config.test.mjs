@@ -10,7 +10,7 @@ import test from "node:test";
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const attestationFileName = "pastorwood-public-cms-cutover-attestation.json";
 
-function runLaunchCheck(overrides = {}, worker = "1", inherited = {}, attestationOverrides = null) {
+function runLaunchCheck(overrides = {}, worker = "1", inherited = {}, attestationOverrides = null, contactWorker = "1") {
   const sandbox = mkdtempSync(`${tmpdir()}/aic-pastorwood-launch-`);
   const envFile = resolve(sandbox, ".env");
   const values = {
@@ -25,6 +25,14 @@ function runLaunchCheck(overrides = {}, worker = "1", inherited = {}, attestatio
     MAILCHIMP_WEBHOOK_SECRET: "webhook",
     SUBSCRIPTION_RATE_LIMIT_SECRET: "rate",
     SUBSCRIPTION_UNSUBSCRIBE_SECRET: "unsubscribe",
+    CONTACT_EMAIL_DELIVERY_ENABLED: "false",
+    CONTACT_EMAIL_SMTP_HOST: "",
+    CONTACT_EMAIL_SMTP_PORT: "587",
+    CONTACT_EMAIL_SMTP_USERNAME: "",
+    CONTACT_EMAIL_SMTP_PASSWORD: "",
+    CONTACT_EMAIL_SMTP_STARTTLS: "true",
+    CONTACT_EMAIL_FROM: "",
+    CONTACT_EMAIL_TO: "",
     ...overrides,
   };
   const testEvidence = {};
@@ -75,6 +83,7 @@ function runLaunchCheck(overrides = {}, worker = "1", inherited = {}, attestatio
     "scripts/check-pastorwood-launch-config.mjs",
     "--env-file", envFile,
     "--subscription-worker-enabled", worker,
+    "--contact-email-worker-enabled", contactWorker,
   ], {
     cwd: root,
     encoding: "utf8",
@@ -101,6 +110,9 @@ test("canonical file values keep signup off even when inherited state says true"
     subscriptionRuntime: "disabled",
     subscriptionProvider: "ready",
     subscriptionWorker: "disabled",
+    contactEmailRuntime: "disabled",
+    contactEmailProvider: "incomplete",
+    contactEmailWorker: "enabled",
   });
 });
 
@@ -117,6 +129,39 @@ test("enabled signup requires both complete provider settings and the worker", (
   });
   assert.notEqual(incomplete.status, 0);
   assert.match(incomplete.stderr, /complete provider configuration/i);
+});
+
+test("enabled contact email requires complete safe SMTP settings and its worker", () => {
+  const complete = {
+    CONTACT_EMAIL_DELIVERY_ENABLED: "true",
+    CONTACT_EMAIL_SMTP_HOST: "smtp.example.org",
+    CONTACT_EMAIL_SMTP_PORT: "587",
+    CONTACT_EMAIL_SMTP_USERNAME: "smtp-user",
+    CONTACT_EMAIL_SMTP_PASSWORD: "test-only-password",
+    CONTACT_EMAIL_SMTP_STARTTLS: "true",
+    CONTACT_EMAIL_FROM: "contact@example.org",
+    CONTACT_EMAIL_TO: "office@example.org",
+  };
+  const ready = runLaunchCheck(complete);
+  assert.equal(ready.status, 0, ready.stderr);
+  assert.doesNotMatch(ready.stdout, /test-only-password/);
+  assert.match(ready.stdout, /"contactEmailRuntime":"enabled"/);
+
+  const incomplete = runLaunchCheck({ ...complete, CONTACT_EMAIL_TO: "" });
+  assert.notEqual(incomplete.status, 0);
+  assert.match(incomplete.stderr, /complete SMTP configuration/i);
+
+  const noWorker = runLaunchCheck(complete, "1", {}, null, "0");
+  assert.notEqual(noWorker.status, 0);
+  assert.match(noWorker.stderr, /SMTP worker install toggle is disabled/i);
+
+  const spoofedLoopback = runLaunchCheck({
+    ...complete,
+    CONTACT_EMAIL_SMTP_HOST: "127.evil",
+    CONTACT_EMAIL_SMTP_STARTTLS: "false",
+  });
+  assert.notEqual(spoofedLoopback.status, 0);
+  assert.match(spoofedLoopback.stderr, /complete SMTP configuration/i);
 });
 
 test("development and production-cutover stages require their exact origins", () => {
@@ -141,7 +186,7 @@ test("development and production-cutover stages require their exact origins", ()
   assert.match(indexedDevelopment.stderr, /development.*indexing disabled/i);
 });
 
-test("launch checks reject an ambiguous subscription gate", () => {
+test("launch checks reject ambiguous runtime gates", () => {
   const ambiguous = runLaunchCheck({ PASTORWOOD_SUBSCRIPTIONS_ENABLED: "yes" });
   assert.notEqual(ambiguous.status, 0);
   assert.match(ambiguous.stderr, /exactly true or false/i);
@@ -149,6 +194,10 @@ test("launch checks reject an ambiguous subscription gate", () => {
   const ambiguousCutover = runLaunchCheck({ PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED: "yes" });
   assert.notEqual(ambiguousCutover.status, 0);
   assert.match(ambiguousCutover.stderr, /PASTORWOOD_PUBLIC_CMS_CUTOVER_ENABLED must be exactly true or false/);
+
+  const ambiguousContact = runLaunchCheck({ CONTACT_EMAIL_DELIVERY_ENABLED: "yes" });
+  assert.notEqual(ambiguousContact.status, 0);
+  assert.match(ambiguousContact.stderr, /CONTACT_EMAIL_DELIVERY_ENABLED must be exactly true or false/);
 });
 
 test("public CMS launch requires the exact complete cutover attestation", () => {

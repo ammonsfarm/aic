@@ -2,6 +2,7 @@
 
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
+import { isIP } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -31,6 +32,14 @@ const MANAGED_KEYS = [
   "MAILCHIMP_WEBHOOK_SECRET",
   "SUBSCRIPTION_RATE_LIMIT_SECRET",
   "SUBSCRIPTION_UNSUBSCRIBE_SECRET",
+  "CONTACT_EMAIL_DELIVERY_ENABLED",
+  "CONTACT_EMAIL_SMTP_HOST",
+  "CONTACT_EMAIL_SMTP_PORT",
+  "CONTACT_EMAIL_SMTP_USERNAME",
+  "CONTACT_EMAIL_SMTP_PASSWORD",
+  "CONTACT_EMAIL_SMTP_STARTTLS",
+  "CONTACT_EMAIL_FROM",
+  "CONTACT_EMAIL_TO",
 ];
 const PROVIDER_KEYS = [
   "MAILCHIMP_API_KEY",
@@ -39,6 +48,15 @@ const PROVIDER_KEYS = [
   "MAILCHIMP_WEBHOOK_SECRET",
   "SUBSCRIPTION_RATE_LIMIT_SECRET",
   "SUBSCRIPTION_UNSUBSCRIBE_SECRET",
+];
+const CONTACT_EMAIL_PROVIDER_KEYS = [
+  "CONTACT_EMAIL_SMTP_HOST",
+  "CONTACT_EMAIL_SMTP_PORT",
+  "CONTACT_EMAIL_SMTP_USERNAME",
+  "CONTACT_EMAIL_SMTP_PASSWORD",
+  "CONTACT_EMAIL_SMTP_STARTTLS",
+  "CONTACT_EMAIL_FROM",
+  "CONTACT_EMAIL_TO",
 ];
 
 function argument(name) {
@@ -49,12 +67,16 @@ function argument(name) {
 const testMode = process.env.PASTORWOOD_LAUNCH_CONFIG_TEST_MODE === "1" && process.env.NODE_ENV !== "production";
 const envFile = argument("--env-file") || CANONICAL_ENV_FILE;
 const workerEnabled = argument("--subscription-worker-enabled");
+const contactEmailWorkerEnabled = argument("--contact-email-worker-enabled");
 
 if ((!testMode && path.resolve(envFile) !== CANONICAL_ENV_FILE) || !fs.existsSync(envFile)) {
   throw new Error(`PastorWood launch checks require the canonical environment at ${CANONICAL_ENV_FILE}.`);
 }
 if (workerEnabled !== "0" && workerEnabled !== "1") {
   throw new Error("Subscription provider worker readiness must be supplied as 0 or 1.");
+}
+if (contactEmailWorkerEnabled !== "0" && contactEmailWorkerEnabled !== "1") {
+  throw new Error("Contact email worker readiness must be supplied as 0 or 1.");
 }
 
 function readAuthoritativeValues(filePath) {
@@ -70,6 +92,36 @@ function readAuthoritativeValues(filePath) {
     values.set(key, trimmed.slice(separator + 1).trim().replace(/^(["'])(.*)\1$/, "$2"));
   }
   return values;
+}
+
+function validSmtpHost(value) {
+  if (!value || value.length > 253 || /[\u0000-\u001f\u007f\s/\\]/.test(value)) return false;
+  if (isIP(value)) return true;
+  return value.split(".").every((label) =>
+    /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(label),
+  );
+}
+
+function validMailbox(value) {
+  if (!value || value.length > 254 || /[\u0000-\u001f\u007f]/.test(value) || !/^[\x20-\x7e]+$/.test(value)) return false;
+  const parts = value.split("@");
+  if (parts.length !== 2) return false;
+  const [local, domain] = parts;
+  return Boolean(local)
+    && local.length <= 64
+    && /^[A-Za-z0-9.!#$%&'*+/=?^_{|}~-]+$/.test(local)
+    && !local.startsWith(".")
+    && !local.endsWith(".")
+    && !local.includes("..")
+    && domain.includes(".")
+    && validSmtpHost(domain);
+}
+
+function loopbackSmtpHost(value) {
+  const normalized = value.toLowerCase();
+  return normalized === "localhost"
+    || normalized === "::1"
+    || (isIP(normalized) === 4 && normalized.split(".")[0] === "127");
 }
 
 const values = readAuthoritativeValues(envFile);
@@ -158,6 +210,39 @@ if (runtimeEnabled && workerEnabled !== "1") {
   throw new Error("Public subscriptions cannot be enabled while the provider worker install toggle is disabled.");
 }
 
+const contactEmailRuntimeValue = (values.get("CONTACT_EMAIL_DELIVERY_ENABLED") || "false").toLowerCase();
+if (contactEmailRuntimeValue !== "true" && contactEmailRuntimeValue !== "false") {
+  throw new Error("CONTACT_EMAIL_DELIVERY_ENABLED must be exactly true or false.");
+}
+const contactEmailRuntimeEnabled = contactEmailRuntimeValue === "true";
+const contactEmailProviderValuesPresent = CONTACT_EMAIL_PROVIDER_KEYS.every((key) => Boolean(values.get(key)?.trim()));
+const smtpHost = values.get("CONTACT_EMAIL_SMTP_HOST") || "";
+const smtpPortText = values.get("CONTACT_EMAIL_SMTP_PORT") || "";
+const smtpPort = Number(smtpPortText);
+const smtpStarttls = (values.get("CONTACT_EMAIL_SMTP_STARTTLS") || "").toLowerCase();
+const smtpUsername = values.get("CONTACT_EMAIL_SMTP_USERNAME") || "";
+const smtpPassword = values.get("CONTACT_EMAIL_SMTP_PASSWORD") || "";
+const contactEmailProviderReady = contactEmailProviderValuesPresent
+  && validSmtpHost(smtpHost)
+  && /^[0-9]{1,5}$/.test(smtpPortText)
+  && Number.isInteger(smtpPort)
+  && smtpPort >= 1
+  && smtpPort <= 65_535
+  && smtpUsername.length <= 512
+  && smtpPassword.length <= 1024
+  && !/[\u0000-\u001f\u007f]/.test(smtpUsername)
+  && !/[\u0000-\u001f\u007f]/.test(smtpPassword)
+  && (smtpStarttls === "true" || (smtpStarttls === "false" && loopbackSmtpHost(smtpHost)))
+  && validMailbox(values.get("CONTACT_EMAIL_FROM") || "")
+  && validMailbox(values.get("CONTACT_EMAIL_TO") || "");
+
+if (contactEmailRuntimeEnabled && !contactEmailProviderReady) {
+  throw new Error("Contact email delivery cannot be enabled until the complete SMTP configuration is valid.");
+}
+if (contactEmailRuntimeEnabled && contactEmailWorkerEnabled !== "1") {
+  throw new Error("Contact email delivery cannot be enabled while the SMTP worker install toggle is disabled.");
+}
+
 console.log(JSON.stringify({
   launchStage,
   publicOrigin: launchStage === "development" ? "development" : "canonical",
@@ -166,4 +251,7 @@ console.log(JSON.stringify({
   subscriptionRuntime: runtimeEnabled ? "enabled" : "disabled",
   subscriptionProvider: providerReady ? "ready" : "incomplete",
   subscriptionWorker: workerEnabled === "1" ? "enabled" : "disabled",
+  contactEmailRuntime: contactEmailRuntimeEnabled ? "enabled" : "disabled",
+  contactEmailProvider: contactEmailProviderReady ? "ready" : "incomplete",
+  contactEmailWorker: contactEmailWorkerEnabled === "1" ? "enabled" : "disabled",
 }));

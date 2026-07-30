@@ -13,6 +13,7 @@ RUN_STRAPI_BACKUP_VERIFY="${RUN_STRAPI_BACKUP_VERIFY:-1}"
 INSTALL_ADMIN_OPERATIONS_WORKER="${INSTALL_ADMIN_OPERATIONS_WORKER:-1}"
 INSTALL_EPISODE_PUBLISH_WORKER="${INSTALL_EPISODE_PUBLISH_WORKER:-1}"
 INSTALL_SUBSCRIPTION_PROVIDER_WORKER="${INSTALL_SUBSCRIPTION_PROVIDER_WORKER:-1}"
+INSTALL_CONTACT_EMAIL_WORKER="${INSTALL_CONTACT_EMAIL_WORKER:-1}"
 INSTALL_SCHEDULED_PUBLICATION_WORKER="${INSTALL_SCHEDULED_PUBLICATION_WORKER:-1}"
 INSTALL_PUBLIC_DATA_RETENTION_WORKER="${INSTALL_PUBLIC_DATA_RETENTION_WORKER:-1}"
 CONFIGURE_PASTORWOOD_DEVELOPMENT_ENV="${CONFIGURE_PASTORWOOD_DEVELOPMENT_ENV:-0}"
@@ -26,6 +27,7 @@ for toggle in \
   "${INSTALL_ADMIN_OPERATIONS_WORKER}" \
   "${INSTALL_EPISODE_PUBLISH_WORKER}" \
   "${INSTALL_SUBSCRIPTION_PROVIDER_WORKER}" \
+  "${INSTALL_CONTACT_EMAIL_WORKER}" \
   "${INSTALL_SCHEDULED_PUBLICATION_WORKER}" \
   "${INSTALL_PUBLIC_DATA_RETENTION_WORKER}" \
   "${CONFIGURE_PASTORWOOD_DEVELOPMENT_ENV}" \
@@ -50,6 +52,9 @@ set -euo pipefail
 unset DB_HOST DB_PORT DB_NAME DB_USER DB_PASSWORD
 unset PGHOST PGHOSTADDR PGPORT PGDATABASE PGUSER PGPASSWORD
 unset PGPASSFILE PGSERVICE PGSERVICEFILE PGOPTIONS
+unset CONTACT_EMAIL_DELIVERY_ENABLED CONTACT_EMAIL_SMTP_HOST CONTACT_EMAIL_SMTP_PORT
+unset CONTACT_EMAIL_SMTP_USERNAME CONTACT_EMAIL_SMTP_PASSWORD CONTACT_EMAIL_SMTP_STARTTLS
+unset CONTACT_EMAIL_FROM CONTACT_EMAIL_TO
 unset STRAPI_URL STRAPI_MANAGEMENT_URL STRAPI_PUBLIC_URL STRAPI_API_TOKEN
 unset STRAPI_READ_TOKEN STRAPI_MANAGEMENT_TOKEN STRAPI_API_TOKEN_TEMP_WRITE
 
@@ -128,6 +133,7 @@ all_timers=(
   aic-admin-operations-worker.timer
   aic-episode-publish-worker.timer
   aic-subscription-provider-worker.timer
+  aic-contact-email-worker.timer
   aic-scheduled-publication-worker.timer
   aic-public-data-retention-worker.timer
   aic-podcast-daily-ingest.timer
@@ -140,6 +146,7 @@ all_worker_services=(
   aic-admin-operations-worker.service
   aic-episode-publish-worker.service
   aic-subscription-provider-worker.service
+  aic-contact-email-worker.service
   aic-scheduled-publication-worker.service
   aic-public-data-retention-worker.service
   aic-podcast-daily-ingest.service
@@ -250,6 +257,7 @@ deployment_failed() {
     echo "Automatic pre-migration rollback was incomplete." >&2
   else
     echo "The forward-only migration phase started; no database or code rollback was attempted." >&2
+    sudo systemctl disable --now aic-contact-email-worker.timer >/dev/null 2>&1 || true
   fi
 
   stop_release_runtime
@@ -319,7 +327,8 @@ fi
 echo "Running release tests and builds before database or service mutation..."
 NODE_ENV=production node scripts/check-pastorwood-launch-config.mjs \
   --env-file /mnt/storage/aic/.env \
-  --subscription-worker-enabled "${INSTALL_SUBSCRIPTION_PROVIDER_WORKER}"
+  --subscription-worker-enabled "${INSTALL_SUBSCRIPTION_PROVIDER_WORKER}" \
+  --contact-email-worker-enabled "${INSTALL_CONTACT_EMAIL_WORKER}"
 npm test
 npm --prefix services/jimwood-cms test
 npm run lint
@@ -330,6 +339,11 @@ subscription_provider_ready=0
 if .venv-pg/bin/python scripts/process_subscription_provider_outbox.py \
   --env-file /mnt/storage/aic/.env --check-config; then
   subscription_provider_ready=1
+fi
+contact_email_ready=0
+if .venv-pg/bin/python scripts/process_contact_email_outbox.py \
+  --env-file /mnt/storage/aic/.env --check-config; then
+  contact_email_ready=1
 fi
 echo "Installing root-owned Strapi operations..."
 ops_install_started=1
@@ -388,6 +402,14 @@ if [ "${INSTALL_SUBSCRIPTION_PROVIDER_WORKER}" = "1" ] && [[ "\${subscription_pr
 else
   echo "Subscription provider is incomplete; keeping its timer disabled and the public signup disabled."
   sudo systemctl disable --now aic-subscription-provider-worker.timer >/dev/null 2>&1 || true
+fi
+
+if [ "${INSTALL_CONTACT_EMAIL_WORKER}" = "1" ] && [[ "\${contact_email_ready}" == "1" ]]; then
+  echo "Installing public contact SMTP notification worker timer..."
+  ENABLE_TIMER=0 START_TIMER=0 bash scripts/install-contact-email-worker.sh
+else
+  echo "Contact email delivery is disabled or incomplete; keeping its timer disabled."
+  sudo systemctl disable --now aic-contact-email-worker.timer >/dev/null 2>&1 || true
 fi
 
 if [ "${INSTALL_SCHEDULED_PUBLICATION_WORKER}" = "1" ]; then
@@ -463,6 +485,13 @@ if [ "${INSTALL_PODCAST_SCHEDULED_WORKERS}" = "1" ]; then
   sudo systemctl enable aic-podcast-daily-ingest.timer aic-podtrac-daily-ingest.timer
   echo "Removing only the two exact legacy podcast cron commands after replacement timers are active..."
   bash scripts/migrate-legacy-podcast-cron.sh
+fi
+
+if [ "${INSTALL_CONTACT_EMAIL_WORKER}" = "1" ] && [[ "\${contact_email_ready}" == "1" ]]; then
+  echo "Enabling accepted public contact SMTP notification timer..."
+  sudo systemctl enable --now aic-contact-email-worker.timer
+  sudo systemctl is-enabled --quiet aic-contact-email-worker.timer
+  sudo systemctl is-active --quiet aic-contact-email-worker.timer
 fi
 
 trap - EXIT INT TERM

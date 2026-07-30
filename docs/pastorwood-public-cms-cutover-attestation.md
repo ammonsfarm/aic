@@ -34,7 +34,8 @@ Run the launch preflight before restarting the web process:
 ```bash
 NODE_ENV=production node scripts/check-pastorwood-launch-config.mjs \
   --env-file /mnt/storage/aic/.env \
-  --subscription-worker-enabled 0
+  --subscription-worker-enabled 0 \
+  --contact-email-worker-enabled 0
 ```
 
 The preflight also compares `PASTORWOOD_DEPLOYED_GIT_REVISION` with the actual checked-out commit. Runtime validation rechecks the exact environment bindings, requires a regular non-symlink evidence pair under the immutable migration root, and caches only a stat-bound successful result. Missing, unreadable, changed, malformed, stale-plan, wrong-revision, partial, or symlink evidence keeps bootstrap continuity active.

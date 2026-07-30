@@ -47,6 +47,7 @@ function contactRequest(payload: unknown, headers: Record<string, string> = {}) 
 describe("public contact boundary", () => {
   beforeEach(() => {
     process.env.CONTACT_RATE_LIMIT_SECRET = "test-only-contact-secret";
+    process.env.CONTACT_EMAIL_DELIVERY_ENABLED = "false";
     mocks.queryRows.mockReset();
   });
 
@@ -54,6 +55,10 @@ describe("public contact boundary", () => {
     const now = Date.now();
     const valid = validatePublicContactPayload(validPayload(now), now);
     expect(valid).toMatchObject({ ok: true, value: { email: "jane@example.org", category: "speaking" } });
+    expect(validatePublicContactPayload({ ...validPayload(now), email: "Jos\u00e9@Example.org" }, now))
+      .toMatchObject({ ok: true, value: { email: "jos\u00e9@example.org" } });
+    expect(validatePublicContactPayload({ ...validPayload(now), email: "listener..name@example.org" }, now))
+      .toMatchObject({ ok: true, value: { email: "listener..name@example.org" } });
     expect(validatePublicContactPayload({ ...validPayload(now), category: "billing" }, now)).toMatchObject({ ok: false, bot: false });
     expect(validatePublicContactPayload({ ...validPayload(now), consent: false }, now)).toMatchObject({ ok: false, bot: false });
     expect(validatePublicContactPayload({ ...validPayload(now), unknown: "field" }, now)).toMatchObject({ ok: false, bot: false });
@@ -91,9 +96,42 @@ describe("public contact boundary", () => {
     expect(insertValues[3]).toBe("jane@example.org");
     expect(insertValues[11]).toMatch(/^[a-f0-9]{64}$/);
     expect(insertValues[12]).toMatch(/^[a-f0-9]{64}$/);
-    expect(String(mocks.queryRows.mock.calls[1]?.[0])).toContain("'not_configured'");
+    const captureSql = String(mocks.queryRows.mock.calls[1]?.[0]);
+    expect(captureSql).toContain("'not_configured'");
+    expect(captureSql).toContain("public_contact_notification_outbox");
+    expect(captureSql).toContain("where $14::boolean");
+    expect(insertValues[13]).toBe(false);
     expect(String(mocks.queryRows.mock.calls[0]?.[0])).toContain("status = 'archived'");
     expect(String(mocks.queryRows.mock.calls[0]?.[0])).toContain("pg_advisory_xact_lock");
+  });
+
+  it("queues the outbox atomically only for complete enabled email delivery", async () => {
+    Object.assign(process.env, {
+      CONTACT_EMAIL_DELIVERY_ENABLED: "true",
+      CONTACT_EMAIL_SMTP_HOST: "smtp.example.org",
+      CONTACT_EMAIL_SMTP_PORT: "587",
+      CONTACT_EMAIL_SMTP_USERNAME: "smtp-user",
+      CONTACT_EMAIL_SMTP_PASSWORD: "test-only-password",
+      CONTACT_EMAIL_SMTP_STARTTLS: "true",
+      CONTACT_EMAIL_FROM: "contact@example.org",
+      CONTACT_EMAIL_TO: "office@example.org",
+    });
+    const now = Date.now();
+    const validation = validatePublicContactPayload(validPayload(now), now);
+    if (!validation.ok) throw new Error("Expected valid fixture.");
+    mocks.queryRows
+      .mockResolvedValueOnce([{ accepted: true }])
+      .mockImplementationOnce(async (_sql: string, values: unknown[]) => [{ public_id: values[0] }]);
+
+    await expect(capturePublicContactMessage(
+      validation.value,
+      contactRequest(validPayload(now)),
+    )).resolves.toMatchObject({ ok: true });
+    const [sql, values] = mocks.queryRows.mock.calls[1] as [string, unknown[]];
+    expect(sql).toContain("with inserted as");
+    expect(sql).toContain("public_contact_notification_outbox");
+    expect(sql).toContain("left join queued");
+    expect(values[13]).toBe(true);
   });
 
   it("returns a generic honeypot success without touching storage", async () => {
