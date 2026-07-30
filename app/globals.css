@@ -1034,12 +1034,46 @@ input:disabled {
   color: var(--cypress);
 }
 
+.status-card {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+  padding: 14px;
+  overflow-wrap: anywhere;
+}
+
+.status-card__title,
+.status-card__detail,
+.status-card__meta {
+  margin: 0;
+}
+
+.status-card__title {
+  color: inherit;
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
+.status-card__detail {
+  color: var(--soft-ink);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.status-card__meta {
+  color: var(--soft-ink-muted);
+  font-size: 0.76rem;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
 .status-list--compact {
   display: grid;
   gap: 8px;
 }
 
-.status-list--compact span {
+.status-list--compact > span {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 10px;
@@ -4162,10 +4196,24 @@ select:focus {
 .status-list {
   display: grid;
   gap: 8px;
-  min-width: 260px;
+  min-width: 0;
 }
 
-.status-list span,
+.status-list > *,
+.admin-console,
+.admin-section,
+.admin-form,
+.split-board > * {
+  min-width: 0;
+}
+
+.admin-form input,
+.admin-form select,
+.admin-form textarea {
+  min-width: 0;
+}
+
+.status-list > span,
 .lane-row,
 .empty-state,
 .preview-surface {
@@ -4178,7 +4226,7 @@ select:focus {
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 
-.status-list span:hover { border-color: var(--line); box-shadow: var(--shadow-sm); }
+.status-list > span:hover { border-color: var(--line); box-shadow: var(--shadow-sm); }
 
 .status-list--wide { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
@@ -4190,7 +4238,7 @@ select:focus {
   font-weight: 600;
 }
 
-.status-list span,
+.status-list > span,
 .lane-row span,
 .empty-state span {
   color: var(--soft-ink-muted);
@@ -4304,6 +4352,16 @@ input:focus {
     padding: 6px 8px;
     font-size: 0.78rem;
   }
+  .top-rail__menu {
+    position: static;
+  }
+  .top-rail__submenu {
+    top: 100%;
+    right: 16px;
+    left: 16px;
+    width: auto;
+    max-width: none;
+  }
   .top-rail__auth {
     gap: 6px;
     justify-content: flex-end;
@@ -4322,6 +4380,17 @@ input:focus {
     border-left: 0;
     border-top: 1px solid var(--line);
     padding-top: 18px;
+  }
+
+  .route-panel,
+  .podcast-chart-section {
+    padding-right: 18px;
+    padding-left: 18px;
+  }
+
+  .split-board > div {
+    padding-right: 18px;
+    padding-left: 18px;
   }
 
 	  .route-panel__header {
@@ -5605,10 +5674,6 @@ input:focus {
   .book-select__options {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .top-rail__submenu {
-    left: 0;
-    right: auto;
-  }
   .pw-nav {
     align-items: flex-start;
     border-radius: 28px;
@@ -5650,6 +5715,13 @@ input:focus {
   .pw-gpt-panel {
     align-items: flex-start;
     flex-direction: column;
+  }
+}
+
+@media (min-width: 721px) and (max-width: 900px) {
+  .top-rail__submenu {
+    right: auto;
+    left: 0;
   }
 }
 

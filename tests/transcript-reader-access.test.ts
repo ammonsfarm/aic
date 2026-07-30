@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { TranscriptReader } from "@/components/transcript-reader";
+import { nextTranscriptTabStop, TranscriptReader } from "@/components/transcript-reader";
 
 const segments = [
   {
@@ -29,6 +29,35 @@ function transcriptMarkup(canEditTranscript: boolean) {
 }
 
 describe("transcript correction controls", () => {
+  it("renders one roving transcript tab stop with an action-and-time label", () => {
+    const markup = renderToStaticMarkup(createElement(TranscriptReader, {
+      audioUrl: "/media/episodes/episode-1",
+      canEditTranscript: false,
+      segments: [
+        segments[0],
+        { ...segments[0], segmentId: "segment-2", segmentIndex: 1, startSeconds: 5, endSeconds: 10, text: "Bear much fruit." },
+        { ...segments[0], segmentId: "segment-3", segmentIndex: 2, startSeconds: null, endSeconds: null, text: "Untimed note." },
+      ],
+      trackId: "episode-1",
+    }));
+
+    expect(markup.match(/tabindex="0"/g)).toHaveLength(1);
+    expect(markup.match(/tabindex="-1"/g)).toHaveLength(1);
+    expect(markup).toContain('aria-label="Seek to 0 seconds, transcript segment 1 of 2: Abide in me."');
+    expect(markup).toContain('role="group" aria-label="Transcript seek controls"');
+  });
+
+  it("moves the roving tab stop with arrows, Home, and End", () => {
+    const indexes = [2, 7, 11];
+    expect(nextTranscriptTabStop(7, indexes, "ArrowRight")).toBe(11);
+    expect(nextTranscriptTabStop(7, indexes, "ArrowDown")).toBe(11);
+    expect(nextTranscriptTabStop(7, indexes, "ArrowLeft")).toBe(2);
+    expect(nextTranscriptTabStop(7, indexes, "ArrowUp")).toBe(2);
+    expect(nextTranscriptTabStop(7, indexes, "Home")).toBe(2);
+    expect(nextTranscriptTabStop(7, indexes, "End")).toBe(11);
+    expect(nextTranscriptTabStop(7, indexes, "Enter")).toBeNull();
+  });
+
   it("renders the editor entry point only when the server grants mutation permission", () => {
     expect(transcriptMarkup(true)).toContain("Edit transcript");
     expect(transcriptMarkup(false)).not.toContain("Edit transcript");

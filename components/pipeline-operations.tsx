@@ -38,12 +38,17 @@ export function PipelineOperations({ isAdministrator, unmatched, matched }: Pipe
   async function queueRetry(event: FormEvent<HTMLFormElement>, stage: RetryablePipelineStage) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    const reason = String(form.get("reason") || "").trim();
+    if (!reason) {
+      setError("Add an audit reason before queueing a pipeline retry.");
+      return;
+    }
     setBusy(`retry:${stage}`);
     try {
       await post("/api/admin/pipeline/retry", {
         stage,
         sourceRunId: form.get("sourceRunId"),
-        reason: form.get("reason"),
+        reason,
       });
       setMessage(`${stage} was queued for the background worker.`);
       event.currentTarget.reset();
@@ -58,16 +63,22 @@ export function PipelineOperations({ isAdministrator, unmatched, matched }: Pipe
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const trackId = String(form.get("trackId") || "");
+    const note = String(form.get("note") || "").trim();
     if (!trackId) {
       setError("Choose an archive episode before saving the match.");
+      return;
+    }
+    if (!note) {
+      setError("Add an audit note explaining why this manual match is correct.");
       return;
     }
     setBusy(`reconcile:${podtracEpisodeId}`);
     try {
       await post("/api/admin/pipeline/reconcile", {
+        action: "match",
         podtracEpisodeId,
         trackId,
-        note: form.get("note"),
+        note,
       });
       setMessage("Podtrac match saved with an audit record. Reloading current data…");
       window.location.reload();
@@ -89,6 +100,7 @@ export function PipelineOperations({ isAdministrator, unmatched, matched }: Pipe
     setBusy(`unmatch:${podtracEpisodeId}`);
     try {
       await post("/api/admin/pipeline/reconcile", {
+        action: "unmatch",
         podtracEpisodeId,
         trackId: null,
         note,
@@ -127,8 +139,8 @@ export function PipelineOperations({ isAdministrator, unmatched, matched }: Pipe
                 <input name="sourceRunId" maxLength={120} disabled={!isAdministrator} />
               </label>
               <label>
-                <span>Reason</span>
-                <input name="reason" maxLength={1000} disabled={!isAdministrator} required={option.stage === "transcript-edits"} placeholder="Why is a retry needed?" />
+                <span>Required audit reason</span>
+                <input name="reason" maxLength={1000} disabled={!isAdministrator} required placeholder="Why is a retry needed?" />
               </label>
               <button className="button button--primary" type="submit" disabled={!isAdministrator || Boolean(busy)}>
                 {busy === `retry:${option.stage}` ? "Queueing…" : `Queue ${option.label}`}
@@ -160,7 +172,7 @@ export function PipelineOperations({ isAdministrator, unmatched, matched }: Pipe
               </div>
               <label>
                 <span>Archive episode candidate</span>
-                <select name="trackId" defaultValue="" disabled={!isAdministrator}>
+                <select name="trackId" defaultValue="" required disabled={!isAdministrator}>
                   <option value="">Choose a match…</option>
                   {episode.candidates.map((candidate) => (
                     <option key={candidate.trackId} value={candidate.trackId}>
@@ -170,8 +182,8 @@ export function PipelineOperations({ isAdministrator, unmatched, matched }: Pipe
                 </select>
               </label>
               <label>
-                <span>Audit note</span>
-                <input name="note" maxLength={1000} disabled={!isAdministrator} placeholder="Reason for this manual match" />
+                <span>Required audit note</span>
+                <input name="note" maxLength={1000} required disabled={!isAdministrator} placeholder="Reason for this manual match" />
               </label>
               <button className="button button--primary" type="submit" disabled={!isAdministrator || Boolean(busy)}>
                 {busy === `reconcile:${episode.podtracEpisodeId}` ? "Saving…" : "Save match"}

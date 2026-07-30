@@ -12,14 +12,14 @@ function formatDate(value: string | null) {
 export function DataFreshnessNotice({ label, freshness }: { label: string; freshness: DataFreshness }) {
   const warning = freshness.state !== "current";
   return (
-    <div className={warning ? "status-item status-item--warn" : "status-item"} role={warning ? "alert" : "status"}>
-      <strong>{label}: {freshness.state === "current" ? "Current" : freshness.state === "stale" ? "Stale" : "Missing"}</strong>
-      <span>Data current through {formatDate(freshness.dataCurrentThrough)}.</span>
-      <small>
+    <article className={warning ? "status-card status-item status-item--warn" : "status-card status-item"} role={warning ? "alert" : "status"}>
+      <h3 className="status-card__title">{label}: {freshness.state === "current" ? "Current" : freshness.state === "stale" ? "Stale" : "Missing"}</h3>
+      <p className="status-card__detail">Data current through {formatDate(freshness.dataCurrentThrough)}.</p>
+      <p className="status-card__meta">
         {freshness.lagDays === null ? "No freshness date is available." : `${freshness.lagDays} day${freshness.lagDays === 1 ? "" : "s"} behind today.`}
         {` SLA: ${freshness.slaDays} day${freshness.slaDays === 1 ? "" : "s"}.`}
-      </small>
-    </div>
+      </p>
+    </article>
   );
 }
 
@@ -32,15 +32,15 @@ export function SuccessfulCheckFreshnessNotice({
 }) {
   const warning = freshness.state !== "current";
   return (
-    <div className={warning ? "status-item status-item--warn" : "status-item"} role={warning ? "alert" : "status"}>
-      <strong>{label}: {freshness.state === "current" ? "Current" : freshness.state === "stale" ? "Stale" : "Missing"}</strong>
-      <span>Last successful check {formatDate(freshness.lastSuccessfulCheckDate)}.</span>
-      <small>
+    <article className={warning ? "status-card status-item status-item--warn" : "status-card status-item"} role={warning ? "alert" : "status"}>
+      <h3 className="status-card__title">{label}: {freshness.state === "current" ? "Current" : freshness.state === "stale" ? "Stale" : "Missing"}</h3>
+      <p className="status-card__detail">Last successful check {formatDate(freshness.lastSuccessfulCheckDate)}.</p>
+      <p className="status-card__meta">
         {freshness.lagDays === null
           ? "No successful check date is available."
           : `${freshness.lagDays} day${freshness.lagDays === 1 ? "" : "s"} since the last successful check.`}
         {` SLA: ${freshness.slaDays} day${freshness.slaDays === 1 ? "" : "s"}.`}
-      </small>
-    </div>
+      </p>
+    </article>
   );
 }

@@ -63,11 +63,11 @@ export default async function PipelinePage({ searchParams }: { searchParams: Pro
       <section className="split-board split-board--wide">
         <SuccessfulCheckFreshnessNotice label="Daily ingest" freshness={operations.freshness.ingest} />
         <DataFreshnessNotice label="Podtrac reporting" freshness={operations.freshness.podtrac} />
-        <div className={operations.podtracAuth.state === "auth-error" ? "status-item status-item--warn" : "status-item"} role={operations.podtracAuth.state === "auth-error" ? "alert" : "status"}>
-          <strong>Podtrac authentication: {operations.podtracAuth.state}</strong>
-          <span>{operations.podtracAuth.message}</span>
-          <small>{operations.podtracAuth.checkedAt ? `Runner log checked ${formatDate(operations.podtracAuth.checkedAt)}.` : "No runner log timestamp."}</small>
-        </div>
+        <article className={operations.podtracAuth.state === "auth-error" ? "status-card status-item status-item--warn" : "status-card status-item"} role={operations.podtracAuth.state === "auth-error" ? "alert" : "status"}>
+          <h3 className="status-card__title">Podtrac authentication: {operations.podtracAuth.state}</h3>
+          <p className="status-card__detail">{operations.podtracAuth.message}</p>
+          <p className="status-card__meta">{operations.podtracAuth.checkedAt ? `Runner log checked ${formatDate(operations.podtracAuth.checkedAt)}.` : "No runner log timestamp."}</p>
+        </article>
       </section>
       <section className="split-board split-board--wide">
         <div>

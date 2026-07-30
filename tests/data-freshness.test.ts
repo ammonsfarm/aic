@@ -32,5 +32,8 @@ describe("freshness labels", () => {
     expect(checkMarkup).toContain("Last successful check Jul 22, 2026");
     expect(checkMarkup).toContain("1 day since the last successful check");
     expect(checkMarkup).not.toContain("Data current through");
+    expect(dataMarkup).toContain('<article class="status-card status-item status-item--warn"');
+    expect(dataMarkup).toContain('<h3 class="status-card__title">Podtrac: Stale</h3>');
+    expect(checkMarkup).toContain('<p class="status-card__detail">Last successful check Jul 22, 2026.</p>');
   });
 });

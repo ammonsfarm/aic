@@ -144,6 +144,16 @@ describe("admin operation database workflows", () => {
     expect(mocks.release).toHaveBeenCalledOnce();
   });
 
+  it("rejects every pipeline retry without an audit reason before opening a transaction", async () => {
+    await expect(queuePipelineRetry({
+      stage: "daily-ingest",
+      sourceRunId: "run-1",
+      reason: "   ",
+      actorEmail: "admin@example.test",
+    })).rejects.toThrow(/audit reason is required/i);
+    expect(mocks.connect).not.toHaveBeenCalled();
+  });
+
   it("audits and resets terminal transcript work when an administrator retries that stage", async () => {
     mocks.clientQuery.mockImplementation(async (sql: string) => {
       if (sql.includes("with candidates as") && sql.includes("revectorization_terminal")) {
@@ -192,6 +202,7 @@ describe("admin operation database workflows", () => {
     });
 
     const result = await reconcilePodtracEpisode({
+      action: "match",
       podtracEpisodeId: "p1",
       trackId: "t1",
       note: "verified title and date",
@@ -252,6 +263,7 @@ describe("admin operation database workflows", () => {
     });
 
     const result = await reconcilePodtracEpisode({
+      action: "unmatch",
       podtracEpisodeId: "p1",
       trackId: null,
       note: "incorrect archive episode",
@@ -275,13 +287,28 @@ describe("admin operation database workflows", () => {
     expect(mocks.clientQuery.mock.calls.some(([sql]) => String(sql).includes("insert into admin_operation_audit"))).toBe(true);
   });
 
-  it("rejects an unmatch without an audit note before opening a database transaction", async () => {
+  it.each([
+    { action: "match" as const, trackId: "t1" },
+    { action: "unmatch" as const, trackId: null },
+  ])("rejects a $action without an audit note before opening a transaction", async ({ action, trackId }) => {
     await expect(reconcilePodtracEpisode({
+      action,
       podtracEpisodeId: "p1",
-      trackId: null,
-      note: "",
+      trackId,
+      note: "   ",
       actorEmail: "admin@example.test",
     })).rejects.toThrow(/audit note is required/i);
+    expect(mocks.connect).not.toHaveBeenCalled();
+  });
+
+  it("rejects a manual match without a candidate before opening a database transaction", async () => {
+    await expect(reconcilePodtracEpisode({
+      action: "match",
+      podtracEpisodeId: "p1",
+      trackId: null,
+      note: "title and date verified",
+      actorEmail: "admin@example.test",
+    })).rejects.toThrow(/candidate is required/i);
     expect(mocks.connect).not.toHaveBeenCalled();
   });
 });

@@ -15,11 +15,15 @@ export async function POST(request: NextRequest) {
     if (!stage) {
       return NextResponse.json({ error: "Unsupported pipeline stage." }, { status: 400 });
     }
+    const reason = typeof payload.reason === "string" ? payload.reason.trim() : "";
+    if (!reason) {
+      return NextResponse.json({ error: "An audit reason is required before queueing a pipeline retry." }, { status: 400 });
+    }
 
     const retry = await queuePipelineRetry({
       stage,
       sourceRunId: typeof payload.sourceRunId === "string" ? payload.sourceRunId : null,
-      reason: typeof payload.reason === "string" ? payload.reason : "",
+      reason,
       actorEmail: admin.email,
     });
     return NextResponse.json({ retry }, { status: 202 });

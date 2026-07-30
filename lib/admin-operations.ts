@@ -685,8 +685,8 @@ export async function queuePipelineRetry({
 }) {
   const normalizedSourceRunId = boundedText(sourceRunId, 120) || null;
   const normalizedReason = boundedText(reason, 1000);
-  if (stage === "transcript-edits" && !normalizedReason) {
-    throw new Error("A reason is required before retrying transcript edits or terminal vector work.");
+  if (!normalizedReason) {
+    throw new Error("An audit reason is required before queueing a pipeline retry.");
   }
   const client = await getPool().connect();
   try {
@@ -766,11 +766,13 @@ export async function queuePipelineRetry({
 }
 
 export async function reconcilePodtracEpisode({
+  action,
   podtracEpisodeId,
   trackId,
   note,
   actorEmail,
 }: {
+  action: "match" | "unmatch";
   podtracEpisodeId: string;
   trackId: string | null;
   note?: string;
@@ -782,8 +784,17 @@ export async function reconcilePodtracEpisode({
   if (!normalizedPodtracId) {
     throw new Error("A Podtrac episode is required.");
   }
-  if (!normalizedTrackId && !normalizedNote) {
-    throw new Error("An audit note is required before removing a Podtrac match.");
+  if (action !== "match" && action !== "unmatch") {
+    throw new Error("A Podtrac reconciliation action is required.");
+  }
+  if (!normalizedNote) {
+    throw new Error("An audit note is required before changing a Podtrac match.");
+  }
+  if (action === "match" && !normalizedTrackId) {
+    throw new Error("An archive episode candidate is required for a manual Podtrac match.");
+  }
+  if (action === "unmatch" && normalizedTrackId) {
+    throw new Error("An unmatch request cannot assign an archive episode candidate.");
   }
 
   const client = await getPool().connect();
@@ -812,7 +823,6 @@ export async function reconcilePodtracEpisode({
       }
     }
 
-    const action = normalizedTrackId ? "match" : "unmatch";
     await client.query(
       `update podtrac_episodes
           set track_id = $2,
@@ -824,14 +834,14 @@ export async function reconcilePodtracEpisode({
               match_notes = $3,
               updated_at = now()
         where podtrac_episode_id = $1`,
-      [normalizedPodtracId, normalizedTrackId, normalizedNote],
+      [normalizedPodtracId, action === "match" ? normalizedTrackId : null, normalizedNote],
     );
     const audit = await client.query<{ id: string }>(
       `insert into podtrac_reconciliation_audit(
          podtrac_episode_id, previous_track_id, assigned_track_id, previous_match_status, action, note, actor_email
        ) values ($1, $2, $3, $4, $5, $6, $7)
        returning id::text`,
-      [normalizedPodtracId, episode.track_id, normalizedTrackId, episode.match_status, action, normalizedNote, actorEmail],
+      [normalizedPodtracId, episode.track_id, action === "match" ? normalizedTrackId : null, episode.match_status, action, normalizedNote, actorEmail],
     );
     await client.query(
       `insert into admin_operation_audit(action, entity_type, entity_id, actor_email, detail_json)
@@ -839,11 +849,11 @@ export async function reconcilePodtracEpisode({
       [
         normalizedPodtracId,
         actorEmail,
-        JSON.stringify({ action, previousTrackId: episode.track_id, assignedTrackId: normalizedTrackId, note: normalizedNote }),
+        JSON.stringify({ action, previousTrackId: episode.track_id, assignedTrackId: action === "match" ? normalizedTrackId : null, note: normalizedNote }),
       ],
     );
     await client.query("commit");
-    return { auditId: audit.rows[0].id, action, podtracEpisodeId: normalizedPodtracId, trackId: normalizedTrackId };
+    return { auditId: audit.rows[0].id, action, podtracEpisodeId: normalizedPodtracId, trackId: action === "match" ? normalizedTrackId : null };
   } catch (error) {
     await client.query("rollback");
     throw error;

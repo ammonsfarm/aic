@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
 type TranscriptSegment = {
   segmentId: string;
@@ -110,6 +110,40 @@ function wordParts(value: string) {
   return normalizedSegmentText(value).split(/(\s+)/).filter(Boolean);
 }
 
+function formatSeekTime(seconds: number) {
+  const wholeSeconds = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(wholeSeconds / 3600);
+  const minutes = Math.floor((wholeSeconds % 3600) / 60);
+  const remainder = wholeSeconds % 60;
+  const parts: string[] = [];
+
+  if (hours) parts.push(`${hours} hour${hours === 1 ? "" : "s"}`);
+  if (minutes) parts.push(`${minutes} minute${minutes === 1 ? "" : "s"}`);
+  if (remainder || parts.length === 0) parts.push(`${remainder} second${remainder === 1 ? "" : "s"}`);
+  return parts.join(", ");
+}
+
+function seekLabel(segment: TranscriptSegment, position: number, total: number) {
+  const text = normalizedSegmentText(segment.text);
+  const excerpt = text.length > 120 ? `${text.slice(0, 117)}…` : text;
+  return `Seek to ${formatSeekTime(segment.startSeconds ?? 0)}, transcript segment ${position} of ${total}: ${excerpt}`;
+}
+
+export function nextTranscriptTabStop(currentIndex: number, seekableIndexes: number[], key: string) {
+  if (seekableIndexes.length === 0) return null;
+
+  const currentPosition = Math.max(0, seekableIndexes.indexOf(currentIndex));
+  if (key === "Home") return seekableIndexes[0];
+  if (key === "End") return seekableIndexes.at(-1) ?? null;
+  if (key === "ArrowRight" || key === "ArrowDown") {
+    return seekableIndexes[Math.min(currentPosition + 1, seekableIndexes.length - 1)];
+  }
+  if (key === "ArrowLeft" || key === "ArrowUp") {
+    return seekableIndexes[Math.max(currentPosition - 1, 0)];
+  }
+  return null;
+}
+
 function activeWordIndex(segment: TranscriptSegment, currentTime: number, text: string) {
   if (segment.startSeconds === null || segment.endSeconds === null || segment.endSeconds <= segment.startSeconds) {
     return null;
@@ -186,6 +220,9 @@ export function TranscriptReader({
   const [editError, setEditError] = useState<string | null>(null);
   const [queuedEdits, setQueuedEdits] = useState<Record<string, string>>({});
   const [editedTextBySegment, setEditedTextBySegment] = useState<Record<string, string>>({});
+  const [rovingSegmentIndex, setRovingSegmentIndex] = useState<number | null>(() => (
+    audioUrl ? segments.find((segment) => segment.startSeconds !== null)?.segmentIndex ?? null : null
+  ));
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const transcriptViewportRef = useRef<HTMLDivElement | null>(null);
   const segmentRefs = useRef(new Map<number, HTMLElement>());
@@ -198,6 +235,15 @@ export function TranscriptReader({
     [editedTextBySegment, segments],
   );
   const paragraphs = useMemo(() => buildParagraphs(visibleSegments), [visibleSegments]);
+  const seekableSegmentIndexes = useMemo(
+    () => audioUrl
+      ? visibleSegments.filter((segment) => segment.startSeconds !== null).map((segment) => segment.segmentIndex)
+      : [],
+    [audioUrl, visibleSegments],
+  );
+  const effectiveRovingSegmentIndex = rovingSegmentIndex !== null && seekableSegmentIndexes.includes(rovingSegmentIndex)
+    ? rovingSegmentIndex
+    : seekableSegmentIndexes[0] ?? null;
 
   useEffect(() => {
     if (!followAudio || activeIndex === null) {
@@ -229,6 +275,22 @@ export function TranscriptReader({
     const time = audioRef.current.currentTime;
     setCurrentTime(time);
     setActiveIndex(findActiveSegmentIndex(time, visibleSegments));
+  };
+
+  const handleSegmentKeyDown = (event: KeyboardEvent<HTMLElement>, segment: TranscriptSegment) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      setRovingSegmentIndex(segment.segmentIndex);
+      seekTo(segment.startSeconds);
+      return;
+    }
+
+    const nextIndex = nextTranscriptTabStop(segment.segmentIndex, seekableSegmentIndexes, event.key);
+    if (nextIndex === null) return;
+
+    event.preventDefault();
+    setRovingSegmentIndex(nextIndex);
+    segmentRefs.current.get(nextIndex)?.focus();
   };
 
   const startEditing = (segment: TranscriptSegment) => {
@@ -341,7 +403,7 @@ export function TranscriptReader({
             Corrections are queued for review, transcript-table updates, and re-vectorization.
           </div>
         ) : null}
-        <div className="transcript-reader__segments">
+        <div className="transcript-reader__segments" role="group" aria-label="Transcript seek controls">
           {paragraphs.map((paragraph) => (
             <p key={paragraph.key} className="transcript-paragraph">
               {paragraph.segments.map((segment, index) => {
@@ -349,6 +411,7 @@ export function TranscriptReader({
                 const canSeek = segment.startSeconds !== null && Boolean(audioUrl);
                 const isEditing = canEditTranscript && editingSegmentId === segment.segmentId;
                 const queuedEditId = queuedEdits[segment.segmentId];
+                const seekablePosition = seekableSegmentIndexes.indexOf(segment.segmentIndex);
 
                 return (
                   <span key={segment.segmentId} className="reader-segment-wrap">
@@ -394,16 +457,14 @@ export function TranscriptReader({
                           className={`reader-segment ${isActive ? "reader-segment--active" : ""}`}
                           aria-current={isActive ? "true" : undefined}
                           role={canSeek ? "button" : undefined}
-                          tabIndex={canSeek ? 0 : undefined}
-                          onClick={canSeek ? () => seekTo(segment.startSeconds) : undefined}
-                          onKeyDown={canSeek ? (event) => {
-                            if (event.key !== "Enter" && event.key !== " ") {
-                              return;
-                            }
-
-                            event.preventDefault();
+                          tabIndex={canSeek ? (effectiveRovingSegmentIndex === segment.segmentIndex ? 0 : -1) : undefined}
+                          aria-label={canSeek ? seekLabel(segment, seekablePosition + 1, seekableSegmentIndexes.length) : undefined}
+                          onClick={canSeek ? () => {
+                            setRovingSegmentIndex(segment.segmentIndex);
                             seekTo(segment.startSeconds);
                           } : undefined}
+                          onFocus={canSeek ? () => setRovingSegmentIndex(segment.segmentIndex) : undefined}
+                          onKeyDown={canSeek ? (event) => handleSegmentKeyDown(event, segment) : undefined}
                         >
                           <SegmentText segment={segment} isActive={isActive} currentTime={currentTime} />
                         </span>
