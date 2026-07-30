@@ -42,6 +42,8 @@ DEFAULT_PODCAST_ROOT = Path("/mnt/storage/aic_podcast")
 DEFAULT_WEB_PYTHON = DEFAULT_WEB_ROOT / ".venv-pg/bin/python"
 DEFAULT_PODCAST_PYTHON = DEFAULT_PODCAST_ROOT / ".venv-pg/bin/python"
 DEFAULT_DAILY_INGEST_RUNNER = DEFAULT_PODCAST_ROOT / "run_daily_podcast_ingest.py"
+DEFAULT_EPISODE_DRAFT_SYNC = DEFAULT_WEB_ROOT / "scripts/sync_canonical_episode_drafts.py"
+DEFAULT_INTELLIGENCE_RECOVERY = DEFAULT_WEB_ROOT / "scripts/recover_failed_episode_intelligence.py"
 DEFAULT_PODTRAC_RUNNER = DEFAULT_WEB_ROOT / "ops/podtrac/run_daily_podtrac_ingest.py"
 DEFAULT_PODTRAC_AUTH = DEFAULT_PODCAST_ROOT / "podtrac-auth.curl"
 DEFAULT_PODTRAC_LOG_DIR = DEFAULT_PODCAST_ROOT / "run_logs"
@@ -52,6 +54,11 @@ STAGE_TIMEOUT_SECONDS = {
     "transcript-edits": 900,
 }
 RECOVERY_GRACE_SECONDS = 300
+DAILY_FOLLOWUP_TIMEOUT_SECONDS = {
+    "canonical-episode-draft-sync": 900,
+    "episode-intelligence-recovery": 7_200,
+}
+EPISODE_DRAFT_SYNC_CONFIRMATION = "CREATE_MISSING_CANONICAL_EPISODE_DRAFTS"
 
 
 def load_env(path: Path) -> dict[str, str]:
@@ -150,6 +157,8 @@ def validate_production_runtime(env_file: Path, podcast_env_file: Path) -> None:
     for label, path in {
         "podcast interpreter": DEFAULT_PODCAST_PYTHON,
         "daily ingest runner": DEFAULT_DAILY_INGEST_RUNNER,
+        "episode draft sync": DEFAULT_EPISODE_DRAFT_SYNC,
+        "intelligence recovery": DEFAULT_INTELLIGENCE_RECOVERY,
         "Podtrac runner": DEFAULT_PODTRAC_RUNNER,
         "flock": Path("/usr/bin/flock"),
     }.items():
@@ -162,6 +171,92 @@ def validate_production_runtime(env_file: Path, podcast_env_file: Path) -> None:
     }.items():
         if not os.access(path, os.X_OK):
             raise RuntimeError(f"Production {label} is not executable: {path}")
+
+
+def build_daily_followup_commands(
+    env_file: Path = DEFAULT_ENV_FILE,
+    podcast_env_file: Path = DEFAULT_PODCAST_ENV_FILE,
+    *,
+    web_root: Path = DEFAULT_WEB_ROOT,
+    web_python: Path = DEFAULT_WEB_PYTHON,
+) -> list[tuple[str, list[str], Path, int]]:
+    return [
+        (
+            "canonical-episode-draft-sync",
+            [
+                str(web_python),
+                str(web_root / "scripts/sync_canonical_episode_drafts.py"),
+                "--env-file",
+                str(env_file),
+                "--lookback-days",
+                "14",
+                "--max-creates",
+                "10",
+                "--apply",
+                "--confirm",
+                EPISODE_DRAFT_SYNC_CONFIRMATION,
+            ],
+            web_root,
+            DAILY_FOLLOWUP_TIMEOUT_SECONDS["canonical-episode-draft-sync"],
+        ),
+        (
+            "episode-intelligence-recovery",
+            [
+                str(web_python),
+                str(web_root / "scripts/recover_failed_episode_intelligence.py"),
+                "--env-file",
+                str(env_file),
+                "--podcast-env-file",
+                str(podcast_env_file),
+                "--lookback-days",
+                "14",
+                "--max-candidates",
+                "4",
+            ],
+            web_root,
+            DAILY_FOLLOWUP_TIMEOUT_SECONDS["episode-intelligence-recovery"],
+        ),
+    ]
+
+
+def run_daily_followups(
+    env_file: Path,
+    podcast_env_file: Path,
+    child_env: dict[str, str],
+    *,
+    runner: Any = subprocess.run,
+) -> tuple[int, str]:
+    first_failure = 0
+    output_parts: list[str] = []
+    for label, command, cwd, timeout in build_daily_followup_commands(env_file, podcast_env_file):
+        try:
+            result = runner(
+                command,
+                cwd=cwd,
+                env=child_env.copy(),
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+                shell=False,
+            )
+            command_output = "\n".join(part for part in (result.stdout, result.stderr) if part)
+            output_parts.append(f"[{label}]\n{command_output}".strip())
+            if result.returncode != 0 and first_failure == 0:
+                first_failure = result.returncode
+        except subprocess.TimeoutExpired as error:
+            output = "\n".join(
+                part.decode(errors="replace") if isinstance(part, bytes) else part or ""
+                for part in (error.stdout, error.stderr)
+            )
+            output_parts.append(f"[{label}] timed out after {timeout} seconds.\n{output}".strip())
+            if first_failure == 0:
+                first_failure = 124
+        except Exception as error:  # Both followups must still be attempted and reported.
+            output_parts.append(f"[{label}] could not start: {type(error).__name__}: {error}")
+            if first_failure == 0:
+                first_failure = 126
+    return first_failure, "\n".join(output_parts)
 
 
 def stale_after_seconds(stage: str) -> int:
@@ -347,6 +442,14 @@ def main() -> int:
     child_env = canonical_subprocess_env(canonical_values, supplemental_values)
     if args.scheduled_stage:
         return_code, output = run_request({"stage": args.scheduled_stage}, args.env_file, child_env)
+        if return_code == 0 and args.scheduled_stage == "daily-ingest":
+            followup_code, followup_output = run_daily_followups(
+                args.env_file,
+                args.podcast_env_file,
+                child_env,
+            )
+            output = "\n".join(part for part in (output, followup_output) if part)
+            return_code = followup_code
         if output.strip():
             print(safe_output(output, limit=12_000))
         return return_code

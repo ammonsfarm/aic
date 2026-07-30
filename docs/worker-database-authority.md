@@ -28,3 +28,20 @@ The server Podtrac action executes the versioned
 `/mnt/storage/aic/ops/podtrac/run_daily_podtrac_ingest.py` directly. The
 external podcast workspace supplies only its curl authentication capture and
 log directory; its wrapper and database loader are not used.
+
+After the scheduled daily ingest exits successfully, the same worker runs two
+fixed AIC scripts. `sync_canonical_episode_drafts.py` reads canonical recent
+episodes and uses only the localhost Strapi management endpoint and token from
+`/mnt/storage/aic/.env`; it implements create-only draft behavior and never
+updates an existing Strapi episode. `recover_failed_episode_intelligence.py`
+reads only recent failed/rate-limited intelligence, verifies the canonical
+cached transcript plus `local-minio/aic/podcasts/{trackId}.mp3`, and invokes the
+fixed podcast runner with the canonical database environment. The recovery
+cannot replace its interpreter, runner, MinIO authority, transcript root, or
+`/mnt/storage/podcasts` staging directory through inherited environment values.
+
+Both follow-ups are bounded and return nonzero on an unsafe identity,
+authority mismatch, candidate overflow, staging collision, child failure, or
+incomplete final intelligence/vector state. Their full operational contract is
+documented in
+`canonical-episode-draft-sync-and-intelligence-recovery.md`.

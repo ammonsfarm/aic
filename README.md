@@ -100,6 +100,14 @@ Publishing an episode through the private AIC content manager records a durable 
 
 All web and worker PostgreSQL paths use `/mnt/storage/aic/.env` as their sole production database authority. Podcast-workspace provider settings are supplemental and cannot change a child process's DB target, runner, interpreter, or process-control environment. See `docs/worker-database-authority.md` for the exact worker, Podtrac, and scheduled-job contract.
 
+After a successful scheduled daily ingest, the worker creates only missing
+canonical episodes as unpublished Strapi drafts, then makes one bounded repair
+attempt for recent failed/rate-limited episode intelligence when canonical
+cached transcript and MinIO audio evidence are present. Existing Strapi
+episodes are never updated by this sync. See
+`docs/canonical-episode-draft-sync-and-intelligence-recovery.md` for the fixed
+paths, limits, dry-run/apply commands, staging cleanup, and completion checks.
+
 ## PastorWood backup boundary
 
 The native backup service creates exactly two PostgreSQL 16 custom archives from one exported read-only snapshot of the existing canonical database: the complete `aic_strapi` schema and an explicit 11-table/6-sequence public operational set. Strapi remains stopped through both dumps and the media tar, while public writes can continue and are represented at the shared snapshot. Verification is offline only (`pg_restore --list` and `--file=/dev/null`) and never creates or restores a database. See `ops/strapi/README.md` for the exact inventory and recovery evidence.

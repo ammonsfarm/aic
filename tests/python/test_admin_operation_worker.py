@@ -97,6 +97,96 @@ class AdminOperationWorkerTests(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs["env"], child_env)
         self.assertFalse(run.call_args.kwargs["shell"])
 
+    def test_daily_followups_are_fixed_bounded_commands(self) -> None:
+        followups = MODULE.build_daily_followup_commands(
+            Path("/srv/aic/.env"),
+            Path("/srv/podcast/.env"),
+            web_root=self.web_root,
+            web_python=self.web_python,
+        )
+        self.assertEqual([label for label, _command, _cwd, _timeout in followups], [
+            "canonical-episode-draft-sync",
+            "episode-intelligence-recovery",
+        ])
+        sync = followups[0][1]
+        self.assertEqual(sync[:4], [
+            "/srv/aic/python",
+            "/srv/aic/scripts/sync_canonical_episode_drafts.py",
+            "--env-file",
+            "/srv/aic/.env",
+        ])
+        self.assertIn("--apply", sync)
+        self.assertEqual(sync[-2:], ["--confirm", "CREATE_MISSING_CANONICAL_EPISODE_DRAFTS"])
+        recovery = followups[1][1]
+        self.assertEqual(recovery[:4], [
+            "/srv/aic/python",
+            "/srv/aic/scripts/recover_failed_episode_intelligence.py",
+            "--env-file",
+            "/srv/aic/.env",
+        ])
+        self.assertEqual(recovery[recovery.index("--podcast-env-file") + 1], "/srv/podcast/.env")
+        self.assertEqual(recovery[-2:], ["--max-candidates", "4"])
+        self.assertTrue(all(timeout > 0 for _label, _command, _cwd, timeout in followups))
+
+    def test_daily_followups_attempt_both_and_return_nonzero_on_any_failure(self) -> None:
+        calls = []
+
+        def runner(command, **kwargs):
+            calls.append((command, kwargs))
+            return mock.Mock(
+                returncode=7 if command[1].endswith("sync_canonical_episode_drafts.py") else 0,
+                stdout="safe output",
+                stderr="",
+            )
+
+        return_code, output = MODULE.run_daily_followups(
+            Path("/mnt/storage/aic/.env"),
+            Path("/mnt/storage/aic_podcast/.env"),
+            {"PATH": "/fixed"},
+            runner=runner,
+        )
+
+        self.assertEqual(return_code, 7)
+        self.assertEqual(len(calls), 2)
+        self.assertIn("canonical-episode-draft-sync", output)
+        self.assertIn("episode-intelligence-recovery", output)
+        for _command, kwargs in calls:
+            self.assertFalse(kwargs["shell"])
+            self.assertEqual(kwargs["env"], {"PATH": "/fixed"})
+
+    def test_scheduled_daily_ingest_runs_followups_only_after_success(self) -> None:
+        args = mock.Mock(
+            env_file=Path("/mnt/storage/aic/.env"),
+            podcast_env_file=Path("/mnt/storage/aic_podcast/.env"),
+            limit=1,
+            scheduled_stage="daily-ingest",
+        )
+        with (
+            mock.patch.object(MODULE, "parse_args", return_value=args),
+            mock.patch.object(MODULE, "validate_production_runtime"),
+            mock.patch.object(MODULE, "load_env", return_value={"DB_HOST": "192.168.1.106"}),
+            mock.patch.object(MODULE, "load_supplemental_podcast_env", return_value={}),
+            mock.patch.object(MODULE, "canonical_subprocess_env", return_value={"PATH": "/fixed"}),
+            mock.patch.object(MODULE, "run_request", return_value=(0, "ingest ok")),
+            mock.patch.object(MODULE, "run_daily_followups", return_value=(0, "followups ok")) as followups,
+            mock.patch("builtins.print"),
+        ):
+            self.assertEqual(MODULE.main(), 0)
+        followups.assert_called_once_with(args.env_file, args.podcast_env_file, {"PATH": "/fixed"})
+
+        with (
+            mock.patch.object(MODULE, "parse_args", return_value=args),
+            mock.patch.object(MODULE, "validate_production_runtime"),
+            mock.patch.object(MODULE, "load_env", return_value={}),
+            mock.patch.object(MODULE, "load_supplemental_podcast_env", return_value={}),
+            mock.patch.object(MODULE, "canonical_subprocess_env", return_value={}),
+            mock.patch.object(MODULE, "run_request", return_value=(1, "ingest failed")),
+            mock.patch.object(MODULE, "run_daily_followups") as followups,
+            mock.patch("builtins.print"),
+        ):
+            self.assertEqual(MODULE.main(), 1)
+        followups.assert_not_called()
+
     def test_unknown_stage_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
             MODULE.build_command("touch /tmp/owned")
