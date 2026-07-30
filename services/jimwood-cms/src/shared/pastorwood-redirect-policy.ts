@@ -37,6 +37,7 @@ const protectedInternalPrefixes = [
   "/api",
   "/archive",
   "/compose",
+  "/console",
   "/content",
   "/episodes",
   "/login",

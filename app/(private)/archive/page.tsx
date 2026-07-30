@@ -58,7 +58,7 @@ export default async function ArchivePage({
     >
       <EpisodeSearchPanel
         endpoint="/api/episodes/search"
-        detailBasePath="/episodes"
+        detailBasePath="/console/episodes"
         defaultQuery={query}
         defaultMode={parsedMode}
         defaultScope={parsedScope}

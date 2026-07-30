@@ -51,7 +51,7 @@ export default async function SourcesPage() {
                 </div>
                 <p className="note">Track {row.trackId}</p>
                 <p>{formatText(row.text)}</p>
-                <Link className="button button--ghost" href={`/episodes/${row.trackId}`}>
+                <Link className="button button--ghost" href={`/console/episodes/${row.trackId}`}>
                   Open episode
                 </Link>
               </article>

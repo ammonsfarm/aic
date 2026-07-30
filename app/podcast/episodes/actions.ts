@@ -13,13 +13,17 @@ function formString(formData: FormData, key: string) {
 
 function safeReturnTo(value: string, trackId: string) {
   const fallback = `/podcast/episodes?trackId=${encodeURIComponent(trackId)}`;
-  const episodeDetailPath = `/episodes/${encodeURIComponent(trackId)}`;
+  const episodeDetailPath = `/console/episodes/${encodeURIComponent(trackId)}`;
+  const legacyEpisodeDetailPath = `/episodes/${encodeURIComponent(trackId)}`;
   try {
     const url = new URL(value, "https://pastorwood.invalid");
     if (url.origin !== "https://pastorwood.invalid") {
       return fallback;
     }
     if (url.pathname === episodeDetailPath) {
+      return episodeDetailPath;
+    }
+    if (url.pathname === legacyEpisodeDetailPath) {
       return episodeDetailPath;
     }
     if (url.pathname !== "/podcast/episodes") {
@@ -78,7 +82,7 @@ export async function queueEpisodeReprocessAction(
   }
 
   revalidatePath("/podcast/episodes");
-  revalidatePath(`/episodes/${encodeURIComponent(trackId)}`);
+  revalidatePath(`/console/episodes/${encodeURIComponent(trackId)}`);
   revalidatePath("/content/podcast");
   redirect(withOutcome(safeTarget, "reprocessQueued", "1"));
 }

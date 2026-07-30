@@ -3166,6 +3166,43 @@ input:disabled {
   white-space: nowrap;
 }
 
+.transcript-reader__controls-after {
+  scroll-margin-top: 160px;
+}
+
+.episode-reprocess-panel {
+  display: grid;
+  gap: 14px;
+  border: 1px solid color-mix(in oklch, var(--ochre) 42%, var(--line));
+  border-radius: 8px;
+  padding: 16px;
+  background: color-mix(in oklch, var(--ochre) 10%, var(--parchment));
+}
+
+.episode-reprocess-panel h4 {
+  margin: 2px 0 0;
+  color: var(--cypress);
+  font-size: 1.08rem;
+}
+
+.episode-reprocess-panel .notice-card,
+.episode-reprocess-panel .empty-state {
+  margin: 0;
+}
+
+.episode-reprocess-panel__form {
+  padding: 0;
+}
+
+.episode-reprocess-panel__warning {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.episode-reprocess-panel__form .editor-form__actions {
+  align-self: end;
+}
+
 .transcript-reader__layout {
   position: relative;
   max-height: min(72vh, 760px);

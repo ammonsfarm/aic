@@ -2,6 +2,7 @@ export const PRIVATE_TOP_LEVEL_SEGMENTS = new Set([
   "admin",
   "archive",
   "compose",
+  "console",
   "content",
   "episodes",
   "overview",

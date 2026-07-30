@@ -2,6 +2,6 @@ import { privateConsoleMetadata } from "@/lib/private-console-metadata";
 
 export const metadata = privateConsoleMetadata;
 
-export default function LegacySermonsLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default function LegacyResearchLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return children;
 }

@@ -12,6 +12,12 @@ type TopRailProps = {
   role?: AicNavRole;
 };
 
+function routeIsActive(pathname: string, href: string) {
+  const itemPath = href.split("#")[0];
+  if (itemPath === "/") return pathname === "/";
+  return pathname === itemPath || pathname.startsWith(`${itemPath}/`);
+}
+
 export function TopRail({ variant, isAdmin = false, role }: TopRailProps) {
   const pathname = usePathname();
   const effectiveRole: AicNavRole = role ?? (isAdmin ? "Admin" : "User");
@@ -43,8 +49,9 @@ export function TopRail({ variant, isAdmin = false, role }: TopRailProps) {
 
       <nav className="top-rail__nav" aria-label={variant === "private" ? "Console navigation" : "Site navigation"}>
         {nav.map((item) => {
-          const itemPath = item.href.split("#")[0];
-          const active = item.href === "/" ? pathname === itemPath : pathname.startsWith(itemPath);
+          const active = routeIsActive(pathname, item.href) || Boolean(
+            item.children?.some((child) => routeIsActive(pathname, child.href)),
+          );
           const external = item.href.startsWith("http");
           if (item.children?.length) {
             return (
@@ -59,10 +66,7 @@ export function TopRail({ variant, isAdmin = false, role }: TopRailProps) {
                 </Link>
                 <div className="top-rail__submenu" aria-label={`${item.label} navigation`}>
                   {item.children.map((child) => {
-                    const childPath = child.href.split("#")[0];
-                    const childActive = !child.href.includes("#") && (
-                      child.href === item.href ? pathname === childPath : pathname.startsWith(childPath)
-                    );
+                    const childActive = !child.href.includes("#") && routeIsActive(pathname, child.href);
 
                     return (
                       <Link href={child.href} key={child.href} aria-current={childActive ? "page" : undefined}>

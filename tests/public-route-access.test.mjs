@@ -11,13 +11,14 @@ const [proxy, routeAccess, navigation] = await Promise.all([
 test("episode intelligence and reading plan tools remain signed-in surfaces", () => {
   assert.doesNotMatch(proxy, /"\/episodes\(\.\*\)"/);
   assert.doesNotMatch(proxy, /"\/reading-plan\(\.\*\)"/);
+  assert.match(routeAccess, /"console"/);
   assert.match(routeAccess, /"episodes"/);
   assert.match(routeAccess, /"reading-plan"/);
 });
 
 test("signed-out navigation advertises only working PastorWood public routes", () => {
   const publicBlock = navigation.slice(navigation.indexOf("export const publicNav"));
-  for (const privatePath of ["/episodes", "/sermons", "/research", "/reading-plan", "/podcast"]) {
+  for (const privatePath of ["/console", "/episodes", "/sermons", "/research", "/reading-plan", "/podcast"]) {
     assert.doesNotMatch(publicBlock, new RegExp(`href: "${privatePath.replace("/", "\\/")}"`));
   }
   assert.match(publicBlock, /href: "\/radio"/);

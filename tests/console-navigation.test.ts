@@ -27,7 +27,7 @@ describe("role-aware console navigation", () => {
   it("gives administrators the complete console", () => {
     expect(hrefsFor("Admin")).toEqual([
       "/overview",
-      "/archive",
+      "/console/episodes",
       "/sources",
       "/compose",
       "/content",
@@ -40,7 +40,7 @@ describe("role-aware console navigation", () => {
 
   it("lands content managers in content without advertising redirect-only admin links", () => {
     expect(hrefsFor("Content Manager")).toEqual([
-      "/archive",
+      "/console/episodes",
       "/sources",
       "/compose",
       "/content",
@@ -54,7 +54,7 @@ describe("role-aware console navigation", () => {
 
   it("shows research users research tools but no publishing or administration", () => {
     expect(hrefsFor("Research User")).toEqual([
-      "/archive",
+      "/console/episodes",
       "/sources",
       "/compose",
       "/podcast",
@@ -64,7 +64,7 @@ describe("role-aware console navigation", () => {
   });
 
   it("keeps read-only users on non-generating views", () => {
-    expect(hrefsFor("Read Only")).toEqual(["/archive", "/sources", "/podcast", "/pipeline"]);
+    expect(hrefsFor("Read Only")).toEqual(["/console/episodes", "/sources", "/podcast", "/pipeline"]);
     expect(hrefsFor("Read Only")).not.toContain("/compose");
     expect(consoleHomeHref("Read Only")).toBe("/podcast");
     expect(canUseInternalReadConsole("Read Only")).toBe(true);
@@ -76,6 +76,20 @@ describe("role-aware console navigation", () => {
     expect(consoleHomeHref("User")).toBe("/podcast");
     expect(canUseInternalReadConsole("User")).toBe(false);
     expect(canUseResearchConsole("User")).toBe(false);
+  });
+
+  it("groups canonical archive tools without advertising research to read-only users", () => {
+    const researchArchive = consoleNavForRole("Research User")
+      .find((item) => item.href === "/console/episodes");
+    expect(researchArchive?.children?.map((item) => item.href)).toEqual([
+      "/console/episodes",
+      "/console/sermons",
+      "/console/research",
+    ]);
+
+    const readOnlyArchive = consoleNavForRole("Read Only")
+      .find((item) => item.href === "/console/episodes");
+    expect(readOnlyArchive?.children?.map((item) => item.href)).toEqual(["/console/episodes", "/console/sermons"]);
   });
 
   it("includes every active content-management destination", () => {

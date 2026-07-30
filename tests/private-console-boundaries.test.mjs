@@ -18,14 +18,14 @@ test("protected console route families ship loading and recovery boundaries", as
     "app/(private)/content/error.tsx",
     "app/podcast/loading.tsx",
     "app/podcast/error.tsx",
-    "app/episodes/loading.tsx",
-    "app/episodes/error.tsx",
-    "app/research/loading.tsx",
-    "app/research/error.tsx",
+    "app/(private)/console/episodes/loading.tsx",
+    "app/(private)/console/episodes/error.tsx",
+    "app/(private)/console/research/loading.tsx",
+    "app/(private)/console/research/error.tsx",
     "app/reading-plan/loading.tsx",
     "app/reading-plan/error.tsx",
-    "app/sermons/loading.tsx",
-    "app/sermons/error.tsx",
+    "app/(private)/console/sermons/loading.tsx",
+    "app/(private)/console/sermons/error.tsx",
     "app/preview/loading.tsx",
     "app/preview/error.tsx",
   ]) {
@@ -59,11 +59,11 @@ test("generation-only pages reject roles without research-console access", async
   assert.match(access, /canUseResearchConsole\(appUser\.role\)/);
   assert.match(access, /redirect\(roleLandingPath\(appUser\.role\)\)/);
 
-  for (const path of ["app/(private)/compose/page.tsx", "app/research/page.tsx", "app/reading-plan/page.tsx"]) {
+  for (const path of ["app/(private)/compose/page.tsx", "app/(private)/console/research/page.tsx", "app/reading-plan/page.tsx"]) {
     assert.match(await source(path), /await requireResearchConsoleUser\(\)/);
   }
 
-  for (const path of ["app/research/page.tsx", "app/reading-plan/page.tsx"]) {
+  for (const path of ["app/reading-plan/page.tsx"]) {
     const page = await source(path);
     assert.match(page, /<TopRail variant="private" role=\{appUser\.role\}/);
   }
@@ -81,9 +81,9 @@ test("internal read routes enforce the same role boundary advertised by navigati
     "app/(private)/archive/page.tsx",
     "app/(private)/sources/page.tsx",
     "app/(private)/pipeline/page.tsx",
-    "app/episodes/page.tsx",
-    "app/episodes/[trackId]/page.tsx",
-    "app/sermons/page.tsx",
+    "app/(private)/console/episodes/page.tsx",
+    "app/(private)/console/episodes/[trackId]/page.tsx",
+    "app/(private)/console/sermons/page.tsx",
   ]) {
     assert.match(await source(path), /await requireInternalReadConsoleUser\(\)/);
   }
@@ -108,6 +108,25 @@ test("internal read routes enforce the same role boundary advertised by navigati
   assert.doesNotMatch(publicAudio, /getInternalReadApiUser/);
 });
 
+test("legacy protected tools authorize before redirecting to canonical console routes", async () => {
+  for (const [path, guard, target] of [
+    ["app/episodes/page.tsx", "requireInternalReadConsoleUser", "/console/episodes"],
+    ["app/research/page.tsx", "requireResearchConsoleUser", "/console/research"],
+    ["app/sermons/page.tsx", "requireInternalReadConsoleUser", "/console/sermons"],
+  ]) {
+    const page = await source(path);
+    assert.match(page, new RegExp(`await ${guard}\\(\\)`));
+    assert.match(page, new RegExp(`consolePathWithSearchParams\\("${target}"`));
+    assert.ok(page.indexOf(`await ${guard}()`) < page.indexOf("redirect("));
+  }
+
+  const detail = await source("app/episodes/[trackId]/page.tsx");
+  assert.match(detail, /await requireInternalReadConsoleUser\(\)/);
+  assert.match(detail, /`\/console\/episodes\/\$\{encodeURIComponent\(trackId\)\}`/);
+  assert.match(detail, /consolePathWithSearchParams/);
+  assert.ok(detail.indexOf("await requireInternalReadConsoleUser()") < detail.indexOf("redirect("));
+});
+
 test("protected root routes remove inherited canonical metadata and opt out of indexing", async () => {
   const metadata = await source("lib/private-console-metadata.ts");
   assert.match(metadata, /canonical: null/);
@@ -118,10 +137,10 @@ test("protected root routes remove inherited canonical metadata and opt out of i
   for (const path of [
     "app/(private)/layout.tsx",
     "app/podcast/layout.tsx",
-    "app/episodes/layout.tsx",
-    "app/sermons/layout.tsx",
+    "app/(private)/console/episodes/layout.tsx",
+    "app/(private)/console/sermons/layout.tsx",
     "app/preview/layout.tsx",
-    "app/research/page.tsx",
+    "app/(private)/console/research/page.tsx",
     "app/reading-plan/page.tsx",
   ]) {
     assert.match(await source(path), /privateConsoleMetadata/);

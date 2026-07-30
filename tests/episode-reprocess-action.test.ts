@@ -65,14 +65,28 @@ describe("episode reprocess action", () => {
 
     await expect(queueEpisodeReprocessAction(
       "993652885",
-      "/episodes/993652885",
+      "/console/episodes/993652885",
       formData,
-    )).rejects.toThrow(/REDIRECT:\/episodes\/993652885\?reprocessQueued=1#episode-reprocess/);
+    )).rejects.toThrow(/REDIRECT:\/console\/episodes\/993652885\?reprocessQueued=1#episode-reprocess/);
 
     expect(mocks.queueEpisodeReprocessByTrackId).toHaveBeenCalledWith(
       "993652885",
       admin,
       "Correct a major transcript mistake",
+    );
+  });
+
+  it("canonicalizes a stale legacy episode return path", async () => {
+    const formData = new FormData();
+    formData.set("confirmReprocess", "confirmed");
+    formData.set("reprocessNote", "Correct a major transcript mistake");
+
+    await expect(queueEpisodeReprocessAction(
+      "993652885",
+      "/episodes/993652885",
+      formData,
+    )).rejects.toThrow(
+      /REDIRECT:\/console\/episodes\/993652885\?reprocessQueued=1#episode-reprocess/,
     );
   });
 

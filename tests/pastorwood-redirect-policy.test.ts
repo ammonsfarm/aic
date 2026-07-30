@@ -53,7 +53,7 @@ describe("PastorWood managed redirect policy", () => {
         [],
       ), prefix).toMatchObject({ ok: false, code: "invalid-source" });
     }
-    for (const prefix of ["/episodes", "/podcast", "/reading-plan", "/sermons"]) {
+    for (const prefix of ["/console", "/episodes", "/podcast", "/reading-plan", "/sermons"]) {
       expect(PASTORWOOD_PROTECTED_REDIRECT_PREFIXES).toContain(prefix);
     }
   });

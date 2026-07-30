@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 type TranscriptSegment = {
   segmentId: string;
@@ -16,6 +16,7 @@ type TranscriptReaderProps = {
   audioUrl: string;
   canEditTranscript: boolean;
   segments: TranscriptSegment[];
+  controlsAfter?: ReactNode;
   trackId: string;
 };
 
@@ -168,7 +169,13 @@ function SegmentText({
   );
 }
 
-export function TranscriptReader({ audioUrl, canEditTranscript, segments, trackId }: TranscriptReaderProps) {
+export function TranscriptReader({
+  audioUrl,
+  canEditTranscript,
+  controlsAfter,
+  segments,
+  trackId,
+}: TranscriptReaderProps) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [followAudio, setFollowAudio] = useState(true);
@@ -287,10 +294,6 @@ export function TranscriptReader({ audioUrl, canEditTranscript, segments, trackI
     }
   };
 
-  if (visibleSegments.length === 0) {
-    return <p className="empty-state">No readable transcript segments are available for this episode.</p>;
-  }
-
   return (
     <section className="transcript-reader" aria-label="Episode transcript reader">
       <div className="transcript-reader__bar">
@@ -302,15 +305,17 @@ export function TranscriptReader({ audioUrl, canEditTranscript, segments, trackI
         ) : (
           <p className="note">Audio is not available for this episode.</p>
         )}
-        <label className="transcript-reader__follow">
-          <input
-            type="checkbox"
-            checked={followAudio}
-            onChange={(event) => setFollowAudio(event.target.checked)}
-          />
-          Follow audio
-        </label>
-        {canEditTranscript ? (
+        {visibleSegments.length > 0 ? (
+          <label className="transcript-reader__follow">
+            <input
+              type="checkbox"
+              checked={followAudio}
+              onChange={(event) => setFollowAudio(event.target.checked)}
+            />
+            Follow audio
+          </label>
+        ) : null}
+        {canEditTranscript && visibleSegments.length > 0 ? (
           <button
             type="button"
             className={`button ${editMode ? "button--primary" : "button--ghost"} transcript-reader__edit-toggle`}
@@ -325,7 +330,12 @@ export function TranscriptReader({ audioUrl, canEditTranscript, segments, trackI
         ) : null}
       </div>
 
+      {controlsAfter ? <div className="transcript-reader__controls-after">{controlsAfter}</div> : null}
+
       <div ref={transcriptViewportRef} className="transcript-reader__layout">
+        {visibleSegments.length === 0 ? (
+          <p className="empty-state" role="status">No readable transcript segments are available for this episode.</p>
+        ) : null}
         {canEditTranscript && editMode ? (
           <div className="transcript-reader__edit-note" role="status">
             Corrections are queued for review, transcript-table updates, and re-vectorization.

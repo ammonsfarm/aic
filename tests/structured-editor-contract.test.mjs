@@ -410,10 +410,11 @@ test("episode publication and Administrator reprocessing use the durable outbox"
   assert.match(adminEpisodes, /isAdministrator && selected/);
   assert.match(adminEpisodes, /queueEpisodeReprocessAction/);
   assert.match(adminEpisodes, /retranscribes the canonical MinIO/);
-  const episodeDetail = await source("app/episodes/[trackId]/page.tsx");
+  const episodeDetail = await source("app/(private)/console/episodes/[trackId]/page.tsx");
   assert.match(episodeDetail, /isAdministrator/);
   assert.match(episodeDetail, /queueEpisodeReprocessAction/);
-  assert.match(episodeDetail, /Audio Player[\s\S]*Reprocess this episode/);
+  assert.match(episodeDetail, /Reprocess this episode/);
+  assert.match(episodeDetail, /Audio Player[\s\S]*controlsAfter=\{isAdministrator/);
   const adminAction = await source("app/podcast/episodes/actions.ts");
   assert.match(adminAction, /requireAdminApiUser/);
   assert.match(adminAction, /queueEpisodeReprocessByTrackId/);

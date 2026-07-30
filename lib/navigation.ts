@@ -22,10 +22,30 @@ export const consoleNav: ConsoleNavItem[] = [
     roles: administratorRoles,
   },
   {
-    href: "/archive",
+    href: "/console/episodes",
     label: "Archive",
     description: "Episodes, transcripts, and linked public records.",
     roles: internalReadRoles,
+    children: [
+      {
+        href: "/console/episodes",
+        label: "Episodes",
+        description: "Search episode records, transcripts, and archive intelligence.",
+        roles: internalReadRoles,
+      },
+      {
+        href: "/console/sermons",
+        label: "Sermon index",
+        description: "Browse episodes by Bible book and chapter.",
+        roles: internalReadRoles,
+      },
+      {
+        href: "/console/research",
+        label: "Research",
+        description: "Ask source-backed questions across the full archive.",
+        roles: researchConsoleRoles,
+      },
+    ],
   },
   {
     href: "/sources",
@@ -145,7 +165,12 @@ export const consoleNav: ConsoleNavItem[] = [
 ];
 
 export function consoleNavForRole(role: AicNavRole) {
-  return consoleNav.filter((item) => item.roles?.includes(role) ?? false);
+  return consoleNav
+    .filter((item) => item.roles?.includes(role) ?? false)
+    .map((item) => ({
+      ...item,
+      children: item.children?.filter((child) => child.roles?.includes(role) ?? true),
+    }));
 }
 
 export function canUseInternalReadConsole(role: AicNavRole) {

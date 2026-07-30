@@ -42,7 +42,7 @@ afterEach(() => {
 
 describe("generated legacy redirect integrity", () => {
   it("cannot override current private, API, login, or asset routes", () => {
-    for (const path of ["/admin", "/api/private", "/content/pages", "/episodes/1", "/login", "/podcast", "/reading-plan/day", "/sermons/1", "/_next/static/file.js", "/privacy", "/privacy/archive"]) {
+    for (const path of ["/admin", "/api/private", "/console/episodes/1", "/content/pages", "/episodes/1", "/login", "/podcast", "/reading-plan/day", "/sermons/1", "/_next/static/file.js", "/privacy", "/privacy/archive"]) {
       expect(isReservedLegacyRedirectSource(path)).toBe(true);
       expect(resolveLegacyRedirect(path)).toBeNull();
     }

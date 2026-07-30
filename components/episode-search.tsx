@@ -131,7 +131,7 @@ async function searchEpisodes(payload: {
 
 export function EpisodeSearchPanel({
   endpoint = "/api/episodes/search",
-  detailBasePath = "/episodes",
+  detailBasePath = "/console/episodes",
   defaultQuery = "",
   defaultMode = "hybrid",
   defaultTopK = 20,
