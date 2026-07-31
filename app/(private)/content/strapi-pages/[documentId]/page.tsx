@@ -17,6 +17,7 @@ import {
   transitionStrapiPageAction,
 } from "../actions";
 import { AddSectionFields, ExistingSectionTypeFields, PageCoreFields, PageEditorForm } from "../page-editor-client";
+import { PageTypographyFields } from "../page-typography-fields";
 
 export const dynamic = "force-dynamic";
 
@@ -353,6 +354,13 @@ export default async function EditStrapiPage({
             <textarea name="heroBody" rows={3} defaultValue={page.heroBody} />
             <small>Optional short introduction shown near the page headline.</small>
           </label>
+
+          <PageTypographyFields
+            heroTitleSize={page.heroTitleSize}
+            heroBodySize={page.heroBodySize}
+            sectionHeadingSize={page.sectionHeadingSize}
+            sectionBodySize={page.sectionBodySize}
+          />
 
           <div className="editor-grid editor-grid--two">
             <label>

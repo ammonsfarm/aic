@@ -47,6 +47,26 @@ describe("Strapi public continuity projection writer", () => {
     }
   });
 
+  it("projects only supported page typography presets", () => {
+    const payload = publicProjectionPayload("page", {
+      documentId: "page-1",
+      title: "About",
+      slug: "about",
+      pageKey: "about",
+      heroTitleSize: "small",
+      heroBodySize: "large",
+      sectionHeadingSize: "enormous",
+    }) as Record<string, unknown>;
+
+    expect(payload).toMatchObject({
+      heroTitleSize: "small",
+      heroBodySize: "large",
+      sectionHeadingSize: "standard",
+      sectionBodySize: "standard",
+    });
+    expect(JSON.stringify(payload)).not.toContain("enormous");
+  });
+
   it("keeps strict managed episode audio routes for every operational Track ID", () => {
     const accepted = new Map([
       ["123", "/media/episodes/123"],

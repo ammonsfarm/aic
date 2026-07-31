@@ -65,6 +65,42 @@
     "heroBody": {
       "type": "string"
     },
+    "heroTitleSize": {
+      "type": "enumeration",
+      "enum": [
+        "small",
+        "standard",
+        "large"
+      ],
+      "default": "standard"
+    },
+    "heroBodySize": {
+      "type": "enumeration",
+      "enum": [
+        "small",
+        "standard",
+        "large"
+      ],
+      "default": "standard"
+    },
+    "sectionHeadingSize": {
+      "type": "enumeration",
+      "enum": [
+        "small",
+        "standard",
+        "large"
+      ],
+      "default": "standard"
+    },
+    "sectionBodySize": {
+      "type": "enumeration",
+      "enum": [
+        "small",
+        "standard",
+        "large"
+      ],
+      "default": "standard"
+    },
     "seoTitle": {
       "type": "string"
     },

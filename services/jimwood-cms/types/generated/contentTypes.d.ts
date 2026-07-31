@@ -807,8 +807,16 @@ export interface ApiPagePage extends Struct.CollectionTypeSchema {
     createdBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &
       Schema.Attribute.Private;
     heroBody: Schema.Attribute.String;
+    heroBodySize: Schema.Attribute.Enumeration<
+      ['small', 'standard', 'large']
+    > &
+      Schema.Attribute.DefaultTo<'standard'>;
     heroLabel: Schema.Attribute.String;
     heroTitle: Schema.Attribute.String;
+    heroTitleSize: Schema.Attribute.Enumeration<
+      ['small', 'standard', 'large']
+    > &
+      Schema.Attribute.DefaultTo<'standard'>;
     legacyId: Schema.Attribute.String & Schema.Attribute.Unique;
     legacyUrl: Schema.Attribute.String;
     locale: Schema.Attribute.String & Schema.Attribute.Private;
@@ -821,6 +829,14 @@ export interface ApiPagePage extends Struct.CollectionTypeSchema {
       Schema.Attribute.Unique;
     publishedAt: Schema.Attribute.DateTime;
     scheduledFor: Schema.Attribute.DateTime;
+    sectionBodySize: Schema.Attribute.Enumeration<
+      ['small', 'standard', 'large']
+    > &
+      Schema.Attribute.DefaultTo<'standard'>;
+    sectionHeadingSize: Schema.Attribute.Enumeration<
+      ['small', 'standard', 'large']
+    > &
+      Schema.Attribute.DefaultTo<'standard'>;
     sections: Schema.Attribute.DynamicZone<
       [
         'page-sections.text-section',

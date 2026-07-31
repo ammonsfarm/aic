@@ -16,6 +16,7 @@ import {
   assertAllowedPageSlug,
   immutablePageKey,
 } from "@/lib/cms-page-validation";
+import { isPageFontSize, type PageFontSize } from "@/lib/page-typography";
 import { requireContentManagerApiUser } from "@/lib/rbac";
 import { STRAPI_PAGES_CACHE_TAG, strapiPageCacheTag } from "@/lib/strapi";
 import { STRAPI_PUBLIC_MEDIA_CACHE_TAG } from "@/lib/strapi-cache-tags";
@@ -60,6 +61,14 @@ const PAGE_SECTION_COMPONENTS = new Set([
 function formString(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
+}
+
+function formPageFontSize(formData: FormData, key: string): PageFontSize {
+  const value = formString(formData, key) || "standard";
+  if (!isPageFontSize(value)) {
+    throw new Error("Choose a valid page font size.");
+  }
+  return value;
 }
 
 function expectedVersion(formData: FormData) {
@@ -458,6 +467,10 @@ async function parsePageInput(
     heroLabel: formString(formData, "heroLabel"),
     heroTitle: formString(formData, "heroTitle"),
     heroBody: formString(formData, "heroBody"),
+    heroTitleSize: formPageFontSize(formData, "heroTitleSize"),
+    heroBodySize: formPageFontSize(formData, "heroBodySize"),
+    sectionHeadingSize: formPageFontSize(formData, "sectionHeadingSize"),
+    sectionBodySize: formPageFontSize(formData, "sectionBodySize"),
     seoTitle: formString(formData, "seoTitle"),
     seoDescription: formString(formData, "seoDescription"),
     canonicalUrl,

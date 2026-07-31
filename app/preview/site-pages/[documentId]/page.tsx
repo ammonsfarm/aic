@@ -46,6 +46,10 @@ export default async function SitePageDraftPreview({
           heroLabel: page.heroLabel,
           heroTitle: page.heroTitle,
           heroBody: page.heroBody,
+          heroTitleSize: page.heroTitleSize,
+          heroBodySize: page.heroBodySize,
+          sectionHeadingSize: page.sectionHeadingSize,
+          sectionBodySize: page.sectionBodySize,
           sections: page.sections,
         }}
       />

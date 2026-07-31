@@ -11,6 +11,7 @@ import {
   publicRadioArchivePath,
   type PublicRadioArchiveState,
 } from "@/lib/public-radio-search";
+import type { PageFontSize } from "@/lib/page-typography";
 import {
   listPublishedBoardMembersResult,
   listPublishedEndorsementsResult,
@@ -32,6 +33,8 @@ type PastorWoodHooks = {
     eyebrow: string;
     title: string;
     body: string;
+    titleSize?: PageFontSize;
+    bodySize?: PageFontSize;
   }) => React.ReactNode;
   DevotionalSignup?: (props: { sourcePath?: string }) => React.ReactNode;
 };
@@ -88,7 +91,13 @@ async function StructuredUnavailable({
   const Signup = hooks.DevotionalSignup;
   return (
     <Shell siteSettings={settings}>
-      <Hero eyebrow={eyebrow} title={cmsPage?.heroTitle || title} body={cmsPage?.heroBody || body} />
+      <Hero
+        eyebrow={eyebrow}
+        title={cmsPage?.heroTitle || title}
+        body={cmsPage?.heroBody || body}
+        titleSize={cmsPage?.heroTitleSize}
+        bodySize={cmsPage?.heroBodySize}
+      />
       <CmsPageContinuityNotice cmsPage={cmsPage} />
       <section className="pw-section pw-content-unavailable" role="alert">
         <h2>Content temporarily unavailable</h2>
@@ -155,6 +164,8 @@ export async function PastorWoodStructuredBoardPage({
         eyebrow="Board"
         title={cmsPage?.heroTitle || "Abiding in Christ Board Members"}
         body={cmsPage?.heroBody || "We are grateful for the people serving Abiding in Christ."}
+        titleSize={cmsPage?.heroTitleSize}
+        bodySize={cmsPage?.heroBodySize}
       />
       <CmsPageContinuityNotice cmsPage={cmsPage} />
       <section className="pw-section">
@@ -207,6 +218,8 @@ export async function PastorWoodStructuredEndorsementsPage({
         eyebrow="Endorsements"
         title={cmsPage?.heroTitle || "Additional Endorsements for Pastor Wood"}
         body={cmsPage?.heroBody || "Public endorsements from ministry leaders and friends of the work."}
+        titleSize={cmsPage?.heroTitleSize}
+        bodySize={cmsPage?.heroBodySize}
       />
       <CmsPageContinuityNotice cmsPage={cmsPage} />
       <section className="pw-section">
@@ -285,6 +298,8 @@ export async function PastorWoodStructuredPostsPage({
             ? "Recent devotional posts from Pastor Wood."
             : "Resources intended to encourage faithful Christian living.")
         }
+        titleSize={cmsPage?.heroTitleSize}
+        bodySize={cmsPage?.heroBodySize}
       />
       <CmsPageContinuityNotice cmsPage={cmsPage} />
       <section className="pw-section">
@@ -450,6 +465,8 @@ export async function PastorWoodStructuredRadioPage({
         eyebrow="Radio Archive"
         title={cmsPage?.heroTitle || "Radio Show Listings"}
         body={cmsPage?.heroBody || "Search and listen across the Abiding in Christ broadcast archive."}
+        titleSize={cmsPage?.heroTitleSize}
+        bodySize={cmsPage?.heroBodySize}
       />
       <CmsPageContinuityNotice cmsPage={cmsPage} />
       <section className="pw-section pw-radio-layout">

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { cmsMediaPublicUrl } from "@/lib/cms-media-url";
+import { normalizePageFontSize, type PageFontSize } from "@/lib/page-typography";
 import { pastorWoodPublicCmsCutoverEnabled } from "@/lib/pastorwood-public-cms-cutover";
 import { getProjectedContentByIdentity } from "@/lib/public-content-projection";
 import { fetchStrapiJsonResult } from "@/lib/strapi-request";
@@ -49,6 +50,10 @@ export type StrapiPage = {
   heroLabel: string;
   heroTitle: string;
   heroBody: string;
+  heroTitleSize: PageFontSize;
+  heroBodySize: PageFontSize;
+  sectionHeadingSize: PageFontSize;
+  sectionBodySize: PageFontSize;
   seoTitle: string;
   seoDescription: string;
   canonicalUrl: string;
@@ -212,6 +217,10 @@ function normalizePage(entity: StrapiEntity<StrapiPage>): StrapiPage | null {
     heroLabel: getString(source.heroLabel),
     heroTitle: getString(source.heroTitle),
     heroBody: getString(source.heroBody),
+    heroTitleSize: normalizePageFontSize(source.heroTitleSize),
+    heroBodySize: normalizePageFontSize(source.heroBodySize),
+    sectionHeadingSize: normalizePageFontSize(source.sectionHeadingSize),
+    sectionBodySize: normalizePageFontSize(source.sectionBodySize),
     seoTitle: getString(source.seoTitle),
     seoDescription: getString(source.seoDescription),
     canonicalUrl: getString(source.canonicalUrl),

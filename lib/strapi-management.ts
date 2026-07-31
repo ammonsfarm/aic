@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { CurrentAppUser } from "@/lib/rbac";
+import { normalizePageFontSize, type PageFontSize } from "@/lib/page-typography";
 import type { StrapiMedia, StrapiPageSection } from "@/lib/strapi";
 import { fetchWithTimeout } from "@/lib/strapi-request";
 
@@ -19,6 +20,10 @@ export type ManagedStrapiPage = {
   heroLabel: string;
   heroTitle: string;
   heroBody: string;
+  heroTitleSize: PageFontSize;
+  heroBodySize: PageFontSize;
+  sectionHeadingSize: PageFontSize;
+  sectionBodySize: PageFontSize;
   seoTitle: string;
   seoDescription: string;
   canonicalUrl: string;
@@ -76,6 +81,10 @@ export type ManagedStrapiPageInput = {
   heroLabel: string;
   heroTitle: string;
   heroBody: string;
+  heroTitleSize: PageFontSize;
+  heroBodySize: PageFontSize;
+  sectionHeadingSize: PageFontSize;
+  sectionBodySize: PageFontSize;
   seoTitle: string;
   seoDescription: string;
   canonicalUrl?: string;
@@ -270,6 +279,10 @@ function normalizePage(entity: StrapiEntity<ManagedStrapiPage>): ManagedStrapiPa
     heroLabel: getString(source.heroLabel),
     heroTitle: getString(source.heroTitle),
     heroBody: getString(source.heroBody),
+    heroTitleSize: normalizePageFontSize(source.heroTitleSize),
+    heroBodySize: normalizePageFontSize(source.heroBodySize),
+    sectionHeadingSize: normalizePageFontSize(source.sectionHeadingSize),
+    sectionBodySize: normalizePageFontSize(source.sectionBodySize),
     seoTitle: getString(source.seoTitle),
     seoDescription: getString(source.seoDescription),
     canonicalUrl: getString(source.canonicalUrl),
@@ -424,6 +437,10 @@ function pagePayload(input: ManagedStrapiPageInput) {
       heroLabel: input.heroLabel,
       heroTitle: input.heroTitle,
       heroBody: input.heroBody,
+      heroTitleSize: input.heroTitleSize,
+      heroBodySize: input.heroBodySize,
+      sectionHeadingSize: input.sectionHeadingSize,
+      sectionBodySize: input.sectionBodySize,
       seoTitle: input.seoTitle,
       seoDescription: input.seoDescription,
       canonicalUrl: input.canonicalUrl || "",

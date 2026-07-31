@@ -9,6 +9,7 @@ import {
   safeExternalDonationUrl,
   safeExternalDonorDashboardUrl,
 } from "@/lib/public-donation";
+import type { PageFontSize } from "@/lib/page-typography";
 import {
   CONTACT_ARCHIVED_RETENTION_DAYS,
   CONTACT_ATTEMPT_RETENTION_DAYS,
@@ -221,7 +222,12 @@ function PastorWoodHome({
 }) {
   return (
     <PastorWoodShell siteSettings={siteSettings}>
-      <section className="pw-hero" id="top">
+      <section
+        className="pw-hero"
+        id="top"
+        data-title-size={cmsPage?.heroTitleSize || "standard"}
+        data-body-size={cmsPage?.heroBodySize || "standard"}
+      >
         <div className="pw-hero__image" aria-hidden="true">
           <Image src="/images/pastorwood/smoky-mountain-church.png" alt="" width={1792} height={1024} priority />
         </div>
@@ -242,7 +248,11 @@ function PastorWoodHome({
 
       {cmsPage ? (
         cmsPage.sections?.length ? (
-          <CmsPageSections sections={cmsPage.sections} />
+          <CmsPageSections
+            sections={cmsPage.sections}
+            headingSize={cmsPage.sectionHeadingSize}
+            bodySize={cmsPage.sectionBodySize}
+          />
         ) : (
           <section className="pw-section pw-content-unavailable" role="status">
             <h2>More ministry information is coming soon.</h2>
@@ -335,9 +345,25 @@ export function PastorWoodSitePreview({ siteSettings }: { siteSettings: StrapiSi
   return <PastorWoodHome siteSettings={siteSettings} />;
 }
 
-export function PageHero({ eyebrow, title, body }: { eyebrow?: string; title: string; body: string }) {
+export function PageHero({
+  eyebrow,
+  title,
+  body,
+  titleSize = "standard",
+  bodySize = "standard",
+}: {
+  eyebrow?: string;
+  title: string;
+  body: string;
+  titleSize?: PageFontSize;
+  bodySize?: PageFontSize;
+}) {
   return (
-    <section className="pw-page-hero">
+    <section
+      className="pw-page-hero"
+      data-title-size={titleSize}
+      data-body-size={bodySize}
+    >
       {eyebrow ? <p className="pw-kicker">{eyebrow}</p> : null}
       <h1>{title}</h1>
       {body ? <p>{body}</p> : null}
@@ -408,6 +434,10 @@ export type PastorWoodCmsPage = {
   heroLabel?: string;
   heroTitle?: string;
   heroBody?: string;
+  heroTitleSize?: PageFontSize;
+  heroBodySize?: PageFontSize;
+  sectionHeadingSize?: PageFontSize;
+  sectionBodySize?: PageFontSize;
   seoTitle?: string;
   seoDescription?: string;
   canonicalUrl?: string;
@@ -459,9 +489,13 @@ function isRenderableCmsSection(section: PastorWoodCmsSection) {
 export function CmsPageSections({
   sections,
   externalButtonUrl,
+  headingSize = "standard",
+  bodySize = "standard",
 }: {
   sections?: PastorWoodCmsSection[];
   externalButtonUrl?: (value: string) => string | null;
+  headingSize?: PageFontSize;
+  bodySize?: PageFontSize;
 }) {
   const renderedSections = (sections ?? []).filter(isRenderableCmsSection);
 
@@ -470,7 +504,11 @@ export function CmsPageSections({
   }
 
   return (
-    <section className="pw-section pw-cms-sections">
+    <section
+      className="pw-section pw-cms-sections"
+      data-heading-size={headingSize}
+      data-body-size={bodySize}
+    >
       {renderedSections.map((section, index) => {
         const isCta = section.component === "page-sections.cta-section";
         const isImageText = section.component === "page-sections.image-text-section";
@@ -598,9 +636,19 @@ function AboutPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
 
   return (
     <>
-      <PageHero eyebrow="Life and Ministry" title={heroTitle} body={heroBody} />
+      <PageHero
+        eyebrow="Life and Ministry"
+        title={heroTitle}
+        body={heroBody}
+        titleSize={cmsPage?.heroTitleSize}
+        bodySize={cmsPage?.heroBodySize}
+      />
       {hasCmsSections ? (
-        <CmsPageSections sections={cmsPage?.sections} />
+        <CmsPageSections
+          sections={cmsPage?.sections}
+          headingSize={cmsPage?.sectionHeadingSize}
+          bodySize={cmsPage?.sectionBodySize}
+        />
       ) : (
         <section className="pw-section pw-story">
           <div className="pw-story__copy">
@@ -628,9 +676,19 @@ function AbidingInChristPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }
 
   return (
     <>
-      <PageHero eyebrow={cmsPage?.heroLabel || "Radio Ministry"} title={heroTitle} body={heroBody} />
+      <PageHero
+        eyebrow={cmsPage?.heroLabel || "Radio Ministry"}
+        title={heroTitle}
+        body={heroBody}
+        titleSize={cmsPage?.heroTitleSize}
+        bodySize={cmsPage?.heroBodySize}
+      />
       {cmsPage?.sections?.length ? (
-        <CmsPageSections sections={cmsPage.sections} />
+        <CmsPageSections
+          sections={cmsPage.sections}
+          headingSize={cmsPage.sectionHeadingSize}
+          bodySize={cmsPage.sectionBodySize}
+        />
       ) : (
         <section className="pw-section pw-story-section">
           <div>
@@ -649,7 +707,13 @@ function EndorsementsPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
   const heroBody = cmsPage?.heroBody || "Public endorsements from ministry leaders and friends of the work.";
   return (
     <>
-      <PageHero eyebrow="Endorsements" title={heroTitle} body={heroBody} />
+      <PageHero
+        eyebrow="Endorsements"
+        title={heroTitle}
+        body={heroBody}
+        titleSize={cmsPage?.heroTitleSize}
+        bodySize={cmsPage?.heroBodySize}
+      />
       <section className="pw-section pw-content-unavailable" role="status"><h2>Content temporarily unavailable</h2><p>The public content service could not return endorsements. Please try again shortly.</p></section>
     </>
   );
@@ -660,7 +724,13 @@ function BoardPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
   const heroBody = cmsPage?.heroBody || "We are fortunate to have the following people serving on our board.";
   return (
     <>
-      <PageHero eyebrow="Board" title={heroTitle} body={heroBody} />
+      <PageHero
+        eyebrow="Board"
+        title={heroTitle}
+        body={heroBody}
+        titleSize={cmsPage?.heroTitleSize}
+        bodySize={cmsPage?.heroBodySize}
+      />
       <section className="pw-section pw-content-unavailable" role="status"><h2>Content temporarily unavailable</h2><p>The public content service could not return board members. Please try again shortly.</p></section>
     </>
   );
@@ -671,7 +741,13 @@ function DevotionalPage({ cmsPage, siteSettings }: { cmsPage?: PastorWoodCmsPage
   const heroBody = cmsPage?.heroBody || "Recent devotional posts from Pastor Wood.";
   return (
     <>
-      <PageHero eyebrow="Weekly Devotional" title={heroTitle} body={heroBody} />
+      <PageHero
+        eyebrow="Weekly Devotional"
+        title={heroTitle}
+        body={heroBody}
+        titleSize={cmsPage?.heroTitleSize}
+        bodySize={cmsPage?.heroBodySize}
+      />
       <section className="pw-section pw-content-unavailable" role="status"><h2>Content temporarily unavailable</h2><p>The public content service could not return devotionals. Please try again shortly.</p></section>
       {siteSettings?.subscriptionEnabled === true ? <DevotionalSignup sourcePath="/bible-study/" /> : null}
     </>
@@ -683,7 +759,13 @@ function WrittenResourcesPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null 
   const heroBody = cmsPage?.heroBody || "Here are resources that we hope will bless you.";
   return (
     <>
-      <PageHero eyebrow="Written Resources" title={heroTitle} body={heroBody} />
+      <PageHero
+        eyebrow="Written Resources"
+        title={heroTitle}
+        body={heroBody}
+        titleSize={cmsPage?.heroTitleSize}
+        bodySize={cmsPage?.heroBodySize}
+      />
       <section className="pw-section pw-content-unavailable" role="status"><h2>Content temporarily unavailable</h2><p>The public content service could not return writings. Please try again shortly.</p></section>
     </>
   );
@@ -698,8 +780,18 @@ function ContactPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
 
   return (
     <>
-      <PageHero eyebrow="Reach Us" title={heroTitle} body={heroBody} />
-      {cmsPage?.sections?.length ? <CmsPageSections sections={cmsPage.sections} /> : null}
+      <PageHero
+        eyebrow="Reach Us"
+        title={heroTitle}
+        body={heroBody}
+        titleSize={cmsPage?.heroTitleSize}
+        bodySize={cmsPage?.heroBodySize}
+      />
+      {cmsPage?.sections?.length ? <CmsPageSections
+        sections={cmsPage.sections}
+        headingSize={cmsPage.sectionHeadingSize}
+        bodySize={cmsPage.sectionBodySize}
+      /> : null}
       <ContactSection />
       {hasManagedContactForm ? null : <PublicContactForm sourcePath="/contact/" />}
     </>
@@ -715,11 +807,13 @@ function DonatePage({ cmsPage, donorDashboard = false, siteSettings }: { cmsPage
     : getPublicDonationUrl(configuredProviderUrl);
   return (
     <>
-      <PageHero eyebrow="Donate" title={heroTitle} body={heroBody} />
+      <PageHero eyebrow="Donate" title={heroTitle} body={heroBody} titleSize={cmsPage?.heroTitleSize} bodySize={cmsPage?.heroBodySize} />
       {cmsPage?.sections?.length ? (
         <CmsPageSections
           sections={cmsPage.sections}
           externalButtonUrl={donorDashboard ? safeExternalDonorDashboardUrl : safeExternalDonationUrl}
+          headingSize={cmsPage.sectionHeadingSize}
+          bodySize={cmsPage.sectionBodySize}
         />
       ) : null}
       <section className="pw-section pw-donate-panel">
@@ -757,8 +851,18 @@ function PrivacyPage({ cmsPage }: { cmsPage?: PastorWoodCmsPage | null }) {
   const heroBody = cmsPage?.heroBody || "How Abiding in Christ handles information submitted through this website.";
   return (
     <>
-      <PageHero eyebrow="Privacy" title={heroTitle} body={heroBody} />
-      {cmsPage?.sections?.length ? <CmsPageSections sections={cmsPage.sections} /> : null}
+      <PageHero
+        eyebrow="Privacy"
+        title={heroTitle}
+        body={heroBody}
+        titleSize={cmsPage?.heroTitleSize}
+        bodySize={cmsPage?.heroBodySize}
+      />
+      {cmsPage?.sections?.length ? <CmsPageSections
+        sections={cmsPage.sections}
+        headingSize={cmsPage.sectionHeadingSize}
+        bodySize={cmsPage.sectionBodySize}
+      /> : null}
       <SubscriptionPrivacyNotice />
     </>
   );
@@ -772,14 +876,24 @@ export async function PastorWoodGenericCmsPage({ cmsPage, degraded = false }: { 
 
   return (
     <PastorWoodShell siteSettings={siteSettings}>
-      <PageHero eyebrow={heroLabel} title={heroTitle} body={heroBody} />
+      <PageHero
+        eyebrow={heroLabel}
+        title={heroTitle}
+        body={heroBody}
+        titleSize={cmsPage.heroTitleSize}
+        bodySize={cmsPage.heroBodySize}
+      />
       {degraded ? (
         <section className="pw-section pw-content-unavailable" role="status">
           <strong>Live publishing is temporarily unavailable.</strong>
           <p>Showing the last published public version of this page while the live content service reconnects.</p>
         </section>
       ) : null}
-      <CmsPageSections sections={cmsPage.sections} />
+      <CmsPageSections
+        sections={cmsPage.sections}
+        headingSize={cmsPage.sectionHeadingSize}
+        bodySize={cmsPage.sectionBodySize}
+      />
     </PastorWoodShell>
   );
 }

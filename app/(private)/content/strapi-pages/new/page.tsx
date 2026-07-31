@@ -4,6 +4,7 @@ import { listManagedStrapiPages } from "@/lib/strapi-management";
 import { listReusableMediaOptions, type ReusableMediaOption } from "@/lib/strapi-structured-management";
 import { createStrapiPageAction } from "../actions";
 import { PageCoreFields, PageEditorForm } from "../page-editor-client";
+import { PageTypographyFields } from "../page-typography-fields";
 
 export const dynamic = "force-dynamic";
 
@@ -90,6 +91,8 @@ export default async function NewStrapiPage() {
             <textarea name="heroBody" rows={3} />
             <small>Optional short introduction shown near the page headline.</small>
           </label>
+
+          <PageTypographyFields />
 
           <div className="editor-grid editor-grid--three">
             <label>

@@ -21,6 +21,10 @@ const input: ManagedStrapiPageInput = {
   heroLabel: "Biography",
   heroTitle: "Jim Wood",
   heroBody: "Biography",
+  heroTitleSize: "small",
+  heroBodySize: "standard",
+  sectionHeadingSize: "standard",
+  sectionBodySize: "large",
   seoTitle: "About Jim Wood",
   seoDescription: "Biography",
   sections: [],
@@ -64,6 +68,14 @@ describe("Strapi publication semantics", () => {
     const [url, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
     expect(url.searchParams.get("status")).toBe("published");
     expect(init.method).toBe("PUT");
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      data: {
+        heroTitleSize: "small",
+        heroBodySize: "standard",
+        sectionHeadingSize: "standard",
+        sectionBodySize: "large",
+      },
+    });
   });
 
   it("saves a draft with an explicit draft status", async () => {

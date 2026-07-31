@@ -76,6 +76,10 @@ describe("dynamic CMS page lookup semantics", () => {
         slug: "custom-page",
         title: "Custom page",
         active: true,
+        heroTitleSize: "small",
+        heroBodySize: "large",
+        sectionHeadingSize: "large",
+        sectionBodySize: "small",
         sections: [],
       }],
     }), { status: 200 }));
@@ -83,7 +87,17 @@ describe("dynamic CMS page lookup semantics", () => {
 
     const result = await getStrapiPageBySlugResult("custom-page");
 
-    expect(result).toMatchObject({ status: "found", page: { slug: "custom-page", title: "Custom page" } });
+    expect(result).toMatchObject({
+      status: "found",
+      page: {
+        slug: "custom-page",
+        title: "Custom page",
+        heroTitleSize: "small",
+        heroBodySize: "large",
+        sectionHeadingSize: "large",
+        sectionBodySize: "small",
+      },
+    });
     const [url, init] = fetchMock.mock.calls[0] as [URL, RequestInit & { next?: { revalidate?: number; tags?: string[] } }];
     expect(url.searchParams.get("status")).toBe("published");
     expect(init.next?.revalidate).toBe(3600);

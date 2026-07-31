@@ -85,6 +85,11 @@ function boolean(value: unknown, fallback = false) {
   return typeof value === 'boolean' ? value : fallback;
 }
 
+function pageFontSize(value: unknown) {
+  const normalized = text(value, 16);
+  return ['small', 'standard', 'large'].includes(normalized) ? normalized : 'standard';
+}
+
 function decodedStrictPathname(pathname: string) {
   let decoded = pathname;
   try {
@@ -295,6 +300,10 @@ export function publicProjectionPayload(entityType: PublicProjectionEntityType, 
       heroLabel: text(source.heroLabel, 500),
       heroTitle: text(source.heroTitle, 1_000),
       heroBody: text(source.heroBody, 20_000),
+      heroTitleSize: pageFontSize(source.heroTitleSize),
+      heroBodySize: pageFontSize(source.heroBodySize),
+      sectionHeadingSize: pageFontSize(source.sectionHeadingSize),
+      sectionBodySize: pageFontSize(source.sectionBodySize),
       seoTitle: text(source.seoTitle, 70),
       seoDescription: text(source.seoDescription, 180),
       canonicalUrl: safeCanonical(source.canonicalUrl),
